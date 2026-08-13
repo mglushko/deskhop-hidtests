@@ -1,9 +1,8 @@
 # deskhop HID parser test harness
 
 Runs deskhop's `hid_parser.c` and `hid_report.c` on the host, against any checkout,
-branch or worktree. Built while chasing [issue #332](https://github.com/hrvach/deskhop/issues/332)
-(Gameball trackball taking down a board) and kept because the next HID device issue
-will want the same tools.
+branch or worktree. Built while chasing [issue #332][#332] (Gameball trackball taking
+down a board) and kept because the next HID device issue will want the same tools.
 
 Nothing here modifies deskhop. It compiles the firmware's own sources and reads its
 headers, so results reflect the real code rather than a reimplementation of it.
@@ -71,33 +70,29 @@ number into the comment. Reproducing the quirk is usually the whole point.
 The corpus is 27 descriptors, 18 of them captured from real devices in upstream
 issues. What they have bought so far:
 
-- **Wooting Two HE** ([#335](https://github.com/hrvach/deskhop/issues/335), "only
-  CTRL, Shift & Win work"). `make dump D=wooting_keyboard` shows why: the keyboard
-  declares four key blocks as separate Usage Min/Max ranges, and `main` keeps only
-  the last one. The modifiers survive, every letter key does not. PR
-  [#359](https://github.com/hrvach/deskhop/pull/359) recovers all four, the 8-bit
-  block included.
-- **Logitech G Pro Superlight 2 receiver**
-  ([#215](https://github.com/hrvach/deskhop/issues/215)) is the same bug wearing a
+- **Wooting Two HE** ([#335], "only CTRL, Shift & Win work"). `make dump
+  D=wooting_keyboard` shows why: the keyboard declares four key blocks as separate
+  Usage Min/Max ranges, and `main` keeps only the last one. The modifiers survive,
+  every letter key does not. PR [#359] recovers all four, the 8-bit block included.
+- **Logitech G Pro Superlight 2 receiver** ([#215]) is the same bug wearing a
   different face, on a device that PR was not written for. Its keyboard interface
   declares three key ranges; `main` keeps the *first* rather than the last, because
   only that one clears the `src->size > 32` filter. Letters work, so nothing looks
-  broken, but usages 0x87-0x8B and 0x90-0x92 - the Japanese and Korean IME keys -
-  are silently dropped. `make compare REF=main` with PR #359 checked out shows
+  broken, but usages 0x87-0x8B and 0x90-0x92 - the Japanese and Korean IME keys - are
+  silently dropped. `make compare REF=main` with PR [#359] checked out shows
   `nkro_count=3` where `main` has one block.
-- **Cherry MW 8 vs MW 8C** ([#133](https://github.com/hrvach/deskhop/issues/133),
-  "older version worked fine"). The two dumps explain the difference in one line of
-  `dump` each: the MW 8 puts buttons, 12-bit X/Y and wheel in a single report, the
-  MW 8C splits them across report IDs 1 and 2. Both parse and decode correctly on
-  today's `main` - their 32 cases in `make mouse` all pass - so whatever broke for
-  that reporter was fixed by `6c92c11`, which tracks offsets per report ID.
-- **Cherry KC6000** ([#117](https://github.com/hrvach/deskhop/issues/117), media keys
-  not working). A consumer control block with no report ID at all, which is the case
-  PR #358 addresses.
-- **Microsoft Wired Keyboard 600** ([#297](https://github.com/hrvach/deskhop/issues/297))
-  is the cleanest reproduction of the stale usage cursor: its system control block
-  comes out as `usage=0xFF02 page=0x0001`, an identifier it never declares, carried
-  over from the vendor block in the preceding top-level collection.
+- **Cherry MW 8 vs MW 8C** ([#133], "older version worked fine"). The two dumps
+  explain the difference in one line of `dump` each: the MW 8 puts buttons, 12-bit
+  X/Y and wheel in a single report, the MW 8C splits them across report IDs 1 and 2.
+  Both parse and decode correctly on today's `main` - their 32 cases in `make mouse`
+  all pass - so whatever broke for that reporter was fixed by `6c92c11`, which tracks
+  offsets per report ID.
+- **Cherry KC6000** ([#117], media keys not working). A consumer control block with
+  no report ID at all, which is the case PR [#358] addresses.
+- **Microsoft Wired Keyboard 600** ([#297]) is the cleanest reproduction of the stale
+  usage cursor: its system control block comes out as `usage=0xFF02 page=0x0001`, an
+  identifier it never declares, carried over from the vendor block in the preceding
+  top-level collection.
 
 ## How it works
 
@@ -125,11 +120,10 @@ issues. What they have bought so far:
 ## Known good numbers
 
 Reference results, so a broken harness is distinguishable from a broken firmware.
-Taken against `main` at `59577cc` and the #332 fix, now PR
-[#361](https://github.com/hrvach/deskhop/pull/361), at `ea680e4`, over the current
-27-descriptor corpus.
+Taken against `main` at `59577cc` and the [#332] fix, now PR [#361], at `ea680e4`,
+over the current 27-descriptor corpus.
 
-| check | main | #361 |
+| check | main | [#361] |
 |---|---|---|
 | `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | no crashes, 25 of 27 identical |
 | `mouse` | 72 of 72 cases | 72 of 72 cases |
@@ -147,12 +141,12 @@ The other two open parser PRs, measured the same way:
 
 | PR | what `compare REF=main` shows |
 |---|---|
-| [#359](https://github.com/hrvach/deskhop/pull/359) keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. |
-| [#358](https://github.com/hrvach/deskhop/pull/358) media keys without report IDs | identical parse on all 27, including `cherry_kc6000_consumer`, the device it fixes - see below. |
+| [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. |
+| [#358] media keys without report IDs | identical parse on all 27, including `cherry_kc6000_consumer`, the device it fixes - see below. |
 
 ## Open findings
 
-None of these are addressed by the #332 fix.
+None of these are addressed by the [#332] fix.
 
 **Short descriptors read past the end of the buffer.** `make truncate` fails on
 roughly half of all prefixes, every descriptor, starting at length 1. The parse loop
@@ -169,7 +163,7 @@ A one-byte descriptor is enough: the header consumes the only byte, `report` now
 points one past the end, and the read happens anyway. `desc_len` then goes negative
 and the loop exits, so it is bounded to four bytes, but it is a genuine out of bounds
 read driven entirely by device supplied data. Present on `main`, so it predates the
-#332 work and belongs in its own issue rather than folded into that PR.
+[#332] work and belongs in its own issue rather than folded into that PR.
 
 Reproduce the smallest case with:
 
@@ -191,12 +185,12 @@ and no single usage of its own, and comes out carrying `0xFF02`, the last usage 
 by the *vendor* block in the previous top-level collection.
 
 **A collection that shares a report ID with the one before it is lost.** The Cherry
-MW 8C's second interface puts a consumer array on report ID 1 and then opens a
-system control collection without declaring a report ID of its own, so both live in
-report 1. `make dump D=cherry_mw8c_consumer` finds the consumer block and no system
-block at all: `handlers:.C`, `system: rid=0`. Power and sleep from that keyboard can
-never arrive, whatever the consumer fix does. Not previously reported, and separate
-from #358.
+MW 8C's second interface puts a consumer array on report ID 1 and then opens a system
+control collection without declaring a report ID of its own, so both live in report
+1. `make dump D=cherry_mw8c_consumer` finds the consumer block and no system block at
+all: `handlers:.C`, `system: rid=0`. Power and sleep from that keyboard can never
+arrive, whatever the consumer fix does. Not previously reported, and separate from
+[#358].
 
 **Report Count is a 32-bit field.** Visible in `timing`: memory stays intact after the
 fix, but a large enough count still outruns the 500 ms watchdog.
@@ -207,7 +201,7 @@ fix, but a large enough count still outruns the 500 ms watchdog.
 the four `process_*_report` receivers, so a change confined to `keyboard.c` is
 invisible to it.
 
-PR #358 is exactly that change: it teaches `process_consumer_report` and
+PR [#358] is exactly that change: it teaches `process_consumer_report` and
 `process_system_report` not to skip a leading report ID byte that isn't there. The
 parse is untouched, so `compare` prints `identical parse` on all 27 descriptors
 including `cherry_kc6000_consumer`. That is the correct answer to the question
@@ -217,6 +211,17 @@ mean lifting the consumer and system receivers the way `tools/lift.py` already l
 
 The same gap applies to keyboard reports. `make dump D=keyboardio_keyboard` shows the
 Model 100's NKRO bitmap starting at bit 68, four bits into a byte, which is a
-plausible explanation for the shifted keys in
-[#216](https://github.com/hrvach/deskhop/issues/216) - but the bitmap is unpacked in
+plausible explanation for the shifted keys in [#216] - but the bitmap is unpacked in
 `keyboard.c`, so this harness can neither confirm nor clear it.
+
+<!-- upstream issues and PRs -->
+[#117]: https://github.com/hrvach/deskhop/issues/117
+[#133]: https://github.com/hrvach/deskhop/issues/133
+[#215]: https://github.com/hrvach/deskhop/issues/215
+[#216]: https://github.com/hrvach/deskhop/issues/216
+[#297]: https://github.com/hrvach/deskhop/issues/297
+[#332]: https://github.com/hrvach/deskhop/issues/332
+[#335]: https://github.com/hrvach/deskhop/issues/335
+[#358]: https://github.com/hrvach/deskhop/pull/358
+[#359]: https://github.com/hrvach/deskhop/pull/359
+[#361]: https://github.com/hrvach/deskhop/pull/361
