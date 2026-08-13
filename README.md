@@ -44,10 +44,36 @@ device and a difference only on the broken one.
 
 ## Adding a device
 
-Most issues arrive with a descriptor dump. Paste the bytes into `descriptors.h`, add
-the name to the `descriptors[]` table, and every target picks it up automatically.
-Keep captured bytes verbatim, quirks included, and note the issue number in the
-comment. Reproducing the quirk is usually the whole point.
+Most issues arrive with a descriptor dump. Pipe it through the converter, which eats
+`usbhid-dump` output, the Windows tool's `DESCRIPTOR:` blocks, C arrays, or bare hex,
+and ignores surrounding prose:
+
+```sh
+gh issue view 335 --repo hrvach/deskhop --json body --jq .body \
+  | python3 tools/add_descriptor.py wooting_keyboard
+```
+
+It prints the C array and the registry line, and warns if the items do not land
+exactly on the end or the collections are unbalanced, which catches a bad paste
+before it becomes a misleading test. Paste both into `descriptors.h` and every
+target picks the device up automatically.
+
+Keep captured bytes verbatim, quirks included, and write the device name and issue
+number into the comment. Reproducing the quirk is usually the whole point.
+
+### What the corpus is already worth
+
+Two devices added from open issues paid for themselves immediately:
+
+- **Wooting Two HE** ([#335](https://github.com/hrvach/deskhop/issues/335), "only
+  CTRL, Shift & Win work"). `make dump D=wooting_keyboard` shows why: the keyboard
+  declares four key blocks as separate Usage Min/Max ranges, and `main` keeps only
+  the last one. The modifiers survive, every letter key does not. The
+  `fix-nkro-multi-block` branch recovers three of the four; the third block is 8 bits
+  wide and gets excluded by the `src->size > 32` filter in `hid_report.c`.
+- **Cherry KC6000** ([#117](https://github.com/hrvach/deskhop/issues/117), media keys
+  not working). A consumer control block with no report ID at all, which is the case
+  PR #358 addresses.
 
 ## How it works
 
@@ -79,10 +105,10 @@ Taken against `main` at `59577cc` and the #332 fix at `ea680e4`.
 
 | check | main | fix branch |
 |---|---|---|
-| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | no crashes, 10 of 12 identical |
+| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | no crashes, 12 of 14 identical |
 | `mouse` | n/a | 22 of 22 cases |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
-| `truncate` | 604 of 957 prefixes overread | 485 of 957 prefixes overread |
+| `truncate` | 679 of 1106 prefixes overread | 560 of 1106 prefixes overread |
 | `exhaust` | crashes | X/Y offsets go to 0 at 127 preceding usages |
 | `timing` | n/a | ~17.4 ns/element on x86-64 |
 
