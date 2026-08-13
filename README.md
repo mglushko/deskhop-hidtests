@@ -32,6 +32,7 @@ Needs `gcc`, `python3`, and `make`. No cross compiler, no Pico SDK.
 | `make compare REF=<commit>` | does my change alter the parse of any known good device? |
 | `make mouse` | do real trackball reports decode to the right X, Y, wheel, pan, buttons? |
 | `make fuzz N=<n>` | does any generated descriptor push an access outside `usages[]`? |
+| `make truncate` | does a short or malformed descriptor make the parser read past the buffer? |
 | `make exhaust` | what happens when the usage array runs out before the mouse collection? |
 | `make timing` | how long does a large but legal Report Count take to parse? |
 | `make all` | build everything without running it |
@@ -81,17 +82,43 @@ Taken against `main` at `59577cc` and the #332 fix at `ea680e4`.
 | `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | no crashes, 10 of 12 identical |
 | `mouse` | n/a | 22 of 22 cases |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
+| `truncate` | 604 of 957 prefixes overread | 485 of 957 prefixes overread |
 | `exhaust` | crashes | X/Y offsets go to 0 at 127 preceding usages |
 | `timing` | n/a | ~17.4 ns/element on x86-64 |
 
 Fuzz counts depend on the generator and the seed. Change either and these move; the
 qualitative result, zero versus non-zero, is the part that matters.
 
-## Two limitations this harness documents
+## Open findings
 
-Both are visible in `exhaust` and `timing`, and neither is fixed by the #332 change:
+None of these are addressed by the #332 fix.
 
-- `p_usage` never resets across a descriptor, so a device with more than about 126
-  usages ahead of its pointer collection enumerates without the cursor moving.
-- Report Count is a 32-bit field. Memory stays intact after the fix, but a large
-  enough count still outruns the 500 ms watchdog.
+**Short descriptors read past the end of the buffer.** `make truncate` fails on
+roughly half of all prefixes, every descriptor, starting at length 1. The parse loop
+reads a header and then calls `get_descriptor_value()` for up to four data bytes
+without checking they are still inside the buffer:
+
+```c
+while (desc_len > 0) {
+    item.hdr = *(header_t *)report++;
+    item.val = get_descriptor_value(report, item.hdr.size);
+```
+
+A one-byte descriptor is enough: the header consumes the only byte, `report` now
+points one past the end, and the read happens anyway. `desc_len` then goes negative
+and the loop exits, so it is bounded to four bytes, but it is a genuine out of bounds
+read driven entirely by device supplied data. Present on `main`, so it predates the
+#332 work and belongs in its own issue rather than folded into that PR.
+
+Reproduce the smallest case with:
+
+```sh
+make all && ./build/<target>/truncate gameball_trackball 1
+```
+
+**The usage cursor never resets across a descriptor.** Visible in `exhaust`: a device
+with more than about 126 usages ahead of its pointer collection enumerates without
+the cursor moving.
+
+**Report Count is a 32-bit field.** Visible in `timing`: memory stays intact after the
+fix, but a large enough count still outruns the 500 ms watchdog.

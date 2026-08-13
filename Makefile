@@ -10,6 +10,7 @@
 #   make compare REF=main            diff the working tree against a commit
 #   make mouse                       end to end mouse decode
 #   make fuzz N=40000                bounds check over generated descriptors
+#   make truncate                    every prefix of every descriptor, under ASan
 #   make exhaust                     usage array exhaustion behaviour
 #   make timing                      cost per element vs report count
 #   make all
@@ -64,9 +65,10 @@ HDRS      := $(addprefix $(GEN)/,$(COPY_HDRS))
 # report ID maps to, so a hand written version would quietly change results.
 CORE := $(PARSER) $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c
 
-BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/fuzz $(OUT)/exhaust $(OUT)/timing
+BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/fuzz $(OUT)/exhaust $(OUT)/timing \
+        $(OUT)/truncate
 
-.PHONY: all dump compare mouse fuzz exhaust timing clean check-target
+.PHONY: all dump compare mouse fuzz exhaust timing truncate clean check-target
 
 all: check-target $(BINS)
 	@echo "built against $(SRC) -> $(OUT)/"
@@ -107,6 +109,9 @@ $(OUT)/mousetest: src/mousetest.c descriptors.h $(HDRS) $(CORE) $(GEN)/lifted_mo
 $(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(ASAN) $(INCS) -o $@ src/exhaust.c $(CORE)
 
+$(OUT)/truncate: src/truncate.c descriptors.h $(HDRS) $(CORE) | $(GEN)
+	$(CC) $(CFLAGS) $(ASAN) $(INCS) -o $@ src/truncate.c $(CORE)
+
 # no ASan: this one is a stopwatch, and the fuzzer clamps rather than faults
 $(OUT)/timing: src/timing.c $(HDRS) $(CORE) | $(GEN)
 	$(CC) -O2 $(WARN) $(INCS) -o $@ src/timing.c $(CORE)
@@ -125,6 +130,9 @@ mouse: $(OUT)/mousetest
 
 exhaust: $(OUT)/exhaust
 	@$(OUT)/exhaust
+
+truncate: $(OUT)/truncate
+	@$(OUT)/truncate
 
 timing: $(OUT)/timing
 	@$(OUT)/timing
