@@ -5,13 +5,17 @@
  * mouse.c. Expected values are worked out by hand from the descriptor, so this
  * fails if either the parser or the extraction changes meaning.
  *
- * Three devices, chosen for the shapes they exercise:
+ * The devices, chosen for the shapes they exercise:
  *
  *   gameball_trackball      8-bit fields, no report ID at all
  *   kensington_expert_mouse 12-bit X/Y, and the pointer split across two report
  *                           IDs: buttons/wheel/pan on 1, X/Y on 2
  *   cherry_mw8_mouse        12-bit X/Y in one report, so Y starts at bit 20 and
  *                           never lands on a byte boundary
+ *   mx518_mouse             two vendor bytes sitting between the buttons and the
+ *                           axes, and the wheel declared before X/Y
+ *   kernel_multi_collection two mouse collections in one descriptor, so the
+ *                           decode runs against whichever one won
  *
  * cherry_mw8c_mouse runs the Kensington's cases because its pointer section is
  * byte for byte the same; if that ever stops being true, this notices.
@@ -137,6 +141,66 @@ static const case_t cherry_mw8_cases[] = {
     {"everything at once",   {0x03, 0x1F, 0xFF, 0x17, 0x80, 0x7F, 0x81}, 7,  2047, -2047,  127, -127, 31},
 };
 
+/* Logitech MX518. No report ID. The two vendor bytes at 1 and 2 are declared
+   inside the mouse collection but belong to no usage the parser tracks, so the
+   axes sit further along than a naive reading suggests:
+     [buttons 8][vendor][vendor][wheel 8][X 12 bits][Y 12 bits]
+   X starts at bit 32 and Y at bit 44, so byte 5 carries the top nibble of X in
+   its low half and the bottom nibble of Y in its high half:
+     byte 4 = X & 0xFF, byte 5 = (X >> 8) | ((Y & 0xF) << 4), byte 6 = Y >> 4
+   This device has no AC Pan, so pan stays 0 throughout. */
+static const case_t mx518_cases[] = {
+    {"button 1 (left)",       {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,     0,     0,    0, 0,   1},
+    /* -1, not 255: get_report_value sign-extends, and this is the first mouse in
+       the corpus with 8 buttons, so it is the first whose button field can set
+       bit 7. Harmless on the wire - mouse_report_t.buttons is uint8_t, so the
+       low 8 bits ship as 0xFF either way - but it is why the expected value
+       here is not the 255 you would write down from the descriptor alone. */
+    {"all eight buttons",     {0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,     0,     0,    0, 0,  -1},
+    {"move right (X +1)",     {0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00}, 7,     1,     0,    0, 0,   0},
+    {"move left  (X -1)",     {0x00, 0x00, 0x00, 0x00, 0xFF, 0x0F, 0x00}, 7,    -1,     0,    0, 0,   0},
+    {"move down  (Y +1)",     {0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00}, 7,     0,     1,    0, 0,   0},
+    {"move up    (Y -1)",     {0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0xFF}, 7,     0,    -1,    0, 0,   0},
+    {"scroll up",             {0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00}, 7,     0,     0,    1, 0,   0},
+    {"scroll down",           {0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00}, 7,     0,     0,   -1, 0,   0},
+    {"X +2047, Y -2047",      {0x00, 0x00, 0x00, 0x00, 0xFF, 0x17, 0x80}, 7,  2047, -2047,    0, 0,   0},
+    {"X -2047, Y +2047",      {0x00, 0x00, 0x00, 0x00, 0x01, 0xF8, 0x7F}, 7, -2047,  2047,    0, 0,   0},
+    {"drag: btn1 + move",     {0x01, 0x00, 0x00, 0x00, 0x0A, 0x60, 0xFF}, 7,    10,   -10,    0, 0,   1},
+    /* the point of this one: vendor bytes full of noise must not reach any axis */
+    {"vendor bytes ignored",  {0x00, 0xFF, 0xFF, 0x00, 0x01, 0x00, 0x00}, 7,     1,     0,    0, 0,   0},
+    {"everything at once",    {0xFF, 0xAA, 0x55, 0x7F, 0xFF, 0x17, 0x80}, 7,  2047, -2047,  127, 0,  -1},
+};
+
+/* Kernel docs multi-collection device, decoded against report ID 2 - the second
+   mouse collection, which is the one left standing in iface->mouse after the
+   parser walks both. Layout after the ID byte:
+     [buttons 5 + 3 pad][X 12 bits][Y 12 bits][wheel 8][pan 8]
+   The last case feeds report ID 1, the first collection, and expects nothing to
+   come out. That is not a typo. extract_value bails when the report's leading ID
+   byte does not equal mouse->report_id, and the second collection overwrote
+   report_id with 2 as the parser walked past it, so every field of an ID 1
+   report fails the check and the values stay zero. usb.c still routes those
+   reports here, because report_handler[1] was bound while the first collection
+   was being parsed - so they arrive at the mouse path and are silently dropped.
+   Both collections happen to declare the same layout, so nothing would have been
+   lost by decoding ID 1 with ID 2's offsets; the parser just has no way to do
+   that with one mouse_t per interface. */
+static const case_t kernel_multi_cases[] = {
+    {"button 1 (left)",       {0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,     0,     0,    0,    0,  1},
+    {"all five buttons",      {0x02, 0x1F, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,     0,     0,    0,    0, 31},
+    {"move right (X +1)",     {0x02, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00}, 7,     1,     0,    0,    0,  0},
+    {"move left  (X -1)",     {0x02, 0x00, 0xFF, 0x0F, 0x00, 0x00, 0x00}, 7,    -1,     0,    0,    0,  0},
+    {"move down  (Y +1)",     {0x02, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00}, 7,     0,     1,    0,    0,  0},
+    {"move up    (Y -1)",     {0x02, 0x00, 0x00, 0xF0, 0xFF, 0x00, 0x00}, 7,     0,    -1,    0,    0,  0},
+    {"X +2047, Y -2047",      {0x02, 0x00, 0xFF, 0x17, 0x80, 0x00, 0x00}, 7,  2047, -2047,    0,    0,  0},
+    {"scroll up",             {0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00}, 7,     0,     0,    1,    0,  0},
+    {"scroll down",           {0x02, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x00}, 7,     0,     0,   -1,    0,  0},
+    {"pan right",             {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}, 7,     0,     0,    0,    1,  0},
+    {"pan left",              {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 7,     0,     0,    0,   -1,  0},
+    {"everything at once",    {0x02, 0x1F, 0xFF, 0x17, 0x80, 0x7F, 0x81}, 7,  2047, -2047,  127, -127, 31},
+    {"report 1 dropped",      {0x01, 0x1F, 0xFF, 0x17, 0x80, 0x7F, 0x81}, 7,     0,     0,    0,    0,  0},
+};
+
 #define DEV(d, c) {#d, d_##d, (int)sizeof(d_##d), c, (unsigned)ARRAY_SIZE(c)}
 
 static const device_cases_t devices[] = {
@@ -144,6 +208,8 @@ static const device_cases_t devices[] = {
     DEV(kensington_expert_mouse, kensington_cases),
     DEV(cherry_mw8c_mouse, kensington_cases),
     DEV(cherry_mw8_mouse, cherry_mw8_cases),
+    DEV(mx518_mouse, mx518_cases),
+    DEV(kernel_multi_collection, kernel_multi_cases),
 };
 
 #undef DEV
