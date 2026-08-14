@@ -148,6 +148,69 @@ static const case_t wooting_cases[] = {
     {"shift + a",              {[0] = 0x02, [1] = 0x01}, 28,        0x02, {0}, {4}},
 };
 
+/* Logi Bolt receiver, interface 0. No report ID anywhere in the descriptor, and a
+   plain boot layout - modifier, an explicit reserved byte, six key slots - so
+   extract_kbd_data takes the len == 8 shortcut and never consults key_array. */
+static const case_t bolt_rx_cases[] = {
+    {"a",                  {0x00, 0x00, 0x04}, 8,                   0x00, {4}, {4}},
+    {"shift + a",          {0x02, 0x00, 0x04}, 8,                   0x02, {4}, {4}},
+    {"six keys at once",   {0x00, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 8,
+                                                                    0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+    {"every modifier",     {0xFF, 0x00, 0x00}, 8,                   0xFF, {0}, {0}},
+};
+
+/* Keychron Ultra-Link 8K, the report ID 7 keyboard collection on its own. Report
+   ID is declared, so the boot shortcut is skipped and _extract_kbd_other picks the
+   six keycodes out of the byte positions key_array marks - here bytes 1 to 6.
+   This is the control for the next block: alone, the keyboard decodes correctly. */
+static const case_t ultralink_kbd_cases[] = {
+    {"a",                  {0x07, 0x00, 0x04}, 8,                   0x00, {4}, {4}},
+    {"shift + a",          {0x07, 0x02, 0x04}, 8,                   0x02, {4}, {4}},
+    {"six keys at once",   {0x07, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 8,
+                                                                    0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+};
+
+/* The same reports against the whole of interface 1, which is what deskhop
+   actually parses. Both expectation columns hold WRONG answers on purpose: this
+   device decodes incorrectly on main and on [#359] alike, and these rows exist to
+   pin the bug down, not to bless it.
+
+   Interface 1 declares two keyboard collections, on report IDs 7 and 0x11.
+   get_keyboard() short-circuits on num_keyboards == 1 and hands back
+   keyboards[PRIMARY_KEYBOARD] every time, so the 0x11 collection never gets a slot
+   of its own and writes over the report ID 7 one. Its NKRO block sits at
+   offset_idx 1, and handle_keyboard_descriptor_values() assigns
+   key_array[offset_idx] = (data_type == ARRAY) unconditionally - the block is
+   VARIABLE, so that assignment CLEARS the key_array[1] the report ID 7 collection
+   had set. Byte 1 is the first of that keyboard's six key slots.
+
+   The visible result: the first keycode in every 6KRO report is dropped. Hold 'a'
+   alone and nothing comes out at all. Compare the rows above, which are the same
+   bytes against the same collection parsed by itself. */
+static const case_t ultralink_iface1_cases[] = {
+    {"a - first slot dropped",  {0x07, 0x00, 0x04}, 8,              0x00, {0}, {0}},
+    {"shift + a, key still lost", {0x07, 0x02, 0x04}, 8,            0x02, {0}, {0}},
+    {"six keys, first one lost", {0x07, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 8,
+                                                                    0x00, {5, 6, 7, 8, 9}, {5, 6, 7, 8, 9}},
+};
+
+/* The Keychron's NKRO collection on its own, report ID 0x11, 21-byte reports of
+   [id][modifier][19 bytes of bitmap]. Both columns are wrong on purpose again.
+
+   The descriptor declares 19 00 2A 98 00 with 95 98 - usage minimum 0, usage
+   maximum 152, 152 bits. That is 153 usages mapped onto 152 bits, off by one, and
+   it is what the hardware really ships. main's 1:1 check in _extract_kbd_nkro
+   rejects it and returns -1; [#359] rejects it earlier still, because
+   maps_usage_per_bit demands the same equality before the block is recorded at
+   all. Either way the NKRO path bails and _extract_kbd_other runs instead, and
+   this collection has no key_array for it to work from - so the modifier byte
+   survives and every key is lost. */
+static const case_t ultralink_nkro_cases[] = {
+    {"usage 4 (a), no keys out", {0x11, 0x00, 0x10}, 21,            0x00, {0}, {0}},
+    {"shift + a, modifier only", {0x11, 0x02, 0x10}, 21,            0x02, {0}, {0}},
+    {"highest usage, 151",       {0x11, 0x00, [20] = 0x80}, 21,     0x00, {0}, {0}},
+};
+
 #define DEV(d, p, c) {#d, d_##d, (int)sizeof(d_##d), p, c, (unsigned)ARRAY_SIZE(c)}
 
 static const device_cases_t devices[] = {
@@ -159,6 +222,10 @@ static const device_cases_t devices[] = {
     DEV(keyboardio_keyboard, HID_PROTOCOL_REPORT, keyboardio_cases),
     DEV(superlight2_rx_keyboard, HID_PROTOCOL_REPORT, superlight2_cases),
     DEV(wooting_keyboard, HID_PROTOCOL_REPORT, wooting_cases),
+    DEV(bolt_rx_keyboard, HID_PROTOCOL_REPORT, bolt_rx_cases),
+    DEV(ultralink_keyboard, HID_PROTOCOL_REPORT, ultralink_kbd_cases),
+    DEV(ultralink_iface1, HID_PROTOCOL_REPORT, ultralink_iface1_cases),
+    DEV(ultralink_nkro_keyboard, HID_PROTOCOL_REPORT, ultralink_nkro_cases),
 };
 
 #undef DEV

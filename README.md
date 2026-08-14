@@ -67,10 +67,36 @@ warning looks wrong.
 Keep captured bytes verbatim, quirks included, and write the device name and issue
 number into the comment. Reproducing the quirk is usually the whole point.
 
+### Getting bytes from a device you have
+
+Dump one interface at a time, and prefer a tool that reads the wire. On Linux that is
+`usbhid-dump`, which issues the real control transfer:
+
+```sh
+sudo usbhid-dump -d 046d:c548
+```
+
+From WSL, hand the device over with [usbipd-win][usbipd] first - `usbipd bind --busid
+<id>` from an elevated PowerShell, then `usbipd attach --wsl --busid <id>`. The device
+disappears from Windows while attached, so authenticate `sudo` *before* attaching if you
+are dumping the keyboard you are typing on. `--auto-attach` is worth using for devices
+that re-enumerate on handover; some do.
+
+Avoid judging a descriptor from [win-hid-dump][winhiddump] output. It reconstructs from
+Windows' parsed caps rather than reading the device, and the table in [What the corpus is
+already worth](#what-the-corpus-is-already-worth) lists five ways that went wrong on the
+two devices dumped both ways - including key arrays vanishing into padding and whole
+collections coming back empty. Windows does not expose raw report descriptors to user
+mode at all, so no tool on that side can do better by reading harder; [hidapi's
+reconstructor][hidapi] is a closer approximation than HidSharp's if you have no
+alternative. Note that `descriptors.h` still carries entries dumped this way from
+issues - `gameball_keyboard`'s `95 30 81 03` is the same padding-instead-of-key-array
+artifact, and it is not known whether that device really lacks a key array.
+
 ### What the corpus is already worth
 
-The corpus is 31 descriptors, 22 of them captured from real devices: 18 from upstream
-issues, and 4 from dumps published elsewhere. What they have bought so far:
+The corpus is 44 descriptors, 35 of them captured from real devices: 18 from upstream
+issues, 4 from dumps published elsewhere, and 13 dumped here from two devices on hand. What they have bought so far:
 
 - **Wooting Two HE** ([#335], "only CTRL, Shift & Win work"). `make dump
   D=wooting_keyboard` shows why: the keyboard declares four key blocks as separate
@@ -120,6 +146,39 @@ the corpus did not have:
   capture of the shape `d_boot_mouse` synthesises, declaring Report Size before Report
   Count and ending in plain `C0`. It confirms item ordering does not change the parse.
 
+The last 13 came from two devices on hand, dumped with `usbhid-dump` after handing each
+one to WSL with `usbipd-win`. They are the first entries here that cover a whole USB
+interface as the firmware receives it, rather than one collection at a time:
+
+- **Logi Bolt receiver** (`046d:c548`) contributes four interfaces. Interface 1 is the
+  richest descriptor in the corpus: mouse, consumer control, system control and a fourth
+  collection, on report IDs 2, 3, 4 and 0x0B. Its mouse declares **16 buttons**, more
+  than anything else here and enough to reach bit 15 of a signed read - see the button
+  finding below. Interface 3 is a Precision Touchpad, the largest descriptor here at 429
+  bytes, and the only one using Push and Pop; it parses to nothing at all, which is the
+  right answer and is now asserted rather than assumed.
+- **Keychron Ultra-Link 8K** (`3434:d028`) contributes five. Interface 1 carries a 6KRO
+  keyboard on report ID 7, consumer control on 0x0C, and an NKRO keyboard on 0x11 - and
+  it is the entry behind two of the findings below. Both of them are invisible if you
+  look at the collections one at a time, which is exactly why the interface-level entries
+  exist.
+
+These two also cost the corpus something worth recording. Both were dumped first with
+[win-hid-dump][winhiddump], whose HidSharp backend reconstructs descriptors from Windows'
+parsed caps rather than reading the wire, and the reconstruction was wrong in ways that
+would have produced confident, wrong conclusions:
+
+| what the device declares | what the reconstruction produced |
+|---|---|
+| a 6-byte key array, `19 00 2A FF 00 ... 81 00` | `95 38 81 03`, constant padding - so no keys at all |
+| consumer usages under `05 0C` | 16 constant bits and no usages |
+| the Bolt's consumer and system collections | zero bytes, [win-hid-dump issue 2][whd2] |
+| HID++ as `81 00` arrays of 6 and 19 bytes | 48 and 152 bits of 1-bit *constant* padding |
+| NKRO `2A 98 00` (usage max 152) | `29 97` (usage max 151), which hides the off-by-one |
+
+Every one of those changes what the parser does. Prefer `usbhid-dump` when the bytes
+matter; see [Adding a device](#adding-a-device).
+
 ## How it works
 
 - `include/main.h` and `include/tusb.h` stand in for the real ones, which would drag
@@ -164,17 +223,17 @@ the corpus did not have:
 
 Reference results, so a broken harness is distinguishable from a broken firmware.
 Taken against `main` at `59577cc` and the [#332] fix, now PR [#361], at `ea680e4`,
-over the current 31-descriptor corpus.
+over the current 44-descriptor corpus.
 
 | check | main | [#361] |
 |---|---|---|
-| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 29 identical |
-| `mouse` | 98 of 98 cases over 6 devices | 98 of 98 cases |
-| `kbd` | 28 of 28 cases over 8 devices | 28 of 28 cases |
+| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 42 identical |
+| `mouse` | 120 of 120 cases over 9 devices | 120 of 120 cases |
+| `kbd` | 41 of 41 cases over 12 devices | 41 of 41 cases |
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
-| `truncate` | 1552 of 2824 prefixes overread | 1433 of 2824 prefixes overread |
-| `exhaust` | segfaults on roughly 8 runs in 10, see below | never crashes; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there |
+| `truncate` | 2162 of 4016 prefixes overread | 2043 of 4016 prefixes overread |
+| `exhaust` | segfaults on roughly 7 runs in 10, see below | never crashes; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there |
 | `timing` | segfaults | ~17.5 ns/element on x86-64 |
 
 Fuzz counts depend on the generator and the seed, and `truncate` counts move with
@@ -206,11 +265,26 @@ The other two open parser PRs, measured the same way:
 | PR | what `compare REF=main` shows |
 |---|---|
 | [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. |
-| [#358] media keys without report IDs | identical parse on all 31, including `cherry_kc6000_consumer`, the device it fixes - see below. |
+| [#358] media keys without report IDs | identical parse on all 44, including `cherry_kc6000_consumer`, the device it fixes - see below. |
 
-One caveat on [#359]: `MAX_NKRO_BLOCKS` is 4 and the Wooting declares exactly 4, so
-there is no headroom. A keyboard splitting its bitmap five ways would still lose the
+Two caveats on [#359]. `MAX_NKRO_BLOCKS` is 4 and the Wooting declares exactly 4, so
+there is no headroom: a keyboard splitting its bitmap five ways would still lose the
 last section, silently and in the same way.
+
+The second is sharper, because it is a case where the new rule rejects something `main`
+accepted. [#359] recognises an NKRO block by `maps_usage_per_bit`, requiring
+`usage_max - usage_min + 1 == size`. The Keychron declares `19 00 2A 98 00` with `95 98`
+- usage minimum 0, usage maximum 152, 152 bits, which is 153 usages mapped onto 152 bits
+- so the block is never recorded and `nkro_count` stays 0. `main` does record it, on
+`size > 32`, and then throws it away at decode time when `_extract_kbd_nkro` applies the
+identical 1:1 test. Both branches end up in `_extract_kbd_other` and lose every key, so
+this is not a regression, but it does mean the stricter rule silently drops a real
+keyboard's bitmap at parse time rather than decode time. Whether a descriptor that is off
+by one should be honoured or rejected is a judgement call worth making deliberately.
+
+The two new devices add nothing for [#358]: the Bolt's consumer and system collections
+both declare their own report IDs, which is precisely the case that PR does *not* change.
+Those bytes had never been dumped before, so this is now measured rather than assumed.
 
 ## Open findings
 
@@ -284,14 +358,67 @@ But an interface holds one `mouse_t`, so a device whose two collections disagree
 have no way to say so. Distinct from the Cherry MW 8C finding above, which is about a
 collection that declares no report ID at all rather than two that each declare one.
 
+**Two keyboard collections on one interface collapse into one, and the second corrupts
+the first.** The Keychron Ultra-Link 8K puts a 6KRO keyboard on report ID 7 and an NKRO
+keyboard on report ID 0x11 on the same interface. `get_keyboard()` short-circuits:
+
+```c
+if (iface->num_keyboards == 1 || !iface->uses_report_id)
+    return &iface->keyboards[PRIMARY_KEYBOARD];
+```
+
+so once the first keyboard is registered every later lookup returns keyboards[0] again.
+`handle_keyboard_descriptor_values()` only increments `num_keyboards` when
+`!keyboard->is_found`, and it is always handed keyboards[0], so **`num_keyboards` can
+never exceed 1 on an interface that uses report IDs** and `MAX_KEYBOARDS` (5) is
+unreachable. `get_next_keyboard_id()` does write `keyboards[1].report_id = 0x11`, but
+nothing else ever reaches that slot.
+
+The damage is not just that the second keyboard is lost. Its NKRO block sits at
+`offset_idx` 1, and this line runs unconditionally:
+
+```c
+if (src->offset_idx < MAX_KEYS)
+    keyboard->key_array[src->offset_idx] = (src->data_type == ARRAY);
+```
+
+The NKRO block is VARIABLE, so that assignment *clears* the `key_array[1]` the report ID
+7 collection had set - byte 1 being the first of that keyboard's six key slots. The
+result is that the first keycode in every 6KRO report is silently dropped: hold `a` alone
+and nothing comes out. Present identically on `main` and on all three PR branches.
+
+```sh
+make dump D=ultralink_keyboard   # keys=01111110, alone and correct
+make dump D=ultralink_iface1     # keys=00111110, slot 1 cleared
+make kbd                         # the decode consequence, both entries side by side
+```
+
+The isolated collection and the whole interface are both in the corpus precisely so the
+two can be compared. Distinct from the two mouse findings above: this is two collections
+that each declare a report ID and still end up sharing one `keyboard_t`.
+
+**Push and Pop are ignored.** `bolt_rx_touchpad` is the first descriptor here to use
+`A4`/`B4`. `handle_global_item()` stores every global by tag and has no case for either,
+so `RI_GLOBAL_PUSH` and `RI_GLOBAL_POP` land in `globals[10]` and `globals[11]` and the
+global item state is never saved or restored. Benign on this device - each finger
+collection re-declares its own Report Size, Report Count and logical bounds, and the
+items that do leak past the Pop are physical units, which deskhop ignores entirely. A
+descriptor that relied on Pop to restore a Report Size would parse at the wrong width.
+
 **Button bitmaps are read as signed.** `get_report_value()` sign-extends its result
 whenever the top bit of the field is set, which is right for X, Y, wheel and pan and
 wrong for a button bitmap. An 8-button mouse with everything held reports `-1` rather
-than `255`. `mx518_mouse` is the first device in the corpus with enough buttons to
-reach bit 7, which is why this has not come up. Harmless as things stand -
+than `255`. `mx518_mouse` was the first device in the corpus with enough buttons to
+reach bit 7, which is why this had not come up. Harmless as things stand -
 `mouse_report_t.buttons` is `uint8_t`, so the low byte ships correctly either way - but
 it is a signed read of a bitfield, and `state->mouse_buttons` holds the sign-extended
 value as `int16_t` in the meantime.
+
+`bolt_rx_iface1` sharpens it. That mouse declares a **16-bit** button field, so the
+sign extension reaches much further: holding button 16 alone reads `-32768`, and all
+sixteen together read `-1`. Both are in `make mouse`. The truncation to `uint8_t` is no
+longer harmless either, because buttons 9 to 16 have nowhere to go at all - whatever
+happens to the sign, they cannot reach the output PC through a one-byte field.
 
 ## What this harness cannot see
 
@@ -330,3 +457,9 @@ how the [#216] suspicion about the Model 100's bit-68 bitmap got cleared.
 [hidintro]: https://docs.kernel.org/hid/hidintro.html
 [tmk]: https://github.com/tmk/tmk_keyboard/wiki/USB:-HID-Report-Descriptor
 [rpigist]: https://gist.github.com/probonopd/9646c69f876ff2b4b879aeb1c1cbc532
+
+<!-- dumping tools -->
+[winhiddump]: https://github.com/todbot/win-hid-dump
+[whd2]: https://github.com/todbot/win-hid-dump/issues/2
+[usbipd]: https://github.com/dorssel/usbipd-win
+[hidapi]: https://github.com/libusb/hidapi/blob/master/windows/hidapi_descriptor_reconstruct.c
