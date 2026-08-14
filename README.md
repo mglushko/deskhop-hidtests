@@ -35,6 +35,7 @@ Needs `gcc`, `python3`, and `make`. No cross compiler, no Pico SDK.
 | `make truncate` | does a short or malformed descriptor make the parser read past the buffer? |
 | `make exhaust` | what happens when the usage array runs out before the mouse collection? |
 | `make timing` | how long does a large but legal Report Count take to parse? |
+| `make check-constants` | do the constants `harness.h` copies still match TinyUSB's? |
 | `make all` | build everything without running it |
 
 `compare` is the one to reach for when reviewing a parser change. It materialises the

@@ -77,7 +77,7 @@ BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/kbdtest $(OUT)/fuzz $(OUT)/exhaust \
         $(OUT)/timing $(OUT)/truncate
 
 .PHONY: all dump compare mouse kbd fuzz exhaust timing truncate clean check-target \
-        check-ref
+        check-ref check-constants
 
 all: check-target $(BINS)
 	@echo "built against $(SRC) -> $(OUT)/"
@@ -207,6 +207,25 @@ compare: check-ref $(REF_TREE)/.stamp $(OUT)/dump
 	  echo "  $$known descriptor(s) crash on both sides - known bad, not a regression"; fi; \
 	if [ $$fail -eq 0 ]; then echo "  no new crashes in the working tree"; \
 	else echo "  $$fail NEW CRASH(ES) - regression"; exit 1; fi
+
+# harness.h hand-copies TinyUSB's item tags and usages. Nothing in a normal build
+# checks that copy, and a wrong value would not fail to compile - it would shift an
+# offset and make every target report a plausible wrong answer. Deliberately not a
+# prerequisite of `all`: the harness does not otherwise need the Pico SDK submodule
+# to be populated, and requiring it here would break builds that work fine today.
+TUSB_HID := $(DESKHOP)/pico-sdk/lib/tinyusb/src/class/hid/hid.h
+
+# one shell, not two: a bare `test || { ...; exit 0; }` on its own recipe line only
+# exits that line's shell, and make would go on to run the check anyway
+check-constants:
+	@if [ ! -f $(TUSB_HID) ]; then \
+	  echo "  skipped: no vendored TinyUSB header at"; \
+	  echo "    $(TUSB_HID)"; \
+	  echo "  populate the pico-sdk submodule in $(DESKHOP) to run this check"; \
+	else \
+	  python3 tools/check_constants.py include/harness.h $(TUSB_HID) \
+	    $(PARSER) $(REPORT); \
+	fi
 
 clean:
 	rm -rf $(B)
