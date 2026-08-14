@@ -58,7 +58,9 @@ static const char *dispatch(hid_interface_t *iface, uint8_t itf_protocol, const 
 
 typedef struct {
     const char *what;
-    uint8_t     report[8];
+    /* 12, not 8: the Bolt receiver's mouse report is nine bytes - a report ID, a
+       16-bit button field, 16-bit X and Y, then wheel and pan. */
+    uint8_t     report[12];
     int         len;
     int32_t     x, y, wheel, pan, buttons;
 } case_t;
@@ -212,6 +214,51 @@ static const case_t kernel_multi_cases[] = {
     {"report 1 dropped",      {0x01, 0x1F, 0xFF, 0x17, 0x80, 0x7F, 0x81}, 7,     0,     0,    0,    0,  0},
 };
 
+/* Logi Bolt receiver, interface 1. Nine-byte report: ID 2, a 16-bit button field,
+   16-bit X and Y, then 8-bit wheel and pan. The first device in the corpus with
+   more than eight buttons, which is what makes the last two rows worth having:
+   get_report_value() sign-extends on the top bit of the field, so a 16-bit button
+   bitmap with bit 15 set comes back negative. Harmless downstream only because
+   mouse_report_t.buttons is a uint8_t and buttons 9-16 are dropped there anyway. */
+static const case_t bolt_rx_cases[] = {
+    {"move right (X +20)",    {0x02, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00}, 9,   20,   0,   0,   0,      0},
+    {"move left  (X -20)",    {0x02, 0x00, 0x00, 0xEC, 0xFF, 0x00, 0x00, 0x00, 0x00}, 9,  -20,   0,   0,   0,      0},
+    {"move down  (Y +20)",    {0x02, 0x00, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00}, 9,    0,  20,   0,   0,      0},
+    {"move up    (Y -20)",    {0x02, 0x00, 0x00, 0x00, 0x00, 0xEC, 0xFF, 0x00, 0x00}, 9,    0, -20,   0,   0,      0},
+    {"X +32767, Y -32767",    {0x02, 0x00, 0x00, 0xFF, 0x7F, 0x01, 0x80, 0x00, 0x00}, 9, 32767, -32767, 0, 0,      0},
+    {"scroll up",             {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00}, 9,    0,   0,   1,   0,      0},
+    {"scroll down",           {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x00}, 9,    0,   0,  -1,   0,      0},
+    {"pan right",             {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}, 9,    0,   0,   0,   1,      0},
+    {"pan left",              {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 9,    0,   0,   0,  -1,      0},
+    {"button 1 (left)",       {0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 9,    0,   0,   0,   0,      1},
+    {"button 8, still positive", {0x02, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 9, 0,   0,   0,   0,    128},
+    /* bit 15 set: the sign extension the README's button finding is about */
+    {"button 16 alone",       {0x02, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 9,    0,   0,   0,   0, -32768},
+    {"all 16 buttons held",   {0x02, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 9,    0,   0,   0,   0,     -1},
+};
+
+/* Keychron Ultra-Link 8K, interface 0. Eight-byte report on ID 1: five buttons
+   padded to a byte, then 16-bit X and Y, wheel and pan. */
+static const case_t ultralink_cases[] = {
+    {"move right (X +20)",    {0x01, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,   20,   0,   0,   0,  0},
+    {"move left  (X -20)",    {0x01, 0x00, 0xEC, 0xFF, 0x00, 0x00, 0x00, 0x00}, 8,  -20,   0,   0,   0,  0},
+    {"move down  (Y +20)",    {0x01, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00}, 8,    0,  20,   0,   0,  0},
+    {"move up    (Y -20)",    {0x01, 0x00, 0x00, 0x00, 0xEC, 0xFF, 0x00, 0x00}, 8,    0, -20,   0,   0,  0},
+    {"scroll up",             {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00}, 8,    0,   0,   1,   0,  0},
+    {"pan right",             {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}, 8,    0,   0,   0,   1,  0},
+    {"all five buttons",      {0x01, 0x1F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,    0,   0,   0,   0, 31},
+    {"everything at once",    {0x01, 0x1F, 0xFF, 0x7F, 0x01, 0x80, 0x7F, 0x81}, 8, 32767, -32767, 127, -127, 31},
+};
+
+/* Logi Bolt receiver, interface 3: a Precision Touchpad. It declares Generic
+   Desktop X and Y, but inside a Digitizer top-level collection, so global_usage is
+   0x05 and no entry in extract_data()'s map matches. Nothing is found, no handler
+   is bound, and a finger report decodes to zeros. Asserting the absence, the same
+   way the mx518 case asserts vendor bytes never reach an axis. */
+static const case_t bolt_touchpad_cases[] = {
+    {"finger down, absolute X/Y", {0x28, 0x03, 0x01, 0x40, 0xD7, 0x0A, 0xFA, 0x06}, 8, 0, 0, 0, 0, 0},
+};
+
 #define DEV(d, c) {#d, d_##d, (int)sizeof(d_##d), c, (unsigned)ARRAY_SIZE(c)}
 
 static const device_cases_t devices[] = {
@@ -221,6 +268,9 @@ static const device_cases_t devices[] = {
     DEV(cherry_mw8_mouse, cherry_mw8_cases),
     DEV(mx518_mouse, mx518_cases),
     DEV(kernel_multi_collection, kernel_multi_cases),
+    DEV(bolt_rx_iface1, bolt_rx_cases),
+    DEV(ultralink_mouse, ultralink_cases),
+    DEV(bolt_rx_touchpad, bolt_touchpad_cases),
 };
 
 #undef DEV
