@@ -27,7 +27,18 @@
 #include "main.h"
 #include "descriptors.h"
 
-/* mirrors the dispatch in usb.c:tuh_hid_report_received_cb */
+/* A hand copy of the routing in usb.c:tuh_hid_report_received_cb, and the only
+   place in this harness that reimplements firmware logic instead of lifting it.
+   tuh_hid_report_received_cb cannot be lifted: it reaches global_state and the
+   TinyUSB host API, and computes a device_idx this test has no use for.
+
+   The consequence is that it can go stale silently - nothing breaks if usb.c's
+   routing changes, this just keeps printing the old answer. It is display only,
+   printed in each device's header and never asserted on, so a drift cannot turn a
+   failing case into a passing one. Re-check it against usb.c when touching either.
+   Last checked against main at 59577cc: same branch structure, uses_report_id or
+   PROTOCOL_NONE goes through report_handler[report[0]], otherwise the interface
+   protocol picks the receiver directly. */
 static const char *dispatch(hid_interface_t *iface, uint8_t itf_protocol, const uint8_t *report) {
     if (iface->uses_report_id || itf_protocol == HID_ITF_PROTOCOL_NONE) {
         uint8_t report_id = iface->uses_report_id ? report[0] : 0;
