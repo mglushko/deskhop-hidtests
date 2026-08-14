@@ -228,11 +228,13 @@ static int run_device(const device_cases_t *dev) {
     printf("  num_keyboards  = %u\n", iface.num_keyboards);
     printf("  uses_report_id = %d\n\n", iface.uses_report_id);
 
-    printf("  Dispatch (src/usb.c), both ways this interface can present itself:\n");
-    printf("    bInterfaceProtocol = MOUSE : %s\n",
-           dispatch(&iface, HID_ITF_PROTOCOL_MOUSE, dev->cases[0].report));
-    printf("    bInterfaceProtocol = NONE  : %s\n\n",
-           dispatch(&iface, HID_ITF_PROTOCOL_NONE, dev->cases[0].report));
+    if (dev->count) {
+        printf("  Dispatch (src/usb.c), both ways this interface can present itself:\n");
+        printf("    bInterfaceProtocol = MOUSE : %s\n",
+               dispatch(&iface, HID_ITF_PROTOCOL_MOUSE, dev->cases[0].report));
+        printf("    bInterfaceProtocol = NONE  : %s\n\n",
+               dispatch(&iface, HID_ITF_PROTOCOL_NONE, dev->cases[0].report));
+    }
 
     printf("  %-26s %-24s %6s %6s %6s %6s %4s\n", "movement", "raw report", "X", "Y", "wheel",
            "pan", "btn");
@@ -247,6 +249,15 @@ static int run_device(const device_cases_t *dev) {
         mouse_values_t v = {0};
         char           hex[3 * sizeof(c->report) + 1];
         int            n = 0;
+
+        /* A len past the end of the array would overread the struct here and
+           overflow hex[] below, in the one file whose job is catching that. */
+        if (c->len < 0 || (size_t)c->len > sizeof(c->report)) {
+            printf("  %-26s len %d exceeds report[%zu] - fix the case\n", c->what, c->len,
+                   sizeof(c->report));
+            failures++;
+            continue;
+        }
 
         /* exact-size allocation: an overread lands in ASan's redzone, not in the
            next case's bytes */

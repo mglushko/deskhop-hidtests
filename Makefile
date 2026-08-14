@@ -190,8 +190,9 @@ compare: check-ref $(REF_TREE)/.stamp $(OUT)/dump
 	@echo
 	@printf '  %-22s %-22s %s\n' DESCRIPTOR "$(REF)" "working tree"
 	@printf '  '; printf -- '-%.0s' $$(seq 1 68); echo
-	@fail=0; known=0; \
+	@fail=0; known=0; seen=0; \
 	for d in $$($(OUT)/dump); do \
+	  seen=$$((seen+1)); \
 	  a=$$($(REF_OUT)/dump $$d 2>&1); arc=$$?; \
 	  b=$$($(OUT)/dump $$d 2>&1); brc=$$?; \
 	  if [ $$arc -ne 0 ]; then astat='CRASH'; else astat='ok'; fi; \
@@ -203,9 +204,13 @@ compare: check-ref $(REF_TREE)/.stamp $(OUT)/dump
 	  printf '  %-22s %-22s %s\n' $$d "$$astat" "$$bstat"; \
 	done; \
 	echo; \
+	if [ $$seen -eq 0 ]; then \
+	  echo "  compared nothing: $(OUT)/dump listed no descriptors."; \
+	  echo "  Refusing to report success - a comparison of zero devices is not a pass."; \
+	  exit 1; fi; \
 	if [ $$known -ne 0 ]; then \
 	  echo "  $$known descriptor(s) crash on both sides - known bad, not a regression"; fi; \
-	if [ $$fail -eq 0 ]; then echo "  no new crashes in the working tree"; \
+	if [ $$fail -eq 0 ]; then echo "  $$seen compared, no new crashes in the working tree"; \
 	else echo "  $$fail NEW CRASH(ES) - regression"; exit 1; fi
 
 # harness.h hand-copies TinyUSB's item tags and usages. Nothing in a normal build
