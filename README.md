@@ -30,6 +30,7 @@ Needs `gcc`, `python3`, and `make`. No cross compiler, no Pico SDK.
 | `make dump D=<name>` | what offsets, usages and handlers did the parser derive? |
 | `make compare REF=<commit>` | does my change alter the parse of any known good device? |
 | `make mouse` | do real pointer reports decode to the right X, Y, wheel, pan, buttons? |
+| `make kbd` | do real keyboard reports decode to the right modifier and keycodes? |
 | `make fuzz N=<n>` | does any generated descriptor push an access outside `usages[]`? |
 | `make truncate` | does a short or malformed descriptor make the parser read past the buffer? |
 | `make exhaust` | what happens when the usage array runs out before the mouse collection? |
@@ -67,8 +68,8 @@ number into the comment. Reproducing the quirk is usually the whole point.
 
 ### What the corpus is already worth
 
-The corpus is 27 descriptors, 18 of them captured from real devices in upstream
-issues. What they have bought so far:
+The corpus is 32 descriptors, 23 of them captured from real devices: 18 from upstream
+issues, and 5 from dumps published elsewhere. What they have bought so far:
 
 - **Wooting Two HE** ([#335], "only CTRL, Shift & Win work"). `make dump
   D=wooting_keyboard` shows why: the keyboard declares four key blocks as separate
@@ -93,6 +94,28 @@ issues. What they have bought so far:
   usage cursor: its system control block comes out as `usage=0xFF02 page=0x0001`, an
   identifier it never declares, carried over from the vendor block in the preceding
   top-level collection.
+
+The five that did not come from an issue were added to break that selection bias -
+every real device above is one that already misbehaved, which is a poor sample of what
+a parser meets in the wild. These are captures published elsewhere, picked for shapes
+the corpus did not have:
+
+- **Logitech MX518** (`046d:c08e`, from the [tmk_keyboard wiki][tmk]) declares a
+  padding item with Report Count 0, puts a two-byte vendor block *inside* the mouse's
+  physical collection between the buttons and the axes, and declares the wheel before
+  X and Y. All three parse and decode correctly; `make mouse` includes a case asserting
+  the vendor bytes never reach an axis.
+- **A multi-collection composite** from the [kernel's HID documentation][hidintro] is
+  the only descriptor here declaring two mouse collections, on report IDs 1 and 2. See
+  the finding below: the second wins and the first goes dark.
+- **Raspberry Pi wired keyboard** (`04d9:0006`, from [a gist][rpigist]) contributes
+  both interfaces. Interface 0 bounds its key array with a 16-bit `2A FF 00` over the
+  full 0-255 range rather than the usual `29 65`, and carries the LED output block a
+  real keyboard has. Interface 1 is a consumer control block with no report ID, the
+  case [#358] addresses, reached from a different device than the Cherry.
+- **PixArt/HP optical mouse** (`093a:2510`, also from the kernel docs) is a real
+  capture of the shape `d_boot_mouse` synthesises, declaring Report Size before Report
+  Count and ending in plain `C0`. It confirms item ordering does not change the parse.
 
 ## How it works
 
@@ -121,16 +144,17 @@ issues. What they have bought so far:
 
 Reference results, so a broken harness is distinguishable from a broken firmware.
 Taken against `main` at `59577cc` and the [#332] fix, now PR [#361], at `ea680e4`,
-over the current 27-descriptor corpus.
+over the current 32-descriptor corpus.
 
 | check | main | [#361] |
 |---|---|---|
-| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | no crashes, 25 of 27 identical |
-| `mouse` | 72 of 72 cases | 72 of 72 cases |
+| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | no crashes, 30 of 32 identical |
+| `mouse` | 98 of 98 cases over 6 devices | 98 of 98 cases |
+| `kbd` | 28 of 28 cases over 8 devices | 28 of 28 cases |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
-| `truncate` | 1322 of 2366 prefixes overread | 1203 of 2366 prefixes overread |
+| `truncate` | 1582 of 2883 prefixes overread | 1463 of 2883 prefixes overread |
 | `exhaust` | crashes | X/Y offsets go to 0 at 127 preceding usages |
-| `timing` | segfaults | ~25.6 ns/element on x86-64 |
+| `timing` | segfaults | ~17.5 ns/element on x86-64 |
 
 Fuzz counts depend on the generator and the seed, and `truncate` counts move with
 the size of the corpus. Change either and these numbers move; the qualitative
@@ -141,8 +165,12 @@ The other two open parser PRs, measured the same way:
 
 | PR | what `compare REF=main` shows |
 |---|---|
-| [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. |
-| [#358] media keys without report IDs | identical parse on all 27, including `cherry_kc6000_consumer`, the device it fixes - see below. |
+| [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. |
+| [#358] media keys without report IDs | identical parse on all 32, including `cherry_kc6000_consumer` and `rpi_consumer`, the devices it fixes - see below. |
+
+One caveat on [#359]: `MAX_NKRO_BLOCKS` is 4 and the Wooting declares exactly 4, so
+there is no headroom. A keyboard splitting its bitmap five ways would still lose the
+last section, silently and in the same way.
 
 ## Open findings
 
@@ -195,6 +223,36 @@ arrive, whatever the consumer fix does. Not previously reported, and separate fr
 **Report Count is a 32-bit field.** Visible in `timing`: memory stays intact after the
 fix, but a large enough count still outruns the 500 ms watchdog.
 
+**A second mouse collection blanks the first.** `kernel_multi_collection` declares two,
+on report IDs 1 and 2, identically laid out. The parser walks both, and the second
+overwrites `mouse.report_id` with 2. `extract_value()` opens by rejecting any report
+whose leading ID byte does not match:
+
+```c
+if (uses_id && (*raw_report++ != src->report_id))
+    return false;
+```
+
+so every field of a report ID 1 packet fails, and it decodes to all zeros - while
+`report_handler[1]` still points at `process_mouse_report`, bound while the first
+collection was being parsed. The report is routed to the mouse path and then silently
+dropped there. Reproduce with `make mouse`, last case of that device.
+
+Nothing is lost on this particular device, because both collections declare the same
+layout, so decoding ID 1 with ID 2's offsets would have given the right answer anyway.
+But an interface holds one `mouse_t`, so a device whose two collections disagreed would
+have no way to say so. Distinct from the Cherry MW 8C finding above, which is about a
+collection that declares no report ID at all rather than two that each declare one.
+
+**Button bitmaps are read as signed.** `get_report_value()` sign-extends its result
+whenever the top bit of the field is set, which is right for X, Y, wheel and pan and
+wrong for a button bitmap. An 8-button mouse with everything held reports `-1` rather
+than `255`. `mx518_mouse` is the first device in the corpus with enough buttons to
+reach bit 7, which is why this has not come up. Harmless as things stand -
+`mouse_report_t.buttons` is `uint8_t`, so the low byte ships correctly either way - but
+it is a signed read of a bitfield, and `state->mouse_buttons` holds the sign-extended
+value as `int16_t` in the meantime.
+
 ## What this harness cannot see
 
 `compare` diffs the *parse*. It compiles `hid_parser.c` and `hid_report.c` and stubs
@@ -203,16 +261,20 @@ invisible to it.
 
 PR [#358] is exactly that change: it teaches `process_consumer_report` and
 `process_system_report` not to skip a leading report ID byte that isn't there. The
-parse is untouched, so `compare` prints `identical parse` on all 27 descriptors
+parse is untouched, so `compare` prints `identical parse` on all 32 descriptors
 including `cherry_kc6000_consumer`. That is the correct answer to the question
 `compare` asks, and the wrong answer to "does this PR do anything". Covering it would
 mean lifting the consumer and system receivers the way `tools/lift.py` already lifts
-`get_keyboard` and the mouse extractors.
+`get_keyboard` and the mouse extractors, which needs more than the counting stubs in
+`src/stubs.c`: both receivers reach `global_state`, `queue_packet`,
+`send_consumer_control` and `CURRENT_BOARD_IS_ACTIVE_OUTPUT`.
 
-The same gap applies to keyboard reports. `make dump D=keyboardio_keyboard` shows the
-Model 100's NKRO bitmap starting at bit 68, four bits into a byte, which is a
-plausible explanation for the shifted keys in [#216] - but the bitmap is unpacked in
-`keyboard.c`, so this harness can neither confirm nor clear it.
+Keyboard reports used to be described here as the same kind of gap, on the grounds
+that the NKRO bitmap is unpacked in `keyboard.c`. That was wrong. `extract_kbd_data`
+and its three helpers live in `hid_report.c`, which every binary here already
+compiles; only the declaration sits in `keyboard.h`, and `keyboard.c` just calls in.
+`make kbd` covers that path now, which is how [#359] got checked at decode level and
+how the [#216] suspicion about the Model 100's bit-68 bitmap got cleared.
 
 <!-- upstream issues and PRs -->
 [#117]: https://github.com/hrvach/deskhop/issues/117
@@ -225,3 +287,6 @@ plausible explanation for the shifted keys in [#216] - but the bitmap is unpacke
 [#358]: https://github.com/hrvach/deskhop/pull/358
 [#359]: https://github.com/hrvach/deskhop/pull/359
 [#361]: https://github.com/hrvach/deskhop/pull/361
+[hidintro]: https://docs.kernel.org/hid/hidintro.html
+[tmk]: https://github.com/tmk/tmk_keyboard/wiki/USB:-HID-Report-Descriptor
+[rpigist]: https://gist.github.com/probonopd/9646c69f876ff2b4b879aeb1c1cbc532
