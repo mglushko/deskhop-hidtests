@@ -171,8 +171,9 @@ static void print_keys(const uint8_t *k) {
             printed += printf("%s%u", printed ? "," : "", k[i]);
 
     if (!printed)
-        printf("-");
+        printed = printf("-");
 
+    /* count the dash too, or keyless rows run a column wide */
     for (int i = printed; i < 17; i++)
         printf(" ");
 }
@@ -201,6 +202,14 @@ static int run_device(const device_cases_t *dev) {
         hid_keyboard_report_t out;
         const uint8_t        *want = KEEPS_EVERY_BLOCK ? c->keys_fixed : c->keys;
 
+        /* a len past the end of the array would overread the struct below */
+        if (c->len < 0 || (size_t)c->len > sizeof(c->report)) {
+            printf("  %-32s len %d exceeds report[%zu] - fix the case\n", c->what, c->len,
+                   sizeof(c->report));
+            failures++;
+            continue;
+        }
+
         /* exact-size allocation: an overread lands in ASan's redzone rather than
            in the next case's bytes */
         uint8_t *report = malloc(c->len);
@@ -224,7 +233,11 @@ static int run_device(const device_cases_t *dev) {
         } else {
             printf("MISMATCH, wanted mod 0x%02X ", c->modifier);
             print_keys(want);
-            printf("\n");
+            /* the input matters more than the output when a case fails, and the
+               NKRO reports are too long to work out from the case name */
+            printf("\n%38sfrom ", "");
+            for (int b = 0; b < c->len; b++)
+                printf("%02X%s", c->report[b], b + 1 < c->len ? " " : "\n");
         }
     }
 

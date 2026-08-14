@@ -2,10 +2,13 @@
    hid_parser.h and hid_report.h both include "main.h", so this is the entry point
    for the whole harness.
 
-   This directory is on the include path ahead of the target's src/include, so
-   this file and tusb.h win, while hid_parser.h and hid_report.h below resolve to
-   the target checkout's real, unmodified headers. Nothing is copied or patched,
-   so the harness always sees exactly the structs of the branch under test. */
+   The target's src/include is deliberately NOT on the include path: a quoted
+   #include searches the including file's own directory first, so leaving it there
+   would pull in deskhop's real main.h and the whole Pico SDK with it. Instead the
+   Makefile copies the five headers it needs (COPY_HDRS) verbatim into the build
+   dir, which IS on the path, so their own quoted includes land back on these
+   shims. Copied but never patched - the harness always sees exactly the structs
+   of the branch under test. */
 #pragma once
 
 #include "harness.h"
@@ -31,10 +34,6 @@ void process_system_report(uint8_t *report, int len, uint8_t itf, hid_interface_
 
 keyboard_t *get_keyboard(hid_interface_t *iface, uint8_t report_id);
 
-/* how many times each receiver was handed a report, for tests that care */
-extern int stub_mouse_reports, stub_keyboard_reports;
-extern int stub_consumer_reports, stub_system_reports;
-
 /*==============================================================================
  *  Defined in the two files under test
  *============================================================================*/
@@ -51,6 +50,6 @@ int32_t get_report_value(uint8_t *report, int len, report_val_t *val);
 int32_t extract_kbd_data(uint8_t *raw_report, int len, uint8_t itf, hid_interface_t *iface,
                          hid_keyboard_report_t *report);
 
-/* lifted verbatim out of the target's mouse.c by tools/lift_mouse.py */
+/* lifted verbatim out of the target's mouse.c by tools/lift.py */
 void extract_report_values(uint8_t *raw_report, int len, device_t *state,
                            mouse_values_t *values, hid_interface_t *iface);

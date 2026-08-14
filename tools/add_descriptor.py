@@ -12,6 +12,7 @@ Prints the C array and the registry line to add. It deliberately does not edit
 descriptors.h for you, because the comment naming the device and issue matters and
 only you can write it.
 """
+import os
 import re
 import sys
 
@@ -41,12 +42,25 @@ def parse_hex(text):
     return out
 
 
-def existing(path="descriptors.h"):
-    """Every descriptor already in the corpus, as name -> bytes."""
+CORPUS = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir,
+                      "descriptors.h")
+
+
+def existing(path=CORPUS):
+    """Every descriptor already in the corpus, as name -> bytes.
+
+    Located relative to this file, not the working directory. Reading it as a bare
+    relative path meant the duplicate check below silently did nothing whenever the
+    tool was run from anywhere but the repo root - it caught nothing and said so by
+    exiting 0, which is worse than not having the check.
+    """
     try:
         text = open(path).read()
-    except OSError:
-        return {}
+    except OSError as e:
+        raise SystemExit(
+            "add_descriptor.py: cannot read the corpus at %s (%s).\n"
+            "  Refusing to continue: without it the duplicate check would pass "
+            "everything." % (path, e.strerror))
 
     out = {}
     for name, body in re.findall(
