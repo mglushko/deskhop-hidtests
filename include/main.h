@@ -43,6 +43,14 @@ void parse_report_descriptor(hid_interface_t *iface, uint8_t const *report, int 
 void extract_data(hid_interface_t *iface, report_val_t *val);
 int32_t get_report_value(uint8_t *report, int len, report_val_t *val);
 
+/* Also in hid_report.c, though the target declares it over in keyboard.h, which
+   is not copyable here - it pulls in structs.h and the layout remapping macros.
+   Declared rather than copied, and safe to: this signature is the same on main
+   and on the multi-block branch. extract_bit_variable's is not, which is why
+   tests go through this and never call that directly. */
+int32_t extract_kbd_data(uint8_t *raw_report, int len, uint8_t itf, hid_interface_t *iface,
+                         hid_keyboard_report_t *report);
+
 /* lifted verbatim out of the target's mouse.c by tools/lift_mouse.py */
 void extract_report_values(uint8_t *raw_report, int len, device_t *state,
                            mouse_values_t *values, hid_interface_t *iface);

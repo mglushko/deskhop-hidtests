@@ -9,6 +9,7 @@
 #   make dump D=gameball_gesture     parse one descriptor, print the result
 #   make compare REF=main            diff the working tree against a commit
 #   make mouse                       end to end mouse decode
+#   make kbd                         end to end keyboard decode
 #   make fuzz N=40000                bounds check over generated descriptors
 #   make truncate                    every prefix of every descriptor, under ASan
 #   make exhaust                     usage array exhaustion behaviour
@@ -65,10 +66,10 @@ HDRS      := $(addprefix $(GEN)/,$(COPY_HDRS))
 # report ID maps to, so a hand written version would quietly change results.
 CORE := $(PARSER) $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c
 
-BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/fuzz $(OUT)/exhaust $(OUT)/timing \
-        $(OUT)/truncate
+BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/kbdtest $(OUT)/fuzz $(OUT)/exhaust \
+        $(OUT)/timing $(OUT)/truncate
 
-.PHONY: all dump compare mouse fuzz exhaust timing truncate clean check-target
+.PHONY: all dump compare mouse kbd fuzz exhaust timing truncate clean check-target
 
 all: check-target $(BINS)
 	@echo "built against $(SRC) -> $(OUT)/"
@@ -106,6 +107,11 @@ $(OUT)/dump: src/dump.c descriptors.h $(HDRS) $(CORE) | $(GEN)
 $(OUT)/mousetest: src/mousetest.c descriptors.h $(HDRS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
 	$(CC) $(CFLAGS) $(ASAN) $(INCS) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
 
+# no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
+# which $(CORE) already carries
+$(OUT)/kbdtest: src/kbdtest.c descriptors.h $(HDRS) $(CORE) | $(GEN)
+	$(CC) $(CFLAGS) $(ASAN) $(INCS) -o $@ src/kbdtest.c $(CORE)
+
 $(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(ASAN) $(INCS) -o $@ src/exhaust.c $(CORE)
 
@@ -127,6 +133,9 @@ dump: $(OUT)/dump
 
 mouse: $(OUT)/mousetest
 	@$(OUT)/mousetest
+
+kbd: $(OUT)/kbdtest
+	@$(OUT)/kbdtest
 
 exhaust: $(OUT)/exhaust
 	@$(OUT)/exhaust
