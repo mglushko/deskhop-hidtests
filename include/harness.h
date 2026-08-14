@@ -2,8 +2,9 @@
    reach for, so both can be compiled and run on the host.
 
    Every constant here is copied from the vendored
-   pico-sdk/lib/tinyusb/src/class/hid/hid.h. If a test result looks wrong before
-   you suspect the firmware, re-check these against that header. */
+   pico-sdk/lib/tinyusb/src/class/hid/hid.h. `make check-constants` compares the
+   two mechanically, so this no longer has to be taken on trust - run it if a
+   result looks wrong, before suspecting the firmware. */
 #pragma once
 
 #include <stdbool.h>

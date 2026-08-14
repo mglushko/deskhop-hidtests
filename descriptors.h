@@ -389,17 +389,12 @@ static const uint8_t d_rpi_keyboard[] = {
     0xC0,
 };
 
-/* Raspberry Pi wired keyboard, interface 1 - same gist. Consumer control with
-   NO report ID, where d_consumer above has one. Every usage carries its own
-   Input item at count 1 instead of one block of eight, and five of the nine are
-   marked relative (81 06) rather than absolute. This is the shape the
-   fix-consumer-no-report-id branch is about. */
-static const uint8_t d_rpi_consumer[] = {
-    0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x05, 0x0C, 0x75, 0x01, 0x95, 0x01, 0x15, 0x00, 0x25, 0x01,
-    0x09, 0xCD, 0x81, 0x06, 0x09, 0xB5, 0x81, 0x02, 0x09, 0xB6, 0x81, 0x02, 0x09, 0xB8, 0x81, 0x06,
-    0x09, 0xE2, 0x81, 0x06, 0x09, 0xEA, 0x81, 0x02, 0x09, 0xE9, 0x81, 0x02, 0x0A, 0x23, 0x02, 0x81,
-    0x02, 0x0A, 0x92, 0x01, 0x81, 0x02, 0x95, 0x07, 0x81, 0x01, 0xC0,
-};
+/* The Raspberry Pi keyboard's interface 1, a consumer control block with no report
+   ID, is deliberately NOT here: its 59 bytes are identical to
+   d_cherry_kc6000_consumer above, so it would parse the same and test nothing. Two
+   vendors shipping the same descriptor is mildly interesting and worth knowing when
+   reading [#358], but it is not coverage. tools/add_descriptor.py now refuses an
+   exact duplicate, which is how this one should have been caught. */
 
 /* PixArt/HP USB optical mouse, VID 093A PID 2510 - docs.kernel.org/hid/hidintro.html,
    and byte-identical to the example in github.com/DIGImend/usbhid-dump's README.
@@ -476,7 +471,6 @@ static const descriptor_t descriptors[] = {
     D(mx518_mouse),
     D(kernel_multi_collection),
     D(rpi_keyboard),
-    D(rpi_consumer),
     D(pixart_mouse),
     D(many_usages),
     D(vendor_then_mouse),

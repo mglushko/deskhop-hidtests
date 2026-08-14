@@ -41,6 +41,35 @@ def parse_hex(text):
     return out
 
 
+def existing(path="descriptors.h"):
+    """Every descriptor already in the corpus, as name -> bytes."""
+    try:
+        text = open(path).read()
+    except OSError:
+        return {}
+
+    out = {}
+    for name, body in re.findall(
+            r"static const uint8_t d_(\w+)\[\]\s*=\s*\{(.*?)\};", text, re.S):
+        out[name] = [int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", body)]
+    return out
+
+
+def duplicate_of(b, corpus):
+    """Name of an existing descriptor with exactly these bytes, if any.
+
+    A device dumped from a different vendor can still be byte for byte a descriptor
+    already in the corpus - rpi_consumer and cherry_kc6000_consumer were, and it
+    went unnoticed because the names looked unrelated. An identical descriptor
+    parses identically, so it adds no coverage while inflating every count derived
+    from the corpus size.
+    """
+    for name, bytes_ in corpus.items():
+        if bytes_ == b:
+            return name
+    return None
+
+
 def sanity(b):
     """Cheap plausibility checks, so a bad paste is caught before it becomes a test."""
     notes = []
@@ -77,6 +106,18 @@ def main():
 
     b = parse_hex(text)
     notes = sanity(b)
+
+    dup = duplicate_of(b, existing())
+    if dup:
+        print("refusing to add %s: byte for byte identical to d_%s" % (name, dup),
+              file=sys.stderr)
+        print("  %d bytes, so it would parse identically and test nothing." % len(b),
+              file=sys.stderr)
+        print("  If the point is that a second vendor ships the same descriptor, say so",
+              file=sys.stderr)
+        print("  in a comment on the existing entry rather than adding this one.",
+              file=sys.stderr)
+        return 1
 
     print("/* TODO: name the device and the issue number */")
     print("static const uint8_t d_%s[] = {" % name)
