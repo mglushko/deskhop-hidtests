@@ -32,6 +32,13 @@ ASAN   := -fsanitize=address -fno-omit-frame-pointer
 
 export ASAN_OPTIONS = detect_leaks=0
 
+# Generated files are written by tools that can fail partway. Without this, a
+# failed recipe leaves an output file newer than its prerequisites, and the next
+# make treats it as up to date - so a tools/instrument.py that bailed on a missing
+# site would be skipped on the retry and fuzz would run against a partially
+# instrumented parser, reporting fewer out-of-bounds accesses than really happen.
+.DELETE_ON_ERROR:
+
 B := build
 
 # Which checkout to compile against, and where its outputs go. `compare`
@@ -69,7 +76,8 @@ CORE := $(PARSER) $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c
 BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/kbdtest $(OUT)/fuzz $(OUT)/exhaust \
         $(OUT)/timing $(OUT)/truncate
 
-.PHONY: all dump compare mouse kbd fuzz exhaust timing truncate clean check-target
+.PHONY: all dump compare mouse kbd fuzz exhaust timing truncate clean check-target \
+        check-ref
 
 all: check-target $(BINS)
 	@echo "built against $(SRC) -> $(OUT)/"
@@ -152,31 +160,53 @@ fuzz: $(OUT)/fuzz
 # Materialise a reference commit, build the same harness against it, and diff the
 # parse of every descriptor. This is the target that proves a parser change is
 # inert on known good devices while fixing the broken one.
-$(B)/tree/$(REF)/.stamp:
-	@mkdir -p $(B)/tree/$(REF)
-	@git -C $(DESKHOP) archive $(REF) src | tar -x -C $(B)/tree/$(REF)
+#
+# The tree is keyed by resolved commit, not by the name REF was spelled with. A
+# branch name is a moving target: keyed by name, the archive is extracted once and
+# then never again, because the rule has no prerequisite that ever changes. Every
+# later `compare REF=main` would diff against whatever main pointed at the first
+# time anyone ran it, silently. Keyed by SHA, a moved branch is simply a path that
+# does not exist yet.
+REF_SHA := $(shell git -C $(DESKHOP) rev-parse --short $(REF) 2>/dev/null)
+
+REF_TREE := $(B)/tree/$(REF_SHA)
+REF_OUT  := $(B)/ref-$(REF_SHA)
+
+check-ref:
+	@test -n "$(REF_SHA)" || { \
+	  echo "cannot resolve REF=$(REF) in $(DESKHOP)."; \
+	  echo "use a branch, tag or commit that exists there, e.g. make compare REF=main"; \
+	  exit 1; }
+
+$(REF_TREE)/.stamp:
+	@mkdir -p $(REF_TREE)
+	@git -C $(DESKHOP) archive $(REF_SHA) src | tar -x -C $(REF_TREE)
 	@touch $@
 
-compare: $(B)/tree/$(REF)/.stamp $(OUT)/dump
-	@$(MAKE) --no-print-directory SRC=$(CURDIR)/$(B)/tree/$(REF) TAG=ref-$(REF) $(B)/ref-$(REF)/dump
+compare: check-ref $(REF_TREE)/.stamp $(OUT)/dump
+	@$(MAKE) --no-print-directory SRC=$(CURDIR)/$(REF_TREE) TAG=ref-$(REF_SHA) $(REF_OUT)/dump
 	@echo
-	@echo "working tree ($(DESKHOP)) vs $(REF)"
+	@echo "working tree ($(DESKHOP)) vs $(REF) ($(REF_SHA))"
 	@echo
 	@printf '  %-22s %-22s %s\n' DESCRIPTOR "$(REF)" "working tree"
 	@printf '  '; printf -- '-%.0s' $$(seq 1 68); echo
-	@fail=0; \
+	@fail=0; known=0; \
 	for d in $$($(OUT)/dump); do \
-	  a=$$($(B)/ref-$(REF)/dump $$d 2>&1); arc=$$?; \
+	  a=$$($(REF_OUT)/dump $$d 2>&1); arc=$$?; \
 	  b=$$($(OUT)/dump $$d 2>&1); brc=$$?; \
 	  if [ $$arc -ne 0 ]; then astat='CRASH'; else astat='ok'; fi; \
-	  if [ $$brc -ne 0 ]; then bstat='CRASH'; fail=1; \
+	  if [ $$brc -ne 0 ] && [ $$arc -ne 0 ]; then bstat='CRASH, as in the reference'; known=$$((known+1)); \
+	  elif [ $$brc -ne 0 ]; then bstat='CRASH, NEW'; fail=$$((fail+1)); \
+	  elif [ $$arc -ne 0 ]; then bstat='ok, crash fixed'; \
 	  elif [ "$$a" = "$$b" ]; then bstat='ok, identical parse'; \
 	  else bstat='ok, parse differs'; fi; \
 	  printf '  %-22s %-22s %s\n' $$d "$$astat" "$$bstat"; \
 	done; \
 	echo; \
-	if [ $$fail -eq 0 ]; then echo "  no crashes in the working tree"; \
-	else echo "  FAILURES PRESENT"; exit 1; fi
+	if [ $$known -ne 0 ]; then \
+	  echo "  $$known descriptor(s) crash on both sides - known bad, not a regression"; fi; \
+	if [ $$fail -eq 0 ]; then echo "  no new crashes in the working tree"; \
+	else echo "  $$fail NEW CRASH(ES) - regression"; exit 1; fi
 
 clean:
 	rm -rf $(B)

@@ -10,6 +10,7 @@ in one shape are optional; at least one must match or it exits non-zero, which
 catches the case where upstream restructured the parser and this tool has gone
 stale.
 """
+import os
 import sys
 
 HELPER = '''
@@ -89,15 +90,26 @@ def main():
         elif required:
             missing.append(tag)
 
-    open(sys.argv[2], "w").write(src)
+    if missing:
+        # Bail before writing anything. Writing first and returning non-zero after
+        # leaves a file newer than its prerequisites, so the next make skips this
+        # rule and links a half-instrumented parser - and fuzz then under-reports
+        # out-of-bounds accesses, which is the exact false negative it exists to
+        # prevent. The Makefile also sets .DELETE_ON_ERROR:; this is the other half.
+        print("instrumenting %s FAILED" % sys.argv[1])
+        print("  MISSING REQUIRED SITES: %s" % ", ".join(missing))
+        print("  found: %s" % (", ".join(applied) or "none"))
+        print("  the parser was restructured upstream; update tools/instrument.py")
+        return 1
+
+    # write via a temp path so an interrupted write cannot leave a usable-looking file
+    tmp = sys.argv[2] + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(src)
+    os.replace(tmp, sys.argv[2])
 
     print("instrumented %s -> %s" % (sys.argv[1], sys.argv[2]))
     print("  sites: %s" % ", ".join(applied))
-
-    if missing:
-        print("  MISSING REQUIRED SITES: %s" % ", ".join(missing))
-        print("  the parser was restructured upstream; update tools/instrument.py")
-        return 1
     return 0
 
 
