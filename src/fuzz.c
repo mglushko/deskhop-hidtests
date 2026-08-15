@@ -13,6 +13,9 @@
  */
 #include "main.h"
 
+#include <errno.h>
+#include <limits.h>
+
 static long touches, out_of_bounds, highest;
 static int  this_descriptor_went_out;
 
@@ -104,12 +107,41 @@ static int generate(uint8_t *d, int cap) {
     return n;
 }
 
+/* strtol, not atol: atol("abc") is 0 and indistinguishable from an explicit 0,
+   and both used to run zero descriptors and then report that every access stayed
+   in bounds. Returns 0 on success. */
+static int parse_arg(const char *s, const char *make_var, long lo, long hi, long *out) {
+    char *end;
+
+    errno = 0;
+    long v = strtol(s, &end, 0);
+
+    if (end == s || *end != '\0' || errno == ERANGE || v < lo || v > hi) {
+        fprintf(stderr, "fuzz: %s=%s is not a number in %ld..%ld\n", make_var, s, lo, hi);
+        return 1;
+    }
+
+    *out = v;
+    return 0;
+}
+
 int main(int argc, char **argv) {
     static hid_interface_t iface;
     uint8_t desc[8192];
 
-    long count = argc > 1 ? atol(argv[1]) : 40000;
-    rng_state  = argc > 2 ? (uint32_t)atol(argv[2]) : 1;
+    long count = 40000, seed = 1;
+
+    if (argc > 1 && parse_arg(argv[1], "N", 1, LONG_MAX, &count))
+        return 2;
+
+    /* Seed 0 is the fixed point of xorshift: rnd() returns 0 for ever, generate()
+       emits the same four-usage descriptor every time, and the run reports a clean
+       pass on a parser that overflows to index 4564. Reject it rather than remap
+       it, so `make fuzz SEED=0` cannot silently mean something else. */
+    if (argc > 2 && parse_arg(argv[2], "SEED", 1, UINT32_MAX, &seed))
+        return 2;
+
+    rng_state = (uint32_t)seed;
 
     long bad_descriptors = 0;
 
@@ -131,6 +163,18 @@ int main(int argc, char **argv) {
     printf("  highest index touched        : %ld\n", highest);
     printf("  out-of-bounds accesses       : %ld\n", out_of_bounds);
     printf("  descriptors going out of bounds: %ld\n", bad_descriptors);
+
+    /* A run that never reached usages[] proves nothing about its bounds. Saying
+       "all accesses stayed inside" would be true and useless - the same trap the
+       compare target refuses at Makefile:207. Reaching here means the parser was
+       instrumented but never touched the array, so the instrumentation is stale. */
+    if (touches == 0) {
+        printf("\n  no access to usages[] was recorded over %ld descriptor(s).\n", count);
+        printf("  Refusing to report success - an unexercised bound is not a bound.\n");
+        printf("  Check that tools/instrument.py still matches this parser.\n");
+        return 1;
+    }
+
     printf("  RESULT: %s\n", out_of_bounds ? "OUT OF BOUNDS" : "all accesses stayed inside usages[]");
 
     return out_of_bounds ? 1 : 0;

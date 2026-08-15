@@ -12,8 +12,11 @@
 #   make kbd                         end to end keyboard decode
 #   make fuzz N=40000                bounds check over generated descriptors
 #   make truncate                    every prefix of every descriptor, under ASan
+#   make shortreport                 every prefix of every report, under ASan
 #   make exhaust                     usage array exhaustion behaviour
 #   make timing                      cost per element vs report count
+#   make test                        the regression gate: mouse, kbd, constants
+#   make findings                    the bounds checks, for their numbers
 #   make all
 #
 #   make dump DESKHOP=/tmp/other-worktree
@@ -26,11 +29,21 @@ N       ?= 40000
 SEED    ?= 1
 
 CC     := gcc
-WARN   := -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-unused-variable
+WARN   := -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
 CFLAGS := -O1 -g $(WARN)
-ASAN   := -fsanitize=address -fno-omit-frame-pointer
+
+# ASan catches reads past a descriptor or a report, which is why both are copied
+# into exact-size heap allocations before use. UBSan catches a different class it
+# cannot see at all: get_report_value() computes (1u << val->size) and
+# 0xFFFFFFFFU << val->size, and val->size is the *swapped* Report Count for 1-bit
+# fields (hid_parser.c, handle_main_input), so a mouse declaring 40 one-bit
+# buttons shifts by 40. That is undefined, and on x86 it silently takes the shift
+# mod 32 and returns a plausible wrong number rather than faulting.
+SAN    := -fsanitize=address,undefined -fno-omit-frame-pointer \
+          -fno-sanitize-recover=all
 
 export ASAN_OPTIONS = detect_leaks=0
+export UBSAN_OPTIONS = print_stacktrace=1
 
 # Generated files are written by tools that can fail partway. Without this, a
 # failed recipe leaves an output file newer than its prerequisites, and the next
@@ -74,9 +87,9 @@ HDRS      := $(addprefix $(GEN)/,$(COPY_HDRS))
 CORE := $(PARSER) $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c
 
 BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/kbdtest $(OUT)/fuzz $(OUT)/exhaust \
-        $(OUT)/timing $(OUT)/truncate
+        $(OUT)/timing $(OUT)/truncate $(OUT)/shortreport
 
-.PHONY: all dump compare mouse kbd fuzz exhaust timing truncate clean check-target \
+.PHONY: all dump compare mouse kbd fuzz exhaust timing truncate shortreport clean check-target \
         check-ref check-constants
 
 all: check-target $(BINS)
@@ -110,21 +123,28 @@ $(GEN)/hid_parser_instr.c: $(PARSER) tools/instrument.py | $(GEN)
 # ---- binaries ----------------------------------------------------------------
 
 $(OUT)/dump: src/dump.c descriptors.h $(HDRS) $(CORE) | $(GEN)
-	$(CC) $(CFLAGS) $(ASAN) $(INCS) -o $@ src/dump.c $(CORE)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/dump.c $(CORE)
 
-$(OUT)/mousetest: src/mousetest.c descriptors.h $(HDRS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
-	$(CC) $(CFLAGS) $(ASAN) $(INCS) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
+$(OUT)/mousetest: src/mousetest.c src/cases_mouse.h descriptors.h $(HDRS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
 
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries
-$(OUT)/kbdtest: src/kbdtest.c descriptors.h $(HDRS) $(CORE) | $(GEN)
-	$(CC) $(CFLAGS) $(ASAN) $(INCS) -o $@ src/kbdtest.c $(CORE)
+$(OUT)/kbdtest: src/kbdtest.c src/cases_kbd.h descriptors.h $(HDRS) $(CORE) | $(GEN)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/kbdtest.c $(CORE)
 
 $(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(CORE) | $(GEN)
-	$(CC) $(CFLAGS) $(ASAN) $(INCS) -o $@ src/exhaust.c $(CORE)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/exhaust.c $(CORE)
 
 $(OUT)/truncate: src/truncate.c descriptors.h $(HDRS) $(CORE) | $(GEN)
-	$(CC) $(CFLAGS) $(ASAN) $(INCS) -o $@ src/truncate.c $(CORE)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/truncate.c $(CORE)
+
+# needs lifted_mouse.c: it drives extract_report_values, the same entry point
+# mousetest uses, so that the truncated reports go through the firmware's own
+# extraction rather than a reimplementation of it
+$(OUT)/shortreport: src/shortreport.c src/cases_mouse.h src/cases_kbd.h descriptors.h $(HDRS) \
+                    $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/shortreport.c $(GEN)/lifted_mouse.c $(CORE)
 
 # no ASan: this one is a stopwatch, and the fuzzer clamps rather than faults
 $(OUT)/timing: src/timing.c $(HDRS) $(CORE) | $(GEN)
@@ -148,6 +168,9 @@ kbd: $(OUT)/kbdtest
 exhaust: $(OUT)/exhaust
 	@$(OUT)/exhaust
 
+shortreport: $(OUT)/shortreport
+	@$(OUT)/shortreport
+
 truncate: $(OUT)/truncate
 	@$(OUT)/truncate
 
@@ -167,8 +190,16 @@ fuzz: $(OUT)/fuzz
 # later `compare REF=main` would diff against whatever main pointed at the first
 # time anyone ran it, silently. Keyed by SHA, a moved branch is simply a path that
 # does not exist yet.
-REF_SHA := $(shell git -C $(DESKHOP) rev-parse --short $(REF) 2>/dev/null)
+#
+# Only defined when compare is actually being asked for. These names appear in
+# rule targets, which make expands while reading the file, so an unconditional
+# definition runs `git rev-parse` on every single invocation - `make clean`, `make
+# dump`, a tab-completion probe. Nothing else here needs a git repo at $(DESKHOP)
+# at all, and the sub-make below is spelled with TAG overridden so it resolves
+# through the ordinary $(OUT) rules without needing REF_SHA either.
+ifneq ($(filter compare,$(MAKECMDGOALS)),)
 
+REF_SHA  := $(shell git -C $(DESKHOP) rev-parse --short $(REF) 2>/dev/null)
 REF_TREE := $(B)/tree/$(REF_SHA)
 REF_OUT  := $(B)/ref-$(REF_SHA)
 
@@ -190,7 +221,7 @@ compare: check-ref $(REF_TREE)/.stamp $(OUT)/dump
 	@echo
 	@printf '  %-22s %-22s %s\n' DESCRIPTOR "$(REF)" "working tree"
 	@printf '  '; printf -- '-%.0s' $$(seq 1 68); echo
-	@fail=0; known=0; seen=0; \
+	@fail=0; known=0; seen=0; differed=''; \
 	for d in $$($(OUT)/dump); do \
 	  seen=$$((seen+1)); \
 	  a=$$($(REF_OUT)/dump $$d 2>&1); arc=$$?; \
@@ -200,10 +231,23 @@ compare: check-ref $(REF_TREE)/.stamp $(OUT)/dump
 	  elif [ $$brc -ne 0 ]; then bstat='CRASH, NEW'; fail=$$((fail+1)); \
 	  elif [ $$arc -ne 0 ]; then bstat='ok, crash fixed'; \
 	  elif [ "$$a" = "$$b" ]; then bstat='ok, identical parse'; \
-	  else bstat='ok, parse differs'; fi; \
+	  else bstat='ok, parse differs'; differed="$$differed $$d"; fi; \
 	  printf '  %-22s %-22s %s\n' $$d "$$astat" "$$bstat"; \
 	done; \
 	echo; \
+	if [ -n "$$differed" ] && [ -n "$(V)" ]; then \
+	  for d in $$differed; do \
+	    echo "  --- $$d ---"; \
+	    $(REF_OUT)/dump $$d >$(B)/.cmp-ref 2>&1; \
+	    $(OUT)/dump $$d >$(B)/.cmp-new 2>&1; \
+	    diff -u $(B)/.cmp-ref $(B)/.cmp-new | tail -n +3 | sed 's/^/  /'; \
+	    echo; \
+	  done; \
+	  rm -f $(B)/.cmp-ref $(B)/.cmp-new; \
+	elif [ -n "$$differed" ]; then \
+	  echo "  re-run with V=1 to see what changed in:$$differed"; \
+	  echo; \
+	fi; \
 	if [ $$seen -eq 0 ]; then \
 	  echo "  compared nothing: $(OUT)/dump listed no descriptors."; \
 	  echo "  Refusing to report success - a comparison of zero devices is not a pass."; \
@@ -212,6 +256,37 @@ compare: check-ref $(REF_TREE)/.stamp $(OUT)/dump
 	  echo "  $$known descriptor(s) crash on both sides - known bad, not a regression"; fi; \
 	if [ $$fail -eq 0 ]; then echo "  $$seen compared, no new crashes in the working tree"; \
 	else echo "  $$fail NEW CRASH(ES) - regression"; exit 1; fi
+
+endif  # compare in MAKECMDGOALS
+
+# The regression gate: everything that must pass against *any* firmware worth
+# shipping, so a red `make test` means the harness moved or a known good device
+# stopped decoding. Safe to wire into CI.
+#
+# fuzz, truncate and shortreport are deliberately NOT here. They fail by design on
+# firmware that has the bug they look for - fuzz and truncate both fail on main
+# today, and truncate still fails on the #332 fix - so folding them in would make
+# this permanently red and worth nothing. Their exit status is the finding, not a
+# regression. `make findings` runs those, and reports rather than gates.
+#
+# check-constants is last: it is the only one needing the Pico SDK submodule
+# populated, and it skips cleanly when it is not.
+.PHONY: test findings
+test: mouse kbd check-constants
+	@echo
+	@echo "known good decode unchanged against $(SRC)"
+
+# The bounds and overread checks, run for their numbers. Each prints its own
+# summary and its own exit status is ignored here on purpose: see above.
+findings: $(OUT)/fuzz $(OUT)/truncate $(OUT)/shortreport
+	@echo "=== fuzz ==="
+	-@$(OUT)/fuzz $(N) $(SEED)
+	@echo; echo "=== truncate ==="
+	-@$(OUT)/truncate
+	@echo; echo "=== shortreport ==="
+	-@$(OUT)/shortreport
+	@echo
+	@echo "these fail when they find something; read the counts, not the status"
 
 # harness.h hand-copies TinyUSB's item tags and usages. Nothing in a normal build
 # checks that copy, and a wrong value would not fail to compile - it would shift an

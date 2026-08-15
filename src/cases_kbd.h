@@ -1,0 +1,207 @@
+/* Keyboard decode cases, shared by kbdtest and shortreport.
+ *
+ * Split out of kbdtest.c so the two binaries cannot disagree about what a device
+ * sends. shortreport replays each of these at every truncated length, so a case
+ * added here is checked for both its decoded values and its behaviour on a short
+ * report, without being written twice.
+ *
+ * Every case carries two expectations: `keys` is what main produces, `keys_fixed`
+ * what a parser keeping every NKRO block produces. MAX_NKRO_BLOCKS exists only on
+ * the latter, so the right column is selected at compile time and one unmodified
+ * file asserts correctly against both.
+ */
+#pragma once
+
+#include "descriptors.h"
+
+#ifdef MAX_NKRO_BLOCKS
+#define KEEPS_EVERY_BLOCK 1
+#else
+#define KEEPS_EVERY_BLOCK 0
+#endif
+
+#define REPORT_MAX 40
+
+typedef struct {
+    const char *what;
+    uint8_t     report[REPORT_MAX];
+    int         len;
+    uint8_t     modifier;
+    uint8_t     keys[6];       /* expected on main */
+    uint8_t     keys_fixed[6]; /* expected once every NKRO block is kept */
+} kbd_case_t;
+
+typedef struct {
+    const char    *name;
+    const uint8_t *desc;
+    int            desc_len;
+    uint8_t        protocol;
+    const kbd_case_t  *cases;
+    unsigned       count;
+} kbd_device_t;
+
+/* Plain boot layout: [modifier][reserved][6 keycodes], no report ID, and
+   is_nkro clear, so extract_kbd_data takes the len == 8 shortcut. */
+static const kbd_case_t k_boot_cases[] = {
+    {"a",                  {0x00, 0x00, 0x04}, 8,                   0x00, {4}, {4}},
+    {"shift + a",          {0x02, 0x00, 0x04}, 8,                   0x02, {4}, {4}},
+    {"six keys at once",   {0x00, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 8,
+                                                                    0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+    {"every modifier",     {0xFF, 0x00, 0x00}, 8,                   0xFF, {0}, {0}},
+    {"nothing held",       {0x00, 0x00, 0x00}, 8,                   0x00, {0}, {0}},
+};
+
+/* Same path, but the second case is nine bytes: a keyboard that ships a report
+   ID byte on an interface whose descriptor never declared one. _extract_kbd_boot
+   drops the leading byte and reads the eight that follow. */
+static const kbd_case_t k_rpi_cases[] = {
+    {"a",                  {0x00, 0x00, 0x04}, 8,                   0x00, {4}, {4}},
+    {"ctrl + alt + delete",{0x05, 0x00, 0x4C}, 8,                   0x05, {0x4C}, {0x4C}},
+    {"stray leading id byte", {0x01, 0x02, 0x00, 0x04}, 9,          0x02, {4}, {4}},
+};
+
+/* HID_PROTOCOL_BOOT returns before the descriptor is consulted at all, so the
+   bytes are taken at face value whatever d_boot_keyboard happens to declare. */
+static const kbd_case_t k_boot_protocol_cases[] = {
+    {"shift + a, boot protocol", {0x02, 0x00, 0x04}, 8,             0x02, {4}, {4}},
+};
+
+/* Keyboard on report ID 1 of a three-collection dongle. uses_report_id is set,
+   so the boot shortcut is skipped and _extract_kbd_other runs: it drops the ID
+   byte, takes the modifier from modifier.offset_idx, and picks keycodes out of
+   the byte positions key_array marked - here bytes 1 through 6. */
+static const kbd_case_t k_composite_cases[] = {
+    {"a",                  {0x01, 0x00, 0x04}, 8,                   0x00, {4}, {4}},
+    {"ctrl + alt + delete",{0x01, 0x05, 0x4C}, 8,                   0x05, {0x4C}, {0x4C}},
+    {"six keys at once",   {0x01, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 8,
+                                                                    0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+};
+
+/* One 240-bit block on report ID 1: [id][modifier][30 bytes of bitmap]. The
+   block starts at bit 8 and usage_min is 0, so usage u is simply bit u of the
+   bitmap, counting from bit 0 of byte 2. */
+static const kbd_case_t k_nkro_cases[] = {
+    {"usage 4 (a)",        {0x01, 0x00, 0x10}, 32,                  0x00, {4}, {4}},
+    {"shift + a + b",      {0x01, 0x02, 0x30}, 32,                  0x02, {4, 5}, {4, 5}},
+    /* nine keys down, but a boot report only carries six */
+    {"more keys than fit", {0x01, 0x00, 0xF0, 0x1F}, 32,            0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+    {"highest usage, 239", {[31] = 0x80, [0] = 0x01}, 32,           0x00, {239}, {239}},
+};
+
+/* Keyboardio Model 100. The bitmap starts at bit 68 - byte 8, four bits in -
+   which [#216] blames for shifted keys. It decodes correctly: extract_bit_variable
+   seeds its bit cursor with offset & 7 (four) and its usage cursor with usage_min
+   (also four), so usage u lands on absolute bit 64 + u, which is where the
+   descriptor puts it. The two happening to be equal is what saves it. */
+static const kbd_case_t k_keyboardio_cases[] = {
+    {"usage 4 (a)",        {[8] = 0x10}, 36,                        0x00, {4}, {4}},
+    {"usage 5 and 6",      {[8] = 0x60}, 36,                        0x00, {5, 6}, {5, 6}},
+    {"usage 12, next byte",{[9] = 0x10}, 36,                        0x00, {12}, {12}},
+    {"shift + a",          {[0] = 0x02, [8] = 0x10}, 36,            0x02, {4}, {4}},
+};
+
+/* Logitech G Pro Superlight 2 receiver, [#215]. Three blocks; main keeps only
+   the first, because only that one clears the size > 32 filter. Usages 4 to 115
+   work either way. Usage 135 is the first of the Japanese and Korean IME keys
+   that live in the second block, and it is the case that separates the two. */
+static const kbd_case_t k_superlight2_cases[] = {
+    {"usage 4 (a)",        {0x01, 0x00, 0x01}, 17,                  0x00, {4}, {4}},
+    {"usage 115, end of block 0", {[0] = 0x01, [15] = 0x80}, 17,    0x00, {115}, {115}},
+    {"usage 135, IME key in block 1", {[0] = 0x01, [16] = 0x01}, 17,
+                                                                    0x00, {0}, {135}},
+};
+
+/* Wooting Two HE, [#335], "only CTRL, Shift & Win work". Four blocks, and main
+   keeps the last - usages 176 to 221, none of which are letters. So the modifier
+   byte survives and every ordinary key decodes to nothing, which is exactly the
+   reported symptom. The first row is the bug in one line: 'a' held down, nothing
+   comes out. */
+static const kbd_case_t k_wooting_cases[] = {
+    {"usage 4 (a), block 0",   {[1] = 0x01}, 28,                    0x00, {0}, {4}},
+    {"usage 51, block 1",      {[7] = 0x01}, 28,                    0x00, {0}, {51}},
+    {"usage 176, block 3",     {[22] = 0x01}, 28,                   0x00, {176}, {176}},
+    {"shift held, no key",     {[0] = 0x02}, 28,                    0x02, {0}, {0}},
+    {"shift + a",              {[0] = 0x02, [1] = 0x01}, 28,        0x02, {0}, {4}},
+};
+
+/* Logi Bolt receiver, interface 0. No report ID anywhere in the descriptor, and a
+   plain boot layout - modifier, an explicit reserved byte, six key slots - so
+   extract_kbd_data takes the len == 8 shortcut and never consults key_array. */
+static const kbd_case_t k_bolt_rx_cases[] = {
+    {"a",                  {0x00, 0x00, 0x04}, 8,                   0x00, {4}, {4}},
+    {"shift + a",          {0x02, 0x00, 0x04}, 8,                   0x02, {4}, {4}},
+    {"six keys at once",   {0x00, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 8,
+                                                                    0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+    {"every modifier",     {0xFF, 0x00, 0x00}, 8,                   0xFF, {0}, {0}},
+};
+
+/* Keychron Ultra-Link 8K, the report ID 7 keyboard collection on its own. Report
+   ID is declared, so the boot shortcut is skipped and _extract_kbd_other picks the
+   six keycodes out of the byte positions key_array marks - here bytes 1 to 6.
+   This is the control for the next block: alone, the keyboard decodes correctly. */
+static const kbd_case_t k_ultralink_kbd_cases[] = {
+    {"a",                  {0x07, 0x00, 0x04}, 8,                   0x00, {4}, {4}},
+    {"shift + a",          {0x07, 0x02, 0x04}, 8,                   0x02, {4}, {4}},
+    {"six keys at once",   {0x07, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 8,
+                                                                    0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+};
+
+/* The same reports against the whole of interface 1, which is what deskhop
+   actually parses. Both expectation columns hold WRONG answers on purpose: this
+   device decodes incorrectly on main and on [#359] alike, and these rows exist to
+   pin the bug down, not to bless it.
+
+   Interface 1 declares two keyboard collections, on report IDs 7 and 0x11.
+   get_keyboard() short-circuits on num_keyboards == 1 and hands back
+   keyboards[PRIMARY_KEYBOARD] every time, so the 0x11 collection never gets a slot
+   of its own and writes over the report ID 7 one. Its NKRO block sits at
+   offset_idx 1, and handle_keyboard_descriptor_values() assigns
+   key_array[offset_idx] = (data_type == ARRAY) unconditionally - the block is
+   VARIABLE, so that assignment CLEARS the key_array[1] the report ID 7 collection
+   had set. Byte 1 is the first of that keyboard's six key slots.
+
+   The visible result: the first keycode in every 6KRO report is dropped. Hold 'a'
+   alone and nothing comes out at all. Compare the rows above, which are the same
+   bytes against the same collection parsed by itself. */
+static const kbd_case_t k_ultralink_iface1_cases[] = {
+    {"a - first slot dropped",  {0x07, 0x00, 0x04}, 8,              0x00, {0}, {0}},
+    {"shift + a, key still lost", {0x07, 0x02, 0x04}, 8,            0x02, {0}, {0}},
+    {"six keys, first one lost", {0x07, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 8,
+                                                                    0x00, {5, 6, 7, 8, 9}, {5, 6, 7, 8, 9}},
+};
+
+/* The Keychron's NKRO collection on its own, report ID 0x11, 21-byte reports of
+   [id][modifier][19 bytes of bitmap]. Both columns are wrong on purpose again.
+
+   The descriptor declares 19 00 2A 98 00 with 95 98 - usage minimum 0, usage
+   maximum 152, 152 bits. That is 153 usages mapped onto 152 bits, off by one, and
+   it is what the hardware really ships. main's 1:1 check in _extract_kbd_nkro
+   rejects it and returns -1; [#359] rejects it earlier still, because
+   maps_usage_per_bit demands the same equality before the block is recorded at
+   all. Either way the NKRO path bails and _extract_kbd_other runs instead, and
+   this collection has no key_array for it to work from - so the modifier byte
+   survives and every key is lost. */
+static const kbd_case_t k_ultralink_nkro_cases[] = {
+    {"usage 4 (a), no keys out", {0x11, 0x00, 0x10}, 21,            0x00, {0}, {0}},
+    {"shift + a, modifier only", {0x11, 0x02, 0x10}, 21,            0x02, {0}, {0}},
+    {"highest usage, 151",       {0x11, 0x00, [20] = 0x80}, 21,     0x00, {0}, {0}},
+};
+
+#define DEV(d, p, c) {#d, d_##d, (int)sizeof(d_##d), p, c, (unsigned)ARRAY_SIZE(c)}
+
+static const kbd_device_t kbd_devices[] = {
+    DEV(boot_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
+    DEV(rpi_keyboard, HID_PROTOCOL_REPORT, k_rpi_cases),
+    DEV(boot_keyboard, HID_PROTOCOL_BOOT, k_boot_protocol_cases),
+    DEV(composite, HID_PROTOCOL_REPORT, k_composite_cases),
+    DEV(nkro_keyboard, HID_PROTOCOL_REPORT, k_nkro_cases),
+    DEV(keyboardio_keyboard, HID_PROTOCOL_REPORT, k_keyboardio_cases),
+    DEV(superlight2_rx_keyboard, HID_PROTOCOL_REPORT, k_superlight2_cases),
+    DEV(wooting_keyboard, HID_PROTOCOL_REPORT, k_wooting_cases),
+    DEV(bolt_rx_keyboard, HID_PROTOCOL_REPORT, k_bolt_rx_cases),
+    DEV(ultralink_keyboard, HID_PROTOCOL_REPORT, k_ultralink_kbd_cases),
+    DEV(ultralink_iface1, HID_PROTOCOL_REPORT, k_ultralink_iface1_cases),
+    DEV(ultralink_nkro_keyboard, HID_PROTOCOL_REPORT, k_ultralink_nkro_cases),
+};
+
+#undef DEV

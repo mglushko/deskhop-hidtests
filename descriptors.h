@@ -11,6 +11,16 @@
 
 #include <stdint.h>
 
+/* Every binary that includes this file uses a handful of these and ignores the
+   rest - mousetest reaches for nine, kbdtest for twelve, dump for the registry.
+   That is the intended use, not an oversight, so the warning is turned off here
+   and only here. It used to be turned off for the whole build with
+   -Wno-unused-variable in CFLAGS, which also hid genuinely unused locals in the
+   test code itself. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+
 /*==============================================================================
  *  Gameball trackball, VID 0782 PID 001B - github.com/hrvach/deskhop/issues/332
  *============================================================================*/
@@ -706,3 +716,5 @@ static inline const descriptor_t *find_descriptor(const char *name) {
             return &descriptors[i];
     return NULL;
 }
+
+#pragma GCC diagnostic pop
