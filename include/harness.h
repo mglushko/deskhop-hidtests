@@ -116,7 +116,14 @@ typedef struct TU_ATTR_PACKED {
 } hid_mouse_report_t;
 
 /* extract_report_values() only ever reads state->mouse_buttons, so this is all
-   of device_t the harness needs. */
+   of device_t the harness needs.
+
+   The width is copied from the target's src/include/structs.h, and it is load
+   bearing: extract_report_values() falls back to state->mouse_buttons when the
+   button field is skipped, so a wider field here would let a value survive that
+   the firmware truncates. Nothing checks this copy the way `make check-constants`
+   checks the ones above - check_constants.py compares macros, not struct fields -
+   so it is worth re-reading structs.h when a decode result looks off. */
 typedef struct {
-    int32_t mouse_buttons;
+    int16_t mouse_buttons;
 } device_t;

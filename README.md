@@ -12,6 +12,7 @@ headers, so results reflect the real code rather than a reimplementation of it.
 ```sh
 make dump D=gameball_trackball          # what does the parser make of this device?
 make compare REF=main                   # did my change alter any known good device?
+make test                               # did any known good device stop decoding?
 make fuzz N=40000                       # does it stay inside usages[]?
 ```
 
@@ -32,11 +33,22 @@ Needs `gcc`, `python3`, and `make`. No cross compiler, no Pico SDK.
 | `make mouse` | do real pointer reports decode to the right X, Y, wheel, pan, buttons? |
 | `make kbd` | do real keyboard reports decode to the right modifier and keycodes? |
 | `make fuzz N=<n>` | does any generated descriptor push an access outside `usages[]`? |
-| `make truncate` | does a short or malformed descriptor make the parser read past the buffer? |
+| `make truncate` | does a short or malformed *descriptor* make the parser read past the buffer? |
+| `make shortreport` | does a short *report* make the decode path read past the buffer? |
 | `make exhaust` | what happens when the usage array runs out before the mouse collection? |
 | `make timing` | how long does a large but legal Report Count take to parse? |
 | `make check-constants` | do the constants `harness.h` copies still match TinyUSB's? |
+| `make test` | the regression gate: `mouse`, `kbd`, `check-constants` |
+| `make findings` | the three bounds checks, run for their numbers |
 | `make all` | build everything without running it |
+
+`test` is the one to wire into CI. It holds only the checks that must pass against
+any firmware worth shipping, so a red `make test` means the harness moved or a known
+good device stopped decoding. `fuzz`, `truncate` and `shortreport` are deliberately
+outside it: they fail by design on firmware that has the bug they look for - two of
+the three fail on `main` today - so folding them in would make the gate permanently
+red and worth nothing. Their exit status is the finding. `make findings` runs those
+three together and reports rather than gates.
 
 `compare` is the one to reach for when reviewing a parser change. It materialises the
 reference commit with `git archive`, builds the same harness twice, and diffs the
@@ -197,9 +209,19 @@ matter; see [Adding a device](#adding-a-device).
   report its absolute index and then clamp, which is what lets one process fuzz
   thousands of descriptors that would otherwise corrupt parser state on the first.
 - ASan is on for the correctness targets. It is what turns "parses wrong" into an
-  exact out-of-bounds report - **for descriptor bytes**, which are heap allocated at
-  exactly the right size by `truncate` and the decode tests so a redzone sits
-  immediately after the last valid byte.
+  exact out-of-bounds report - **for descriptor and report bytes**, which are heap
+  allocated at exactly the right size by `truncate`, `shortreport` and the decode
+  tests so a redzone sits immediately after the last valid byte.
+- UBSan is on beside it, for a class ASan cannot see. `get_report_value()` computes
+  `(1u << val->size) - 1` and `0xFFFFFFFFU << val->size`, and `val->size` is the
+  *swapped* Report Count for 1-bit fields, so a mouse declaring 40 one-bit buttons
+  shifts by 40. That is undefined, and on x86 it silently takes the shift mod 32 and
+  returns a plausible wrong number rather than faulting. No device in the corpus
+  reaches that path today, so this costs nothing and is waiting.
+- `src/cases_mouse.h` and `src/cases_kbd.h` hold the decode cases, shared by
+  `mousetest`/`kbdtest` and `shortreport`. A case added there is checked both for
+  the values it decodes to and for its behaviour when truncated, without being
+  written twice.
 - **ASan cannot see the `usages[]` overflow at all**, which is the whole reason
   `tools/instrument.py` and `fuzz` exist. `usages[128]` is a member of the global
   `parser_state_t`, followed immediately by `p_usage`, `global_usage`, `collection`,
@@ -228,11 +250,12 @@ over the current 44-descriptor corpus.
 | check | main | [#361] |
 |---|---|---|
 | `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 42 identical |
-| `mouse` | 120 of 120 cases over 9 devices | 120 of 120 cases |
+| `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases |
 | `kbd` | 41 of 41 cases over 12 devices | 41 of 41 cases |
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
 | `truncate` | 2162 of 4016 prefixes overread | 2043 of 4016 prefixes overread |
+| `shortreport` | 774 of 1159 truncated reports overread | 774 of 1159, identical - the fix is in the parser, this is the decode path |
 | `exhaust` | segfaults on roughly 7 runs in 10, see below | never crashes; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there |
 | `timing` | segfaults | ~17.5 ns/element on x86-64 |
 
@@ -255,10 +278,15 @@ here at 8 crashes in 10 with ASLR on, and 0 in 10 under `setarch -R`. Do not rea
 clean `exhaust` run on `main` as the bug being absent. It is an out-of-bounds write
 that happened to land somewhere harmless.
 
-The corpus size feeds into this too, because `descriptors.h` is linked into
-`exhaust` and moves what sits after `parser_state` in the BSS. Removing one
-unrelated descriptor was enough to change this from "usually prints garbage" to
-"usually segfaults".
+The corpus size feeds into this too, though not by moving what sits next to
+`parser_state`: the descriptor arrays are `static const` with initialisers, so
+they land in `.rodata`, and what actually follows `parser_state` in the BSS is
+`exhaust.c`'s own `iface` and `desc[16384]`, by link order. What changing the
+corpus moves is the size of `.rodata`, and so where the BSS lands relative to
+page boundaries and the heap - which is enough, because the write has already
+left the object and its landing site is decided by the process memory map.
+Removing one unrelated descriptor was enough to change this from "usually prints
+garbage" to "usually segfaults".
 
 The other two open parser PRs, measured the same way:
 
@@ -289,6 +317,72 @@ Those bytes had never been dumped before, so this is now measured rather than as
 ## Open findings
 
 None of these are addressed by the [#332] fix.
+
+**Short reports read past the end of the buffer, in four separate places.** This
+is the counterpart to the truncated-descriptor finding below, and the more serious
+of the two: a descriptor arrives once at enumeration, a report arrives thousands of
+times a second, and nothing checks either against the length the other implied. A
+descriptor can declare a 30-byte NKRO bitmap and the device can then send eight
+bytes; every offset the parser derived now points past the end.
+
+`make shortreport` replays each `mouse` and `kbd` case at every length from its
+receiver's floor up to full, in an exact-size allocation, forked, under ASan. On
+`main` 774 of 1159 fail. The four distinct causes, each reproducible on its own:
+
+```sh
+make shortreport                          # the table
+./build/<target>/shortreport mx518_mouse 0 5        # 1
+./build/<target>/shortreport kensington_expert_mouse 0 1  # 2
+./build/<target>/shortreport nkro_keyboard 0 8      # 3
+./build/<target>/shortreport boot_mouse 0 1         # 4
+```
+
+1. **`get_report_value()` reads `report[len]`.** The loop tests `byte_offset`
+   *before* incrementing it:
+
+   ```c
+   while (val->size > remaining_bits && byte_offset < len) {
+       result |= report[++byte_offset] << remaining_bits;
+   ```
+
+   so a field still needing bits when `byte_offset == len - 1` reads one past the
+   end. `mx518_mouse` shows it alone, because that device declares no report ID
+   and so cannot be hitting cause 2 as well.
+
+2. **`extract_value()` passes a `len` it has already invalidated.** It steps
+   `raw_report` past the report ID byte and then hands `get_report_value()` the
+   *original* length, so the `byte_offset >= len` guard is off by one in the
+   shifted frame - and stacks with cause 1 for up to two bytes past the end.
+   Every report-ID device in the corpus fails at length 1 for this reason.
+
+3. **`extract_bit_variable()` has no bound on the report buffer at all.** Its loop
+   is bounded by `key_count < len` where `len` is `KEYS_IN_USB_REPORT`, six - the
+   number of keys *found*, not the size of the buffer. It walks
+   `usage_max - usage_min + 1` bits regardless, which is 240 on `nkro_keyboard`, so
+   an 8-byte report is read to byte index 30. `_extract_kbd_other` is the same
+   shape, copying `src[i]` for every `i < MAX_KEYS` that `key_array` marks.
+
+4. **The boot-protocol path casts without checking length.**
+   `extract_report_values()` returns early when the protocol is BOOT and reads
+   through a 5-byte `hid_mouse_report_t *` without consulting `len`. `mousetest`
+   had no boot-protocol mouse case until now, which is why this had not come up;
+   `kbdtest` has had the keyboard equivalent all along.
+
+Reachability differs per path, because each receiver applies its own guard before
+the decode path, and `shortreport` starts at that floor rather than at 1 so it
+cannot report something a device is unable to send:
+
+| receiver | guard | shortest reachable report |
+|---|---|---|
+| `process_mouse_report` | none | 1 byte |
+| `process_keyboard_report` | `length < KBD_REPORT_LENGTH` returns | 8 bytes |
+
+Those floors are hand copies of firmware logic, like `mousetest.c`'s `dispatch()`,
+and unlike that one they are load bearing - raising a floor hides a finding and
+lowering one invents a false one. They are commented as such in `src/shortreport.c`.
+
+Present identically on `main` and on [#361]: 774 of 1159 either way. The [#332]
+work is in the parser, and all four of these are in the decode path.
 
 **Short descriptors read past the end of the buffer.** `make truncate` fails on
 roughly half of all prefixes, every descriptor, starting at length 1. The parse loop
@@ -442,6 +536,14 @@ and its three helpers live in `hid_report.c`, which every binary here already
 compiles; only the declaration sits in `keyboard.h`, and `keyboard.c` just calls in.
 `make kbd` covers that path now, which is how [#359] got checked at decode level and
 how the [#216] suspicion about the Model 100's bit-68 bitmap got cleared.
+
+## Licence
+
+GPL-3.0, matching deskhop. Not a formality: `tools/lift.py` copies function bodies
+verbatim out of deskhop's GPLv3 sources and `tools/instrument.py` writes a modified
+copy of `hid_parser.c`, so everything under `build/*/gen/` is a derivative work.
+Both tools stamp that notice into what they generate, so a generated file read out
+of the build directory still says where it came from.
 
 <!-- upstream issues and PRs -->
 [#117]: https://github.com/hrvach/deskhop/issues/117
