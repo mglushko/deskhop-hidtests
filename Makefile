@@ -10,12 +10,13 @@
 #   make compare REF=main            diff the working tree against a commit
 #   make mouse                       end to end mouse decode
 #   make kbd                         end to end keyboard decode
+#   make consumer                    end to end consumer and system control
 #   make fuzz N=40000                bounds check over generated descriptors
 #   make truncate                    every prefix of every descriptor, under ASan
 #   make shortreport                 every prefix of every report, under ASan
 #   make exhaust                     usage array exhaustion behaviour
 #   make timing                      cost per element vs report count
-#   make test                        the regression gate: mouse, kbd, constants
+#   make test                        the regression gate: mouse, kbd, consumer, constants
 #   make findings                    the bounds checks, for their numbers
 #   make all
 #
@@ -87,9 +88,10 @@ HDRS      := $(addprefix $(GEN)/,$(COPY_HDRS))
 CORE := $(PARSER) $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c
 
 BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/kbdtest $(OUT)/fuzz $(OUT)/exhaust \
-        $(OUT)/timing $(OUT)/truncate $(OUT)/shortreport
+        $(OUT)/timing $(OUT)/truncate $(OUT)/shortreport $(OUT)/cctest
 
-.PHONY: all dump compare mouse kbd fuzz exhaust timing truncate shortreport clean check-target \
+.PHONY: all dump compare mouse kbd consumer fuzz exhaust timing truncate shortreport clean \
+        check-target \
         check-ref check-constants
 
 all: check-target $(BINS)
@@ -117,6 +119,13 @@ $(GEN)/lifted_kbd.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 $(GEN)/lifted_mouse.c: $(SRC)/src/mouse.c tools/lift.py | $(GEN)
 	@python3 tools/lift.py $< $@ extract_value extract_report_values
 
+# The two receivers PR #358 changes. Lifted rather than reimplemented for the same
+# reason as everything else here: a hand copy would answer the question "does this
+# PR do anything" with whatever the copy happened to say. The senders one level
+# below them are NOT lifted - see src/recorders.c for where the cut is and why.
+$(GEN)/lifted_cc.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
+	@python3 tools/lift.py $< $@ process_consumer_report process_system_report
+
 $(GEN)/hid_parser_instr.c: $(PARSER) tools/instrument.py | $(GEN)
 	@python3 tools/instrument.py $< $@
 
@@ -138,6 +147,14 @@ $(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(CORE) | $(GEN)
 
 $(OUT)/truncate: src/truncate.c descriptors.h $(HDRS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/truncate.c $(CORE)
+
+# The one target that does NOT link src/stubs.c's consumer and system stubs:
+# -DHARNESS_LIFT_CC keeps them out, and $(GEN)/lifted_cc.c supplies the real bodies
+# from the branch under test. src/recorders.c supplies what those bodies reach for.
+$(OUT)/cctest: src/cctest.c src/cases_cc.h descriptors.h $(HDRS) $(CORE) \
+               $(GEN)/lifted_cc.c src/recorders.c | $(GEN)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) -DHARNESS_LIFT_CC -o $@ src/cctest.c \
+	    $(GEN)/lifted_cc.c src/recorders.c $(CORE)
 
 # needs lifted_mouse.c: it drives extract_report_values, the same entry point
 # mousetest uses, so that the truncated reports go through the firmware's own
@@ -164,6 +181,9 @@ mouse: $(OUT)/mousetest
 
 kbd: $(OUT)/kbdtest
 	@$(OUT)/kbdtest
+
+consumer: $(OUT)/cctest
+	@$(OUT)/cctest
 
 exhaust: $(OUT)/exhaust
 	@$(OUT)/exhaust
@@ -272,7 +292,7 @@ endif  # compare in MAKECMDGOALS
 # check-constants is last: it is the only one needing the Pico SDK submodule
 # populated, and it skips cleanly when it is not.
 .PHONY: test findings
-test: mouse kbd check-constants
+test: mouse kbd consumer check-constants
 	@echo
 	@echo "known good decode unchanged against $(SRC)"
 

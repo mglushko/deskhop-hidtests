@@ -115,15 +115,51 @@ typedef struct TU_ATTR_PACKED {
     int8_t  pan;
 } hid_mouse_report_t;
 
-/* extract_report_values() only ever reads state->mouse_buttons, so this is all
-   of device_t the harness needs.
+/* The parts of device_t the lifted code actually reads. extract_report_values()
+   wants mouse_buttons; process_consumer_report() and process_system_report() want
+   the two fields CURRENT_BOARD_IS_ACTIVE_OUTPUT compares.
 
-   The width is copied from the target's src/include/structs.h, and it is load
-   bearing: extract_report_values() falls back to state->mouse_buttons when the
-   button field is skipped, so a wider field here would let a value survive that
-   the firmware truncates. Nothing checks this copy the way `make check-constants`
-   checks the ones above - check_constants.py compares macros, not struct fields -
-   so it is worth re-reading structs.h when a decode result looks off. */
+   Every width here is copied from the target's src/include/structs.h and each is
+   load bearing. mouse_buttons is the one to be careful with:
+   extract_report_values() falls back to state->mouse_buttons when the button field
+   is skipped, so a wider field here would let a value survive that the firmware
+   truncates - it was int32_t once, and silently disagreed with the device.
+
+   Nothing checks this copy the way `make check-constants` checks the constants
+   above; check_constants.py compares macros, not struct fields. Re-read structs.h
+   when a decode result looks off. Last checked against main at 59577cc:
+   mouse_buttons int16_t (structs.h:110), active_output and board_role uint8_t
+   (structs.h:101-102). */
 typedef struct {
     int16_t mouse_buttons;
+    uint8_t active_output;
+    uint8_t board_role;
 } device_t;
+
+/*==============================================================================
+ *  Recording stand-ins for the send path
+ *
+ *  process_consumer_report() and process_system_report() end by handing a payload
+ *  to one of three functions, depending on CURRENT_BOARD_IS_ACTIVE_OUTPUT. All
+ *  three are recorded rather than implemented (src/recorders.c), because what a
+ *  test wants to know is exactly what they were handed. See src/cctest.c.
+ *============================================================================*/
+
+typedef enum {
+    SENT_NOTHING = 0,
+    SENT_CONSUMER_LOCAL,  /* send_consumer_control(), board is the active output */
+    SENT_SYSTEM_LOCAL,    /* send_system_control(),   board is the active output */
+    SENT_QUEUED,          /* queue_packet(),          goes to the other board    */
+} sent_via_e;
+
+typedef struct {
+    sent_via_e via;
+    int        calls;      /* more than one send from a single report is itself a bug */
+    uint8_t    payload[8];
+    int        len;        /* bytes the sender was told to send, -1 if it does not say */
+    int        packet_type;/* the enum packet_type_e queue_packet got, else -1 */
+} sent_t;
+
+extern sent_t harness_sent;
+
+void harness_sent_reset(void);
