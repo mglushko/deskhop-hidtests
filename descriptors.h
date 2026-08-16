@@ -639,6 +639,43 @@ static const uint8_t d_many_usages[] = {
     0xC0,
 };
 
+/* SYNTHETIC: a System Control collection alone on an interface, declaring no
+   Report ID at all - so iface->uses_report_id stays false and its reports carry no
+   leading ID byte. Power, Sleep and Wake as three 1-bit variables plus five bits of
+   padding: one byte on the wire.
+
+   This is the only case in which PR #358 changes process_system_report, and no real
+   device here reaches it. That is not for want of looking: every descriptor dump in
+   all 220 deskhop issues was searched - 150 unique interface descriptors - and none
+   has a System Control collection on an interface without a Report ID. The reason
+   looks structural rather than accidental. System Control is a two or three bit
+   block that vendors bundle onto a shared interface with Consumer Control, and once
+   two collections share an interface, Report IDs become mandatory.
+
+   The nearest real miss is cherry_mw8c_consumer, whose system collection declares no
+   ID *of its own* - but its interface still uses IDs from the consumer block ahead of
+   it, so uses_report_id is set and #358 is inert on it. That device is already here,
+   and is already the subject of its own finding.
+
+   So this entry exists to exercise a path that is real in the code and absent from
+   the field. It is marked synthetic for exactly that reason. */
+static const uint8_t d_system_no_report_id[] = {
+    0x05, 0x01,        /* Usage Page (Generic Desktop) */
+    0x09, 0x80,        /* Usage (System Control)       */
+    0xA1, 0x01,        /* Collection (Application)     */
+    0x15, 0x00,        /*   Logical Minimum (0)        */
+    0x25, 0x01,        /*   Logical Maximum (1)        */
+    0x75, 0x01,        /*   Report Size (1)            */
+    0x95, 0x03,        /*   Report Count (3)           */
+    0x09, 0x81,        /*   Usage (System Power Down)  */
+    0x09, 0x82,        /*   Usage (System Sleep)       */
+    0x09, 0x83,        /*   Usage (System Wake Up)     */
+    0x81, 0x02,        /*   Input (Data,Var,Abs)       */
+    0x95, 0x05,        /*   Report Count (5)           */
+    0x81, 0x01,        /*   Input (Cnst,Ary,Abs) - pad */
+    0xC0,              /* End Collection               */
+};
+
 /* SYNTHETIC: a legal mouse whose X/Y sit behind a vendor block, for checking
    that a parser change does not lose them. */
 static const uint8_t d_vendor_then_mouse[] = {
@@ -706,6 +743,7 @@ static const descriptor_t descriptors[] = {
     D(ultralink_vendor_c1),
     D(many_usages),
     D(vendor_then_mouse),
+    D(system_no_report_id),
 };
 
 #undef D

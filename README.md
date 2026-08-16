@@ -32,13 +32,14 @@ Needs `gcc`, `python3`, and `make`. No cross compiler, no Pico SDK.
 | `make compare REF=<commit>` | does my change alter the parse of any known good device? |
 | `make mouse` | do real pointer reports decode to the right X, Y, wheel, pan, buttons? |
 | `make kbd` | do real keyboard reports decode to the right modifier and keycodes? |
+| `make consumer` | do media and power keys reach the send path, and does this branch have [#358]? |
 | `make fuzz N=<n>` | does any generated descriptor push an access outside `usages[]`? |
 | `make truncate` | does a short or malformed *descriptor* make the parser read past the buffer? |
 | `make shortreport` | does a short *report* make the decode path read past the buffer? |
 | `make exhaust` | what happens when the usage array runs out before the mouse collection? |
 | `make timing` | how long does a large but legal Report Count take to parse? |
 | `make check-constants` | do the constants `harness.h` copies still match TinyUSB's? |
-| `make test` | the regression gate: `mouse`, `kbd`, `check-constants` |
+| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `check-constants` |
 | `make findings` | the three bounds checks, run for their numbers |
 | `make all` | build everything without running it |
 
@@ -107,8 +108,9 @@ artifact, and it is not known whether that device really lacks a key array.
 
 ### What the corpus is already worth
 
-The corpus is 44 descriptors, 35 of them captured from real devices: 18 from upstream
-issues, 4 from dumps published elsewhere, and 13 dumped here from two devices on hand. What they have bought so far:
+The corpus is 45 descriptors, 35 of them captured from real devices: 18 from upstream
+issues, 4 from dumps published elsewhere, and 13 dumped here from two devices on hand.
+What they have bought so far:
 
 - **Wooting Two HE** ([#335], "only CTRL, Shift & Win work"). `make dump
   D=wooting_keyboard` shows why: the keyboard declares four key blocks as separate
@@ -128,7 +130,11 @@ issues, 4 from dumps published elsewhere, and 13 dumped here from two devices on
   all pass - so whatever broke for that reporter was fixed by `6c92c11`, which tracks
   offsets per report ID.
 - **Cherry KC6000** ([#117], media keys not working). A consumer control block with
-  no report ID at all, which is the case PR [#358] addresses.
+  no report ID at all, which is the case PR [#358] addresses - and the only device
+  here that separates that PR from `main`. `make consumer` shows what it costs: on
+  `main`, pressing Calculator sends Play/Pause, because the receiver reads byte 1
+  where the data is in byte 0 and finds bit 0 of the wrong byte set. It does not
+  merely lose the key, it reports a different one.
 - **Microsoft Wired Keyboard 600** ([#297]) is the cleanest reproduction of the stale
   usage cursor: its system control block comes out as `usage=0xFF02 page=0x0001`, an
   identifier it never declares, carried over from the vendor block in the preceding
@@ -218,10 +224,17 @@ matter; see [Adding a device](#adding-a-device).
   shifts by 40. That is undefined, and on x86 it silently takes the shift mod 32 and
   returns a plausible wrong number rather than faulting. No device in the corpus
   reaches that path today, so this costs nothing and is waiting.
-- `src/cases_mouse.h` and `src/cases_kbd.h` hold the decode cases, shared by
-  `mousetest`/`kbdtest` and `shortreport`. A case added there is checked both for
-  the values it decodes to and for its behaviour when truncated, without being
-  written twice.
+- `src/cases_mouse.h`, `src/cases_kbd.h` and `src/cases_cc.h` hold the decode cases,
+  shared by `mousetest`/`kbdtest` and `shortreport`. A case added there is checked
+  both for the values it decodes to and for its behaviour when truncated, without
+  being written twice.
+- `dump` prints `cc_array` and `sys_array` under the `consumer:` and `system:`
+  sections rather than under the keyboard loop. They live on a `keyboard_t`, but they
+  are consumer and system state - `handle_consumer_control_values()` writes them
+  through `get_keyboard()` and `process_consumer_report()` reads them back the same
+  way. Printed under the keyboard loop they vanished whenever `num_keyboards` was 0,
+  which is exactly `cherry_kc6000_consumer`, the one device whose `cc_array` decides
+  whether [#358] does anything.
 - **ASan cannot see the `usages[]` overflow at all**, which is the whole reason
   `tools/instrument.py` and `fuzz` exist. `usages[128]` is a member of the global
   `parser_state_t`, followed immediately by `p_usage`, `global_usage`, `collection`,
@@ -249,14 +262,15 @@ over the current 44-descriptor corpus.
 
 | check | main | [#361] |
 |---|---|---|
-| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 42 identical |
+| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 43 identical |
 | `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases |
 | `kbd` | 41 of 41 cases over 12 devices | 41 of 41 cases |
+| `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change |
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
-| `truncate` | 2162 of 4016 prefixes overread | 2043 of 4016 prefixes overread |
+| `truncate` | 2175 of 4043 prefixes overread | 2056 of 4043 prefixes overread |
 | `shortreport` | 774 of 1159 truncated reports overread | 774 of 1159, identical - the fix is in the parser, this is the decode path |
-| `exhaust` | segfaults on roughly 7 runs in 10, see below | never crashes; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there |
+| `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there |
 | `timing` | segfaults | ~17.5 ns/element on x86-64 |
 
 Fuzz counts depend on the generator and the seed, and `truncate` counts move with
@@ -264,19 +278,27 @@ the size of the corpus. Change either and these numbers move; the qualitative
 result, zero versus non-zero, is the part that matters. The `timing` figure is per
 host, not per firmware.
 
-`exhaust` on `main` is the one entry here that is not reproducible, and the reason
-is worth stating rather than hiding behind a single word. At 500 preceding usages
-`p_usage` has walked clean out of `parser_state`, and this line writes through it:
+`exhaust` on `main` used to be the one entry here that was not reproducible. At 500
+preceding usages `p_usage` has walked clean out of `parser_state`, and this line
+writes through it:
 
 ```c
 *parser->p_usage = *(parser->p_usage - parser->usage_count);
 ```
 
 Where that write lands is decided by the process memory map, so the same binary
-segfaults on some runs and prints a plausible-looking table on others - measured
-here at 8 crashes in 10 with ASLR on, and 0 in 10 under `setarch -R`. Do not read a
-clean `exhaust` run on `main` as the bug being absent. It is an out-of-bounds write
-that happened to land somewhere harmless.
+segfaulted on some runs and printed a plausible-looking table on others - measured at
+8 crashes in 10 with ASLR on, and 0 in 10 under `setarch -R`. That warning is now
+obsolete, and turning ASan and UBSan on together is what obsoleted it: **`main` now
+fails 10 runs in 10**, with a diagnosis rather than a signal. Which sanitiser catches
+it first still moves with the layout - measured at 6 runs reporting ASan
+`global-buffer-overflow` in `store_element` (`hid_parser.c:77`, the read of
+`*(parser->p_usage + i)`, which ASan calls "a wild pointer") and 4 reporting a UBSan
+misaligned `uint16_t` store at `hid_parser.c:104` - but a clean run is no longer one
+of the outcomes. Both are the same root cause: a cursor that has left the object.
+
+The write itself is still layout-dependent, so this says the sanitisers now catch it
+reliably on this build, not that the underlying behaviour became deterministic.
 
 The corpus size feeds into this too, though not by moving what sits next to
 `parser_state`: the descriptor arrays are `static const` with initialisers, so
@@ -285,15 +307,15 @@ they land in `.rodata`, and what actually follows `parser_state` in the BSS is
 corpus moves is the size of `.rodata`, and so where the BSS lands relative to
 page boundaries and the heap - which is enough, because the write has already
 left the object and its landing site is decided by the process memory map.
-Removing one unrelated descriptor was enough to change this from "usually prints
-garbage" to "usually segfaults".
+Removing one unrelated descriptor was once enough to change this from "usually prints
+garbage" to "usually segfaults". It now only changes which sanitiser reports it.
 
 The other two open parser PRs, measured the same way:
 
 | PR | what `compare REF=main` shows |
 |---|---|
 | [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. |
-| [#358] media keys without report IDs | identical parse on all 44, including `cherry_kc6000_consumer`, the device it fixes - see below. |
+| [#358] media keys without report IDs | identical parse on all 45, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. |
 
 Two caveats on [#359]. `MAX_NKRO_BLOCKS` is 4 and the Wooting declares exactly 4, so
 there is no headroom: a keyboard splitting its bitmap five ways would still lose the
@@ -309,6 +331,22 @@ identical 1:1 test. Both branches end up in `_extract_kbd_other` and lose every 
 this is not a regression, but it does mean the stricter rule silently drops a real
 keyboard's bitmap at parse time rather than decode time. Whether a descriptor that is off
 by one should be honoured or rejected is a judgement call worth making deliberately.
+
+[#358] changes two functions, and in practice only one of them matters. Its consumer
+half fixes a real device, the Cherry KC6000. Its system half needs an interface with a
+System Control collection and no report ID anywhere on it, and no such device has ever
+been reported: every descriptor dump in all 220 deskhop issues was searched - 150 unique
+interface descriptors - and all nine carrying a system collection declare a report ID.
+The reason looks structural rather than accidental. System Control is a two or three bit
+block that vendors bundle onto a shared interface with Consumer Control, and once two
+collections share an interface, report IDs become mandatory. The nearest real miss is
+`cherry_mw8c_consumer`, whose system collection declares no ID *of its own* - but its
+interface still uses IDs from the consumer block ahead of it, so `uses_report_id` is set
+and the PR is inert on it.
+
+That is why `d_system_no_report_id` is synthetic and says so. The path is real in the
+code and absent from the field, and `make consumer` exercises it so the system half is
+measured rather than assumed - but nobody should read that row as a device anyone owns.
 
 The two new devices add nothing for [#358]: the Bolt's consumer and system collections
 both declare their own report IDs, which is precisely the case that PR does *not* change.
@@ -522,13 +560,33 @@ invisible to it.
 
 PR [#358] is exactly that change: it teaches `process_consumer_report` and
 `process_system_report` not to skip a leading report ID byte that isn't there. The
-parse is untouched, so `compare` prints `identical parse` on all 31 descriptors
-including `cherry_kc6000_consumer`. That is the correct answer to the question
-`compare` asks, and the wrong answer to "does this PR do anything". Covering it would
-mean lifting the consumer and system receivers the way `tools/lift.py` already lifts
-`get_keyboard` and the mouse extractors, which needs more than the counting stubs in
-`src/stubs.c`: both receivers reach `global_state`, `queue_packet`,
-`send_consumer_control` and `CURRENT_BOARD_IS_ACTIVE_OUTPUT`.
+parse is untouched, so `compare` still prints `identical parse` on all 45
+descriptors including `cherry_kc6000_consumer`, the device it fixes. That is the
+correct answer to the question `compare` asks, and the wrong answer to "does this PR
+do anything".
+
+**`make consumer` now answers that second question.** Both receivers are lifted by
+`tools/lift.py` the way `get_keyboard` and the mouse extractors already were, and
+what they hand to the send path is recorded and asserted. The cut is one level below
+them: `send_consumer_control` and `send_system_control` are *not* lifted, because
+they reach `queue_cc_packet`, `time_us_64()` and `state->last_activity[BOARD_ROLE]`.
+Those three, plus `queue_packet` and `global_state`, are recorded stand-ins in
+`src/recorders.c`, which is exactly the boundary where a test can see the decision a
+receiver made.
+
+#358 changes function bodies only - no macro, no header change - so `cases_kbd.h`'s
+`#ifdef MAX_NKRO_BLOCKS` trick has nothing to test. Every case therefore carries both
+answers and `cctest` **classifies** the branch rather than assuming it, ending in a
+verdict line:
+
+```
+  separating rows: 7 behave like main, 0 like #358
+  VERDICT: this branch does NOT have the #358 fix
+```
+
+A run where no separating row fires exits non-zero rather than reporting success, on
+the same grounds as `fuzz`'s `touches == 0` guard: a classifier that classified
+nothing has stopped testing what it exists for.
 
 Keyboard reports used to be described here as the same kind of gap, on the grounds
 that the NKRO bitmap is unpacked in `keyboard.c`. That was wrong. `extract_kbd_data`

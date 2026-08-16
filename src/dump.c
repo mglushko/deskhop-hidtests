@@ -55,22 +55,33 @@ static void dump_iface(hid_interface_t *iface) {
         dump_val("nkro", &kb->nkro);
 #endif
 
-        printf("      cc:");
-        for (int j = 0; j < MAX_CC_BUTTONS; j++)
-            printf(" %04X", kb->cc_array[j]);
-        printf("\n      sys:");
-        for (int j = 0; j < MAX_SYS_BUTTONS; j++)
-            printf(" %04X", kb->sys_array[j]);
-        printf("\n");
     }
+
+    /* cc_array and sys_array live on a keyboard_t, but they are consumer and system
+       state: handle_consumer_control_values() writes them through get_keyboard(),
+       and process_consumer_report() reads them back the same way. Printing them
+       under the keyboard loop meant they vanished whenever num_keyboards was 0 -
+       which is exactly the case for cherry_kc6000_consumer, a consumer-only
+       interface whose cc_array is the whole point. Print them where they are used,
+       and read keyboards[PRIMARY_KEYBOARD] the way get_keyboard() does when an
+       interface has no report IDs. */
+    const keyboard_t *cckb = &iface->keyboards[PRIMARY_KEYBOARD];
 
     printf("  consumer: rid=%u var=%d arr=%d\n", iface->consumer.report_id,
            iface->consumer.is_variable, iface->consumer.is_array);
     dump_val("consumer", &iface->consumer.val);
+    printf("      cc:");
+    for (int j = 0; j < MAX_CC_BUTTONS; j++)
+        printf(" %04X", cckb->cc_array[j]);
+    printf("\n");
 
     printf("  system: rid=%u var=%d arr=%d\n", iface->system.report_id, iface->system.is_variable,
            iface->system.is_array);
     dump_val("system", &iface->system.val);
+    printf("      sys:");
+    for (int j = 0; j < MAX_SYS_BUTTONS; j++)
+        printf(" %04X", cckb->sys_array[j]);
+    printf("\n");
 
     printf("  handlers:");
     for (int i = 0; i < MAX_REPORTS; i++) {

@@ -39,6 +39,12 @@ KEEP_DISTINCT void process_keyboard_report(uint8_t *report, int len, uint8_t itf
     (void)report; (void)len; (void)itf; (void)iface;
 }
 
+/* cctest lifts these two out of the target's keyboard.c and links the real bodies
+   instead, so it defines HARNESS_LIFT_CC to keep them out of here. Guarding rather
+   than forking a second stubs file keeps the mouse and keyboard stubs, and the
+   address-distinctness they depend on, in one place. */
+#ifndef HARNESS_LIFT_CC
+
 KEEP_DISTINCT void process_consumer_report(uint8_t *report, int len, uint8_t itf,
                                            hid_interface_t *iface) {
     (void)report; (void)len; (void)itf; (void)iface;
@@ -48,3 +54,5 @@ KEEP_DISTINCT void process_system_report(uint8_t *report, int len, uint8_t itf,
                                          hid_interface_t *iface) {
     (void)report; (void)len; (void)itf; (void)iface;
 }
+
+#endif

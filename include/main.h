@@ -53,3 +53,19 @@ int32_t extract_kbd_data(uint8_t *raw_report, int len, uint8_t itf, hid_interfac
 /* lifted verbatim out of the target's mouse.c by tools/lift.py */
 void extract_report_values(uint8_t *raw_report, int len, device_t *state,
                            mouse_values_t *values, hid_interface_t *iface);
+
+/*==============================================================================
+ *  The consumer and system send path
+ *
+ *  process_consumer_report and process_system_report are lifted out of the
+ *  target's keyboard.c for the cctest target only, where they replace the empty
+ *  stubs above (src/stubs.c guards those two on HARNESS_LIFT_CC). Everything they
+ *  reach below the receiver level is recorded rather than implemented, in
+ *  src/recorders.c.
+ *============================================================================*/
+
+extern device_t global_state;
+
+void send_consumer_control(uint8_t *raw_report, device_t *state);
+void send_system_control(uint8_t *raw_report, device_t *state);
+void queue_packet(const uint8_t *data, enum packet_type_e packet_type, int length);
