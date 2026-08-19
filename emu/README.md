@@ -98,6 +98,39 @@ Doing it as an A/B is what makes it conclusive. Flash the deskhop board with the
 pre-fix image, confirm `gmovw3xyz`, then flash the fixed image and confirm
 `abcdefxyz` with nothing else changed.
 
+## If nothing appears
+
+The onboard LED reports which region the fault is in, so "nothing typed" does not
+have to cover everything from an unpowered board to a working rig pointed at the
+wrong PC.
+
+| LED | meaning | where to look |
+|---|---|---|
+| dark | no power | cable, and whether the port supplies VBUS |
+| one short flash a second | powered, never enumerated | the host port, the cable, try it straight into a PC |
+| rapid blinking | enumerated, endpoint never ready | the host stack, not the rig |
+| on, dipping three times a cycle | reports are going out | downstream of the rig, see below |
+
+If the LED is dipping, the emulator is doing its job and the fault is past it:
+
+1. **Plug the rig straight into a PC**, bypassing deskhop. It should type
+   `abcdef,./` on its own, because the OS parses the descriptor correctly. This
+   splits the problem in half in about thirty seconds: typing here means the rig is
+   sound and deskhop is the variable, nothing here means the rig is.
+2. **Check which output is active.** `send_key` queues locally only when
+   `CURRENT_BOARD_IS_ACTIVE_OUTPUT`, otherwise it sends the report to the other
+   board over UART. Plugged into the non-active board with the other board not
+   attached to a PC, every keystroke leaves and never lands.
+3. **Check it is the USB-A host port**, not the port that goes to the PC.
+4. **Check the window has focus.** The rig types into whatever is focused, and it
+   does not care whether that is a text editor.
+
+`enforce_ports` is not a candidate here. It is only tested in the keyboard and mouse
+branches of `tuh_hid_mount_cb`, and this device enumerates as
+`HID_ITF_PROTOCOL_NONE`, so it takes neither. For the same reason deskhop never sets
+`keyboard_connected` for the rig, so the board's keyboard LED indicator stays off
+even when everything is working. That is expected and does not affect key delivery.
+
 ## Notes
 
 It types on a timer with no input of its own, because the RP2040 has no button

@@ -112,6 +112,41 @@ static void send_burst(const burst_t *b, bool pressed) {
     }
 }
 
+static uint32_t reports_sent = 0;
+
+/* The onboard LED is the only instrument this thing has, so it reports which of
+   the three failure regions the rig is in. Without it "nothing typed" covers
+   everything from an unpowered board to a working rig pointed at the wrong PC.
+
+     one short flash a second   powered, but the host never enumerated it
+     rapid blinking             enumerated, but the endpoint is never ready
+     on, dipping in bursts      sending reports, look downstream of the rig
+
+   The third is the one that matters: if the LED is dipping and nothing appears
+   on screen, the emulator is doing its job and the fault is deskhop, the active
+   output or the focused window. */
+static void led_task(void) {
+#ifdef PICO_DEFAULT_LED_PIN
+    static uint32_t next_ms = 0;
+    static bool     on      = false;
+    uint32_t        t       = now_ms();
+
+    if (reports_sent > 0)
+        return; /* typing_task owns the LED once reports are flowing */
+
+    if (t < next_ms)
+        return;
+
+    on = !on;
+    gpio_put(PICO_DEFAULT_LED_PIN, on);
+
+    if (!tud_mounted())
+        next_ms = t + (on ? 100 : 900);  /* slow: not enumerated */
+    else
+        next_ms = t + 80;                /* fast: mounted, endpoint not ready */
+#endif
+}
+
 static void typing_task(void) {
     static uint32_t next_ms = GRACE_MS;
     static uint8_t  step    = 0;
@@ -124,6 +159,7 @@ static void typing_task(void) {
 
     send_burst(&script[step], !pressed);
     pressed = !pressed;
+    reports_sent++;
 
     if (pressed) {
         next_ms = now_ms() + HOLD_MS;
@@ -133,7 +169,9 @@ static void typing_task(void) {
     }
 
 #ifdef PICO_DEFAULT_LED_PIN
-    gpio_put(PICO_DEFAULT_LED_PIN, pressed);
+    /* Solid between cycles, dark while a burst is held, so each line typed is
+       three visible dips. */
+    gpio_put(PICO_DEFAULT_LED_PIN, !pressed);
 #endif
 }
 
@@ -165,5 +203,6 @@ int main(void) {
     while (true) {
         tud_task();
         typing_task();
+        led_task();
     }
 }
