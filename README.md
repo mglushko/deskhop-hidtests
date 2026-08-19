@@ -279,23 +279,36 @@ matter; see [Adding a device](#adding-a-device).
 ## Known good numbers
 
 Reference results, so a broken harness is distinguishable from a broken firmware.
-Taken against `main` at `59577cc` and the [#332] fix, now PR [#361], at `ea680e4`,
-over the current 47-descriptor corpus.
+Taken against `main` at `59577cc`, the [#332] fix (now PR [#361]) at `ea680e4`, and
+`deskhop-extended`, over the current 47-descriptor corpus.
 
-| check | main | [#361] |
-|---|---|---|
-| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 45 identical |
-| `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases |
-| `kbd` | 46 of 46 cases over 13 devices | 46 of 46 cases |
-| `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change |
-| `check-constants` | all 47 agree with TinyUSB | same |
-| `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
-| `truncate` | 2321 of 4337 prefixes overread | 2202 of 4337 prefixes overread |
-| `shortreport` | 779 of 1169 truncated reports overread | 779 of 1169, identical - the fix is in the parser, this is the decode path |
-| `kbd` on a tree with the multi-keyboard fix | n/a | 50 of 50 over 14 devices; `bitdo_retro_iface2` only runs where the bitmap walk is bounded |
-| `dispatch` | 14 of 22 routed correctly; 8 misrouted, 4 more arrive by luck | same - `usb.c` is untouched by any of these PRs |
-| `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there |
-| `timing` | segfaults | ~17.5 ns/element on x86-64 |
+The third column is the one that matters day to day. `main` and [#361] are references;
+`deskhop-extended` carries all three upstream PRs plus the short-report, boot-routing and
+multi-keyboard fixes, and is what actually runs on the hardware, so it is the tree whose
+regressions cost something.
+
+Two rows have a larger denominator there rather than a comparable count.
+`bitdo_retro_iface2` only enters `kbd` and `shortreport` on a tree that bounds the bitmap
+walk, because without the bound that device reads off the end and takes the run down.
+
+`truncate` is the one row where the fork is no better than [#361], and deliberately so:
+that is the short *descriptor* finding in the parse loop, which nothing here has fixed. It
+is easy to mistake for the short *report* row above it, which is why the findings below
+separate the two.
+
+| check | main | [#361] | `deskhop-extended` |
+|---|---|---|---|
+| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 45 identical | both fixed; 47 compared, differences confined to keyboards |
+| `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases | 124 of 124 |
+| `kbd` | 46 of 46 cases over 13 devices | 46 of 46 cases | **50 of 50 over 14** |
+| `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change | 18 of 18; verdict "has the #358 fix" |
+| `dispatch` | 14 of 22 routed correctly; 8 misrouted, 4 more arrive by luck | same - `usb.c` is untouched by these PRs | **22 of 22**, lifted rather than modelled |
+| `check-constants` | all 47 agree with TinyUSB | same | same |
+| `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 | 0 out of bounds, peak index 127 |
+| `truncate` | 2321 of 4337 prefixes overread | 2202 of 4337 prefixes overread | 2202 of 4337 - still open, see below |
+| `shortreport` | 779 of 1169 truncated reports overread | 779 of 1169, identical - the fix is in the parser, this is the decode path | **0 of 1185** |
+| `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there | never fails |
+| `timing` | segfaults | ~17.5 ns/element on x86-64 | ~17.4 ns/element |
 
 Fuzz counts depend on the generator and the seed, and `truncate` counts move with
 the size of the corpus. Change either and these numbers move; the qualitative
