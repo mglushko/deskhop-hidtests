@@ -75,7 +75,9 @@ static int run_device(const kbd_device_t *dev) {
     for (unsigned i = 0; i < dev->count; i++) {
         const kbd_case_t         *c = &dev->cases[i];
         hid_keyboard_report_t out;
-        const uint8_t        *want = KEEPS_EVERY_BLOCK ? c->keys_fixed : c->keys;
+        const uint8_t        *want = (ONE_KEYBOARD_PER_COLLECTION && c->has_multi)
+                                         ? c->keys_multi
+                                         : KEEPS_EVERY_BLOCK ? c->keys_fixed : c->keys;
 
         /* a len past the end of the array would overread the struct below */
         if (c->len < 0 || (size_t)c->len > sizeof(c->report)) {
@@ -104,7 +106,9 @@ static int run_device(const kbd_device_t *dev) {
 
         if (ok) {
             /* flag the rows the multi-block fix is responsible for */
-            printf("ok%s\n", memcmp(c->keys, c->keys_fixed, 6) ? "   <- multi-block" : "");
+            printf("ok%s\n", (ONE_KEYBOARD_PER_COLLECTION && c->has_multi)  ? "   <- multi-keyboard"
+                             : memcmp(c->keys, c->keys_fixed, 6)              ? "   <- multi-block"
+                                                                              : "");
         } else {
             printf("MISMATCH, wanted mod 0x%02X ", c->modifier);
             print_keys(want);
@@ -124,9 +128,12 @@ static int run_device(const kbd_device_t *dev) {
 int main(void) {
     int failures = 0, total = 0;
 
-    printf("expectations: %s\n\n",
-           KEEPS_EVERY_BLOCK ? "parser keeps every NKRO block (MAX_NKRO_BLOCKS defined)"
-                             : "parser keeps one NKRO block (main)");
+    printf("expectations: %s\n", KEEPS_EVERY_BLOCK
+               ? "parser keeps every NKRO block (MAX_NKRO_BLOCKS defined)"
+               : "parser keeps one NKRO block (main)");
+    printf("              %s\n\n", ONE_KEYBOARD_PER_COLLECTION
+               ? "one keyboard_t per collection (get_or_add_keyboard present)"
+               : "all collections on one interface share keyboard_t");
 
     for (unsigned i = 0; i < ARRAY_SIZE(kbd_devices); i++) {
         failures += run_device(&kbd_devices[i]);

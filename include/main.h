@@ -33,6 +33,7 @@ void process_consumer_report(uint8_t *report, int len, uint8_t itf, hid_interfac
 void process_system_report(uint8_t *report, int len, uint8_t itf, hid_interface_t *iface);
 
 keyboard_t *get_keyboard(hid_interface_t *iface, uint8_t report_id);
+keyboard_t *get_or_add_keyboard(hid_interface_t *iface, uint8_t report_id);
 
 /*==============================================================================
  *  Defined in the two files under test

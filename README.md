@@ -109,7 +109,7 @@ artifact, and it is not known whether that device really lacks a key array.
 
 ### What the corpus is already worth
 
-The corpus is 46 descriptors, 35 of them captured from real devices: 18 from upstream
+The corpus is 47 descriptors, 36 of them captured from real devices: 19 from upstream
 issues, 4 from dumps published elsewhere, and 13 dumped here from two devices on hand.
 What they have bought so far:
 
@@ -136,6 +136,13 @@ What they have bought so far:
   `main`, pressing Calculator sends Play/Pause, because the receiver reads byte 1
   where the data is in byte 0 and finds bit 0 of the wrong byte set. It does not
   merely lose the key, it reports a different one.
+- **8BitDo Retro Mechanical Keyboard** (`2dc8:5201`, [#57], open since March 2024).
+  Interface 2 declares three keyboard collections on one interface: a 6KRO keyboard on
+  report ID 1 and NKRO bitmaps on 12 and 10. On `main` all three land on `keyboards[0]`,
+  which sets `is_nkro` on the entry that also holds the 6KRO key array, so a 6KRO report
+  is decoded as though its bytes were bitmap bits. `make kbd` shows `a` coming out as
+  keycode 10. It is the sharper version of the Keychron finding below, and the one still
+  open upstream.
 - **Microsoft Wired Keyboard 600** ([#297]) is the cleanest reproduction of the stale
   usage cursor: its system control block comes out as `usage=0xFF02 page=0x0001`, an
   identifier it never declares, carried over from the vendor block in the preceding
@@ -225,6 +232,14 @@ matter; see [Adding a device](#adding-a-device).
   shifts by 40. That is undefined, and on x86 it silently takes the shift mod 32 and
   returns a plausible wrong number rather than faulting. No device in the corpus
   reaches that path today, so this costs nothing and is waiting.
+- The decode tests key their expectations on what the target can do, detected by the
+  Makefile rather than declared by the target. `MAX_NKRO_BLOCKS` used to be enough on its
+  own, but stopped being once more than one fix existed: [#359] defines it and so does
+  everything built on top, including trees without the multi-keyboard fix. So
+  `HARNESS_MULTI_KEYBOARD` is set when the target has `get_or_add_keyboard`, and
+  `HARNESS_BOUNDED_BITMAP` when its `extract_bit_variable` is bounded against the report
+  length. The second gates one device out rather than changing an answer: without the
+  bound, `bitdo_retro_iface2` reads off the end and takes the whole run down with it.
 - `src/dispatch.h` models the routing half of `usb.c:tuh_hid_report_received_cb` -
   which receiver a report reaches, given the interface and the bytes. It cannot be
   lifted (the real function reaches `global_state` and the TinyUSB host API), so it is
@@ -265,18 +280,19 @@ matter; see [Adding a device](#adding-a-device).
 
 Reference results, so a broken harness is distinguishable from a broken firmware.
 Taken against `main` at `59577cc` and the [#332] fix, now PR [#361], at `ea680e4`,
-over the current 46-descriptor corpus.
+over the current 47-descriptor corpus.
 
 | check | main | [#361] |
 |---|---|---|
-| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 44 identical |
+| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 45 identical |
 | `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases |
 | `kbd` | 46 of 46 cases over 13 devices | 46 of 46 cases |
 | `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change |
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
-| `truncate` | 2199 of 4092 prefixes overread | 2080 of 4092 prefixes overread |
+| `truncate` | 2321 of 4337 prefixes overread | 2202 of 4337 prefixes overread |
 | `shortreport` | 779 of 1169 truncated reports overread | 779 of 1169, identical - the fix is in the parser, this is the decode path |
+| `kbd` on a tree with the multi-keyboard fix | n/a | 50 of 50 over 14 devices; `bitdo_retro_iface2` only runs where the bitmap walk is bounded |
 | `dispatch` | 14 of 22 routed correctly; 8 misrouted, 4 more arrive by luck | same - `usb.c` is untouched by any of these PRs |
 | `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there |
 | `timing` | segfaults | ~17.5 ns/element on x86-64 |
@@ -647,6 +663,32 @@ The isolated collection and the whole interface are both in the corpus precisely
 two can be compared. Distinct from the two mouse findings above: this is two collections
 that each declare a report ID and still end up sharing one `keyboard_t`.
 
+`bitdo_retro_iface2` ([#57], `2dc8:5201`) is the same fault with a worse ending. It puts
+three keyboard collections on one interface, and both of its NKRO blocks map one usage per
+bit over 120 bits, so they pass every test the parser applies. Landing on `keyboards[0]`
+they set `is_nkro` on the entry that also carries the 6KRO key array, and
+`_extract_kbd_nkro` then runs for report ID 1 as well - a 6KRO report decoded as bitmap
+bits. Holding `a` produces keycode 10. On `main` it is worse still: the 120-bit walk runs
+off the end of the 9-byte report, which is the unbounded `extract_bit_variable` finding
+above showing up through this one. That is why `make kbd` only carries this device on a
+tree that bounds the walk, and why `truncate` and `shortreport` are where the overread
+itself is counted.
+
+**Fixed in `deskhop-extended`.** `get_keyboard()` is now lookup only and a parse-time
+`get_or_add_keyboard()` claims a slot per report ID, so an interface holds one
+`keyboard_t` per collection:
+
+```sh
+make dump D=ultralink_iface1 DESKHOP=~/deskhop-extended   # keyboards: 2, keys=01111110
+make dump D=bitdo_retro_iface2 DESKHOP=~/deskhop-extended # keyboards: 3, kbd[0] nkro=0
+```
+
+`kbd[0]` then matches `ultralink_keyboard`, the same collection parsed on its own, which
+is the comparison those two entries were added for. `make kbd` goes to 50 of 50 over 14
+devices, and the three upstream reports that share this shape - [#57], [#211] and [#295],
+one still open, one closed and reported as returning, one closed by the reporter
+hard-coding a workaround for their own keyboard - are all this fault.
+
 **Push and Pop are ignored.** `bolt_rx_touchpad` is the first descriptor here to use
 `A4`/`B4`. `handle_global_item()` stores every global by tag and has no case for either,
 so `RI_GLOBAL_PUSH` and `RI_GLOBAL_POP` land in `globals[10]` and `globals[11]` and the
@@ -722,9 +764,13 @@ Both tools stamp that notice into what they generate, so a generated file read o
 of the build directory still says where it came from.
 
 <!-- upstream issues and PRs -->
+[#57]: https://github.com/hrvach/deskhop/issues/57
 [#117]: https://github.com/hrvach/deskhop/issues/117
+[#211]: https://github.com/hrvach/deskhop/issues/211
+[#295]: https://github.com/hrvach/deskhop/issues/295
 [#133]: https://github.com/hrvach/deskhop/issues/133
 [#215]: https://github.com/hrvach/deskhop/issues/215
+[#229]: https://github.com/hrvach/deskhop/issues/229
 [#216]: https://github.com/hrvach/deskhop/issues/216
 [#297]: https://github.com/hrvach/deskhop/issues/297
 [#332]: https://github.com/hrvach/deskhop/issues/332
