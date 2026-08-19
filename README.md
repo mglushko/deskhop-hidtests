@@ -264,7 +264,7 @@ over the current 44-descriptor corpus.
 |---|---|---|
 | `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 43 identical |
 | `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases |
-| `kbd` | 41 of 41 cases over 12 devices | 41 of 41 cases |
+| `kbd` | 46 of 46 cases over 13 devices | 46 of 46 cases |
 | `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change |
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
@@ -317,9 +317,20 @@ The other two open parser PRs, measured the same way:
 | [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. |
 | [#358] media keys without report IDs | identical parse on all 45, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. |
 
-Two caveats on [#359]. `MAX_NKRO_BLOCKS` is 4 and the Wooting declares exactly 4, so
+Three caveats on [#359]. `MAX_NKRO_BLOCKS` is 4 and the Wooting declares exactly 4, so
 there is no headroom: a keyboard splitting its bitmap five ways would still lose the
 last section, silently and in the same way.
+
+The first is now fixed on the branch, and `kbd_with_bit_field` is the case that found
+it. [#359] set `is_nkro` on the strength of any single block matching
+`maps_usage_per_bit`, and a plain keyboard-page bit field matches - eight bits of F13
+to F20 where the reserved byte usually sits is enough. That routes every report
+through `_extract_kbd_nkro`, which never reads `key_array`, so an ordinary 6KRO
+keyboard keeps its modifiers and loses every keycode. `main` is unaffected because its
+`size > 32` filter ignores a block that small. Deciding `is_nkro` on the summed width
+of all blocks keeps both: eight bits is padding, the Wooting's four ranges are not.
+Holding `a` on that device returns nothing before the fix and keycode 4 after, with
+the rest of the corpus parsing identically.
 
 The second is sharper, because it is a case where the new rule rejects something `main`
 accepted. [#359] recognises an NKRO block by `maps_usage_per_bit`, requiring

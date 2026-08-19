@@ -187,6 +187,25 @@ static const kbd_case_t k_ultralink_nkro_cases[] = {
     {"highest usage, 151",       {0x11, 0x00, [20] = 0x80}, 21,     0x00, {0}, {0}},
 };
 
+/* A 6KRO keyboard carrying a short keyboard-page bit field, [id][mod][F13-F20][6 keys].
+   Both columns hold the same correct values: main ignores the 8-bit field because it
+   filters on size > 32, and a parser deciding is_nkro on the summed block width ignores
+   it too. Only a parser that flags NKRO per block fails these - it routes the report
+   through _extract_kbd_nkro, which never reads key_array, and every keycode disappears
+   while the modifiers keep working.
+
+   The last case holds F13 down. It is not reported, on any branch: the bit field is not
+   treated as a key bitmap, so its bits go nowhere. That is the cost of the size rule and
+   these rows are here to state it, not to hide it. */
+static const kbd_case_t k_bit_field_cases[] = {
+    {"a",                       {0x01, 0x00, 0x00, 0x04}, 9,        0x00, {4}, {4}},
+    {"shift + a",               {0x01, 0x02, 0x00, 0x04}, 9,        0x02, {4}, {4}},
+    {"six keys at once",        {0x01, 0x00, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 9,
+                                                                    0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+    {"F13 held, key array still read", {0x01, 0x00, 0x01, 0x04}, 9, 0x00, {4}, {4}},
+    {"nothing held",            {0x01, 0x00, 0x00, 0x00}, 9,        0x00, {0}, {0}},
+};
+
 #define DEV(d, p, c) {#d, d_##d, (int)sizeof(d_##d), p, c, (unsigned)ARRAY_SIZE(c)}
 
 static const kbd_device_t kbd_devices[] = {
@@ -202,6 +221,7 @@ static const kbd_device_t kbd_devices[] = {
     DEV(ultralink_keyboard, HID_PROTOCOL_REPORT, k_ultralink_kbd_cases),
     DEV(ultralink_iface1, HID_PROTOCOL_REPORT, k_ultralink_iface1_cases),
     DEV(ultralink_nkro_keyboard, HID_PROTOCOL_REPORT, k_ultralink_nkro_cases),
+    DEV(kbd_with_bit_field, HID_PROTOCOL_REPORT, k_bit_field_cases),
 };
 
 #undef DEV

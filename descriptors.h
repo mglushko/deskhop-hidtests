@@ -698,6 +698,49 @@ typedef struct {
 
 #define D(x) {#x, d_##x, (int)sizeof(d_##x)}
 
+/* SYNTHETIC: an ordinary 6KRO keyboard that also declares a short keyboard-page bit
+   field, here F13-F20 sitting where the reserved byte usually is. Report layout is
+   [id][modifiers][F13-F20 bits][6 key slots].
+
+   No device in this corpus does this, which is why it is synthetic - but nothing about
+   it is unusual, and it is what separates the two ways of recognising an NKRO block.
+   main filters on src->size > 32, so the 8-bit field is ignored and the key array is
+   read: the device works. [#359] filters on the usage range mapping one usage per bit,
+   which this field does, so it is recorded as an NKRO block and is_nkro is set - and
+   _extract_kbd_nkro never looks at key_array, so every ordinary keycode is lost while
+   the modifiers keep working.
+
+   Deciding is_nkro on the summed width of all blocks rather than per block keeps both
+   this device and the Wooting: 8 bits is padding, the Wooting's four ranges are not.
+   The F13-F20 bits are not reported either way, which is the deliberate cost. */
+static const uint8_t d_kbd_with_bit_field[] = {
+    0x05, 0x01,        /* Usage Page (Generic Desktop)         */
+    0x09, 0x06,        /* Usage (Keyboard)                     */
+    0xA1, 0x01,        /* Collection (Application)             */
+    0x85, 0x01,        /*   Report ID (1)                      */
+    0x05, 0x07,        /*   Usage Page (Keyboard)              */
+    0x19, 0xE0,        /*   Usage Minimum (LeftControl)        */
+    0x29, 0xE7,        /*   Usage Maximum (Right GUI)          */
+    0x15, 0x00,        /*   Logical Minimum (0)                */
+    0x25, 0x01,        /*   Logical Maximum (1)                */
+    0x75, 0x01,        /*   Report Size (1)                    */
+    0x95, 0x08,        /*   Report Count (8)                   */
+    0x81, 0x02,        /*   Input (Data,Var,Abs) - modifiers   */
+    0x19, 0x68,        /*   Usage Minimum (F13)                */
+    0x29, 0x6F,        /*   Usage Maximum (F20)                */
+    0x75, 0x01,        /*   Report Size (1)                    */
+    0x95, 0x08,        /*   Report Count (8)                   */
+    0x81, 0x02,        /*   Input (Data,Var,Abs) - 8 key bits  */
+    0x95, 0x06,        /*   Report Count (6)                   */
+    0x75, 0x08,        /*   Report Size (8)                    */
+    0x15, 0x00,        /*   Logical Minimum (0)                */
+    0x25, 0x65,        /*   Logical Maximum (101)              */
+    0x19, 0x00,        /*   Usage Minimum (0)                  */
+    0x29, 0x65,        /*   Usage Maximum (101)                */
+    0x81, 0x00,        /*   Input (Data,Ary,Abs) - 6 key slots */
+    0xC0,              /* End Collection                       */
+};
+
 static const descriptor_t descriptors[] = {
     D(gameball_trackball),
     D(gameball_gesture),
@@ -744,6 +787,7 @@ static const descriptor_t descriptors[] = {
     D(many_usages),
     D(vendor_then_mouse),
     D(system_no_report_id),
+    D(kbd_with_bit_field),
 };
 
 #undef D
