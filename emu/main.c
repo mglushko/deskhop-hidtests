@@ -53,6 +53,13 @@
 
 #include "bitdo_desc.h"
 
+/* tusb_init() is a no-op unless TUD_OPT_RHPORT is defined, and that needs
+   CFG_TUSB_RHPORT0_MODE rather than CFG_TUD_ENABLED alone. Getting it wrong
+   still compiles and still links; the board just never enumerates. */
+#if !defined(TUD_OPT_RHPORT)
+#  error "TUD_OPT_RHPORT undefined - tusb_init() would not start the device stack"
+#endif
+
 #define RID_6KRO      0x01   /* modifiers, one reserved byte, six keycodes */
 #define RID_NKRO      0x0C   /* modifiers, then a 120-bit usage bitmap     */
 
