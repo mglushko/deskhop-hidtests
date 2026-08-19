@@ -798,14 +798,25 @@ faithful. The same board plugged into a deskhop-extended v1.04 keyboard port typ
 `gmovw3,./`, on every one of eleven lines. That is the collapse, on real silicon,
 matching the number `k_bitdo_cases` predicted from the host.
 
-Two of those eleven lines came through as `gmovw3,.`, losing the final `/`. That is
-not the bug showing through: `add_keys` in `keyboard.c` deduplicates before
-transmission, so the doubled NKRO walk `{54,55,56,54,55,56}` and the fixed
-`{54,55,56}` both reach the host as the same three keycodes, and the tail is
-bit-identical on either firmware. It did not happen on any of the seven lines typed
-straight into the PC, so something on the deskhop path drops a key out of three
-simultaneous key-downs now and then. Small sample, separate question, and it should
-still appear once the fix is in - if it stops, this reasoning is wrong.
+**The fix, on the same hardware.** Flashed with v1.05 and left running, the same board
+through the same port typed `abcdef,./` for 48 lines with nothing else changed. So
+both halves are measured on silicon, not just on the host.
+
+Two of the eleven v1.04 lines came through as `gmovw3,.`, losing the final `/`. That
+was written up here as unrelated to the collapse, on the grounds that `add_keys`
+deduplicates before transmission, so the doubled NKRO walk `{54,55,56,54,55,56}` and
+the fixed `{54,55,56}` reach the host as the same three keycodes and the tail is
+bit-identical either way. The prediction attached to it was that the truncation would
+survive the fix. It did not: 48 clean lines, which at a two in eleven rate is under a
+thousandth of a per cent. The dedup argument was answering the wrong question, and the
+truncation belongs to the bug.
+
+The likeliest remaining explanation is cost rather than content. On a collapsed
+interface every incoming report, the 6KRO ones included, is walked as two 120-bit
+bitmaps, and deskhop's host port is bit-banged on PIO where that much extra work
+inside the report callback can cost a frame. That is a hypothesis with nothing
+measuring it yet, recorded because the numbers rule out the explanation that was here
+before, not because this one has been shown.
 
 What it still does not cover: it is one emulated device on one interface, so it says
 nothing about how a real 8BitDo negotiates, about the other two reported devices, or
