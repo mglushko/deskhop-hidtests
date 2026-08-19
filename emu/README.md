@@ -29,10 +29,10 @@ Every six seconds, one line:
 | burst | collection | fixed firmware | broken firmware |
 |---|---|---|---|
 | keycodes 04 05 06 07 08 09 | 6KRO, report ID 1 | `abcdef` | `gmovw3` |
-| usages 27 28 29 | NKRO, report ID 12 | `xyz` | `xyz` |
+| usages 54 55 56 | NKRO, report ID 12 | `,./` | `,./` |
 | usage 40 | NKRO, report ID 12 | newline | newline |
 
-so the line reads **`abcdefxyz`** when the fix is in and **`gmovw3xyz`** when it is
+so the line reads **`abcdef,./`** when the fix is in and **`gmovw3,./`** when it is
 not.
 
 Those are measured, not guessed. Every report the rig sends is pinned in
@@ -43,8 +43,22 @@ bitmap descriptors overwrite the 6KRO key array, and an incoming report ID 1 get
 walked as if it were a bitmap: byte `0x04` at payload offset 2 lands on bit 2 of
 the bitmap's second byte, giving usage 8 + 2 = 10 = `g`, and so on up the report.
 
-The `xyz` tail is the positive control. It comes through either way, so if nothing
-at all appears the fault is the rig, the cable or the port rather than the bug.
+The `,./` tail is the positive control, and it also guards the one way this test
+could pass for the wrong reason.
+
+That way is boot protocol. `extract_kbd_data` returns `_extract_kbd_boot` before it
+consults the descriptor at all, and the 8BitDo's 6KRO layout **is** the boot layout,
+so a nine-byte report ID 1 decodes to `abcdef` in boot protocol whether the fix is
+present or not. deskhop only gets there if it was built with
+`ENFORCE_KEYBOARD_BOOT_PROTOCOL 1` and the rig is on board A, which is not the
+default and not the images here, but a test that cannot tell the difference is not
+worth running.
+
+So the control uses usages 54, 55 and 56 rather than letters. Those live in bitmap
+bytes 6 and 7, at wire offsets 8 and 9, past the eight bytes `_extract_kbd_boot`
+copies off the front of a 17-byte report. In boot protocol they contribute no
+keycodes, so the tail disappears and the line breaks go with it. That behaviour is
+pinned too, as `k_bitdo_boot_cases`.
 
 ## Build
 
@@ -74,9 +88,10 @@ To recover the board for reflashing, hold BOOTSEL while plugging it in.
 
 | what you see | meaning |
 |---|---|
-| `abcdefxyz` | the collections each got their own `keyboard_t`, fix confirmed |
-| `gmovw3xyz` | the collapse is present, reports are decoded against the wrong collection |
-| `xyz` alone | the 6KRO collection produced nothing, a third state worth reporting |
+| `abcdef,./` in a column | the collections each got their own `keyboard_t`, fix confirmed |
+| `gmovw3,./` in a column | the collapse is present, reports decode against the wrong collection |
+| `abcdef` run together, no tail | boot protocol, this run proves nothing either way |
+| `,./` alone | the 6KRO collection produced nothing, a third state worth reporting |
 | nothing | the rig is not reaching the PC, check the port, cable and active output |
 
 Doing it as an A/B is what makes it conclusive. Flash the deskhop board with the

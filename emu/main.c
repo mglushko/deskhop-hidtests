@@ -21,15 +21,27 @@
  * offset 2 lands on bit 2 of the bitmap's second byte, so usage 8+2 = 10 = 'g',
  * and so on up the report.
  *
- * The trailing "xyz" is typed through the NKRO collection on report ID 12. It
- * is the positive control: it comes through on both broken and fixed firmware,
- * so if you see nothing at all the fault is the rig, the cable or the port,
- * not the bug. After the fix it also confirms the second collection still
- * decodes once it has a keyboard_t of its own.
+ * The trailing ",./" is typed through the NKRO collection on report ID 12. It is
+ * the positive control, and it also guards against the one way this test could
+ * pass for the wrong reason.
  *
- *     fixed    abcdefxyz
- *     broken   gmovw3xyz
- *     nothing  the rig is not reaching the PC - see emu/README.md
+ * That way is boot protocol. extract_kbd_data returns _extract_kbd_boot before it
+ * ever consults the descriptor, and the 8BitDo's 6KRO layout IS the boot layout,
+ * so a 9-byte report ID 1 decodes to abcdef in boot protocol whether the fix is
+ * present or not. deskhop only reaches that state if it was built with
+ * ENFORCE_KEYBOARD_BOOT_PROTOCOL 1 and the rig is on board A, but a test that
+ * cannot tell the difference is not worth running.
+ *
+ * So the control uses usages 54, 55 and 56 rather than letters. Those sit in
+ * bitmap bytes 6 and 7, which land at wire offsets 8 and 9 - outside the eight
+ * bytes _extract_kbd_boot copies. In boot protocol they contribute no keycodes at
+ * all, so the tail disappears. Usage 40 on the same collection supplies the line
+ * break and vanishes the same way.
+ *
+ *     abcdef,./  and line breaks   fixed
+ *     gmovw3,./  and line breaks   broken, the collapse is present
+ *     abcdef     no tail, no line breaks   boot protocol, this run proves nothing
+ *     nothing                      the rig is not reaching the PC
  *
  * This types on a timer with no user input, so open a text editor and leave it
  * focused. Hold BOOTSEL while plugging the board in to get back to UF2 mode.
@@ -59,12 +71,13 @@ typedef struct {
     uint8_t count;
 } burst_t;
 
-/* One line per cycle. The first burst is the discriminator, the second and
-   third go through the NKRO collection: "xyz" as the positive control, then
-   Enter so the lines stack up rather than running together. */
+/* One line per cycle. The first burst is the discriminator. The second and third
+   go through the NKRO collection and are chosen to be invisible in boot protocol,
+   so a run that cannot distinguish fixed from broken says so by losing its tail.
+   Keep every NKRO usage at 48 or above for that to hold. */
 static const burst_t script[] = {
     {RID_6KRO, {0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 6},  /* abcdef / gmovw3 */
-    {RID_NKRO, {0x1B, 0x1C, 0x1D},                   3},  /* xyz             */
+    {RID_NKRO, {0x36, 0x37, 0x38},                   3},  /* ,./             */
     {RID_NKRO, {0x28},                               1},  /* Enter           */
 };
 

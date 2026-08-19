@@ -779,8 +779,10 @@ a keyboard on a desk.
 [`emu/`](emu/) closes part of that for the collection collapse. It builds an RP2040
 into a stand-in for the 8BitDo Retro Mechanical Keyboard of [#57], presenting that
 device's 245 bytes over real USB and typing a fixed line through two of its three
-keyboard collections. Plugged into a deskhop board it prints `abcdefxyz` on firmware
-with the fix and `gmovw3xyz` on firmware without it.
+keyboard collections. Plugged into a deskhop board it prints `abcdef,./` on firmware
+with the fix and `gmovw3,./` on firmware without it, and drops the `,./` tail
+entirely if deskhop is in boot protocol, where the test could otherwise pass for the
+wrong reason.
 
 It matters because nobody working on this owns an affected keyboard. Three upstream
 reports describe the bug and every reporter has moved on, so a device test otherwise

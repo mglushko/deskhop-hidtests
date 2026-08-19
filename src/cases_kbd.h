@@ -256,12 +256,42 @@ static const kbd_case_t k_bitdo_cases[] = {
     /* The two bursts emu/main.c pushes through the NKRO collection: "xyz" as the
        hardware rig's positive control, then Enter to break the line. Pinned here so
        every report the rig puts on the wire has a host-side answer to compare against,
-       and so a change to the script cannot quietly stop meaning what the README says. */
-    {"usages 27-29 (xyz), NKRO",  {0x0C, 0x00, [5] = 0x38}, 17,     0x00, {27, 28, 29, 27, 28, 29},
-                                                                          {27, 28, 29, 27, 28, 29},
-                                                                    true, {27, 28, 29}},
+       and so a change to the script cannot quietly stop meaning what the README says.
+
+       The control deliberately uses usages 54 to 56 rather than letters. They sit in
+       bitmap bytes 6 and 7, at wire offsets 8 and 9, past the eight bytes
+       _extract_kbd_boot copies - so in boot protocol they produce nothing and the rig's
+       output loses its tail. k_bitdo_boot_cases below pins that, and it is what stops a
+       boot-protocol run reading as a pass: the 8BitDo's 6KRO layout is the boot layout,
+       so report ID 1 decodes to abcdef there whether or not the fix is present. */
+    {"usages 54-56 (,./), NKRO",  {0x0C, 0x00, [8] = 0xC0, [9] = 0x01}, 17,
+                                                                    0x00, {54, 55, 56, 54, 55, 56},
+                                                                          {54, 55, 56, 54, 55, 56},
+                                                                    true, {54, 55, 56}},
     {"usage 40 (enter), NKRO",    {0x0C, 0x00, [7] = 0x01}, 17,     0x00, {40, 40}, {40, 40},
                                                                     true, {40}},
+};
+
+/* The same three reports emu/main.c sends, decoded in boot protocol instead.
+   extract_kbd_data returns _extract_kbd_boot before the descriptor is consulted, so
+   none of this depends on the tree: both columns are the same everywhere.
+
+   These rows are why the hardware rig is trustworthy. The 8BitDo's 6KRO layout is the
+   boot layout, so the first row decodes to the same abcdef a correctly fixed firmware
+   produces - a boot-protocol run would otherwise read as a pass. The other two rows are
+   the tell: _extract_kbd_boot copies eight bytes from the front of a 17-byte NKRO
+   report, so the control's bits at wire offsets 8 and 9 never arrive, and the rig's
+   output loses its ",./" tail and its line breaks. Modifier 0x0C is the report ID being
+   read as a modifier byte, and the lone 0x01 in the last row is usage 40's bit landing
+   at wire offset 7, inside the copy, where it decodes to ErrorRollOver rather than
+   Enter. */
+static const kbd_case_t k_bitdo_boot_cases[] = {
+    {"6KRO burst, boot layout matches",  {0x01, 0x00, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 9,
+                                                                    0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+    {"control vanishes in boot",         {0x0C, 0x00, [8] = 0xC0, [9] = 0x01}, 17,
+                                                                    0x0C, {0}, {0}},
+    {"enter becomes ErrorRollOver",      {0x0C, 0x00, [7] = 0x01}, 17,
+                                                                    0x0C, {[5] = 1}, {[5] = 1}},
 };
 
 #define DEV(d, p, c) {#d, d_##d, (int)sizeof(d_##d), p, c, (unsigned)ARRAY_SIZE(c)}
@@ -285,6 +315,9 @@ static const kbd_device_t kbd_devices[] = {
        a separate finding, and one truncate and shortreport already measure. */
     DEV(bitdo_retro_iface2, HID_PROTOCOL_REPORT, k_bitdo_cases),
 #endif
+    /* Not gated: boot protocol returns before the bitmap walk, so the unbounded read
+       that keeps the entry above behind HARNESS_BOUNDED_BITMAP cannot happen here. */
+    DEV(bitdo_retro_iface2, HID_PROTOCOL_BOOT, k_bitdo_boot_cases),
     DEV(kbd_with_bit_field, HID_PROTOCOL_REPORT, k_bit_field_cases),
 };
 
