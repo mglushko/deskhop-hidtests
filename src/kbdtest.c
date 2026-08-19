@@ -53,6 +53,77 @@ static void print_keys(const uint8_t *k) {
         printf(" ");
 }
 
+
+/* A corpus-wide structural check, rather than two devices with hand-written answers.
+ *
+ * On a tree that gives each collection its own keyboard_t, one property has to hold for
+ * every descriptor here: any report ID the parser bound to process_keyboard_report must
+ * resolve, through the firmware's own get_keyboard(), to a slot that claims that ID. If
+ * it resolves to a slot claiming a different one, two collections are sharing a
+ * keyboard_t and whichever was parsed second has written over the first.
+ *
+ * This is what the two multi-collection devices demonstrate case by case, stated once
+ * over all 47 descriptors instead. It needs no expectations and no knowledge of any
+ * particular device, so it holds for descriptors added later, which is the part the
+ * hand-written cases cannot do. Gated because it is false by construction on a tree
+ * where get_keyboard() short-circuits.
+ *
+ * It parses the whole corpus, so it also needs a parser that survives the whole corpus:
+ * on a tree without the usages[] bounds fix, gameball_gesture and many_usages take the
+ * run down before the check reaches its own conclusion. Every tree that allocates a
+ * keyboard_t per collection has that fix too, so the one gate covers both, but the
+ * dependency is worth knowing if the two ever come apart.
+ *
+ * Measured discriminating: against PR #361, which bounds usages[] but does not allocate
+ * per collection, it reports three violations - ultralink_iface1 report 17 resolving to a
+ * slot claiming 7, and both of the 8BitDo's NKRO IDs resolving to the 6KRO slot.
+ */
+static int check_keyboard_slots(void) {
+    static hid_interface_t iface;
+    int broken = 0;
+
+    printf("keyboard slots: every bound report ID resolves to a slot claiming it\n\n");
+
+    for (unsigned i = 0; i < ARRAY_SIZE(descriptors); i++) {
+        const descriptor_t *d = &descriptors[i];
+
+        memset(&iface, 0, sizeof(iface));
+        iface.protocol = HID_PROTOCOL_REPORT;
+        parse_report_descriptor(&iface, d->bytes, d->len);
+
+        for (int rid = 0; rid < MAX_REPORTS; rid++) {
+            if (iface.report_handler[rid] != process_keyboard_report)
+                continue;
+
+            const keyboard_t *kb = get_keyboard(&iface, (uint8_t)rid);
+
+            if (kb->report_id != rid) {
+                printf("  %-26s report %d resolves to a slot claiming %u\n", d->name, rid,
+                       kb->report_id);
+                broken++;
+            }
+        }
+
+        /* Two slots claiming the same ID would make get_keyboard's answer depend on
+           search order rather than on the descriptor. */
+        for (int a = 0; a < iface.num_keyboards && a < MAX_KEYBOARDS; a++)
+            for (int b = a + 1; b < iface.num_keyboards && b < MAX_KEYBOARDS; b++)
+                if (iface.keyboards[a].report_id == iface.keyboards[b].report_id) {
+                    printf("  %-26s slots %d and %d both claim report %u\n", d->name, a, b,
+                           iface.keyboards[a].report_id);
+                    broken++;
+                }
+    }
+
+    if (broken)
+        printf("\n  %d violation(s): collections are sharing a keyboard_t\n\n", broken);
+    else
+        printf("  %u descriptors, no collection shares a keyboard_t with another\n\n",
+               (unsigned)ARRAY_SIZE(descriptors));
+
+    return broken;
+}
+
 static int run_device(const kbd_device_t *dev) {
     static hid_interface_t iface;
 
@@ -75,7 +146,9 @@ static int run_device(const kbd_device_t *dev) {
     for (unsigned i = 0; i < dev->count; i++) {
         const kbd_case_t         *c = &dev->cases[i];
         hid_keyboard_report_t out;
-        const uint8_t        *want = KEEPS_EVERY_BLOCK ? c->keys_fixed : c->keys;
+        const uint8_t        *want = (ONE_KEYBOARD_PER_COLLECTION && c->has_multi)
+                                         ? c->keys_multi
+                                         : KEEPS_EVERY_BLOCK ? c->keys_fixed : c->keys;
 
         /* a len past the end of the array would overread the struct below */
         if (c->len < 0 || (size_t)c->len > sizeof(c->report)) {
@@ -104,7 +177,9 @@ static int run_device(const kbd_device_t *dev) {
 
         if (ok) {
             /* flag the rows the multi-block fix is responsible for */
-            printf("ok%s\n", memcmp(c->keys, c->keys_fixed, 6) ? "   <- multi-block" : "");
+            printf("ok%s\n", (ONE_KEYBOARD_PER_COLLECTION && c->has_multi)  ? "   <- multi-keyboard"
+                             : memcmp(c->keys, c->keys_fixed, 6)              ? "   <- multi-block"
+                                                                              : "");
         } else {
             printf("MISMATCH, wanted mod 0x%02X ", c->modifier);
             print_keys(want);
@@ -124,16 +199,24 @@ static int run_device(const kbd_device_t *dev) {
 int main(void) {
     int failures = 0, total = 0;
 
-    printf("expectations: %s\n\n",
-           KEEPS_EVERY_BLOCK ? "parser keeps every NKRO block (MAX_NKRO_BLOCKS defined)"
-                             : "parser keeps one NKRO block (main)");
+    printf("expectations: %s\n", KEEPS_EVERY_BLOCK
+               ? "parser keeps every NKRO block (MAX_NKRO_BLOCKS defined)"
+               : "parser keeps one NKRO block (main)");
+    printf("              %s\n\n", ONE_KEYBOARD_PER_COLLECTION
+               ? "one keyboard_t per collection (get_or_add_keyboard present)"
+               : "all collections on one interface share keyboard_t");
 
     for (unsigned i = 0; i < ARRAY_SIZE(kbd_devices); i++) {
         failures += run_device(&kbd_devices[i]);
         total += kbd_devices[i].count;
     }
 
-    printf("%d/%d cases across %u devices\n", total - failures, total,
+    printf("%d/%d cases across %u devices\n\n", total - failures, total,
            (unsigned)ARRAY_SIZE(kbd_devices));
+
+#if ONE_KEYBOARD_PER_COLLECTION
+    failures += check_keyboard_slots();
+#endif
+
     return failures ? 1 : 0;
 }

@@ -116,8 +116,26 @@ $(GEN)/%.h: $(SRC)/src/include/%.h | $(GEN)
 
 # ---- generated sources -------------------------------------------------------
 
+# get_or_add_keyboard exists only on a tree that separates parse-time allocation from
+# decode-time lookup. Lift it where it is there; where it is not, the target's own
+# hid_report.c does not reference it either, so leaving it out is correct rather than
+# a gap - and lift.py would fail loudly if this guessed wrong.
+KBD_LIFT := get_keyboard $(shell grep -q 'get_or_add_keyboard' $(SRC)/src/keyboard.c 2>/dev/null && echo get_or_add_keyboard)
+
+# Same grep, as a flag for the decode tests. MAX_NKRO_BLOCKS no longer separates the
+# trees on its own: #359 defines it and so does every tree built on top, including ones
+# without this fix, so a third state is needed for the devices whose answer it moves.
+KBD_MULTI := $(shell grep -q 'get_or_add_keyboard' $(SRC)/src/keyboard.c 2>/dev/null && echo -DHARNESS_MULTI_KEYBOARD)
+
+# Does the target bound extract_bit_variable against the report length? On a tree that
+# does not, feeding a 6KRO report to a collection wrongly flagged NKRO walks the bitmap
+# straight off the end and ASan aborts the whole run. That read is a real finding, and
+# truncate and shortreport already measure it across the corpus; kbdtest declines the one
+# case that would fault rather than taking the suite down with it.
+KBD_BOUNDED := $(shell grep -q 'byte_index >= len' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_BOUNDED_BITMAP)
+
 $(GEN)/lifted_kbd.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
-	@python3 tools/lift.py $< $@ get_keyboard
+	@python3 tools/lift.py $< $@ $(KBD_LIFT)
 
 $(GEN)/lifted_mouse.c: $(SRC)/src/mouse.c tools/lift.py | $(GEN)
 	@python3 tools/lift.py $< $@ extract_value extract_report_values
@@ -160,7 +178,7 @@ $(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/dispatch.h descriptors.h
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries
 $(OUT)/kbdtest: src/kbdtest.c src/cases_kbd.h descriptors.h $(HDRS) $(CORE) | $(GEN)
-	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/kbdtest.c $(CORE)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_MULTI) $(KBD_BOUNDED) -o $@ src/kbdtest.c $(CORE)
 
 $(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/exhaust.c $(CORE)
@@ -187,9 +205,14 @@ $(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h descriptors.h $(HDRS) $(C
 # needs lifted_mouse.c: it drives extract_report_values, the same entry point
 # mousetest uses, so that the truncated reports go through the firmware's own
 # extraction rather than a reimplementation of it
+# $(KBD_BOUNDED) as well, so both users of cases_kbd.h see the same device list. Without
+# it the 8BitDo would be in one binary and not the other, which is a confusing thing to
+# debug later; the coverage it would add here on an unbounded tree is the same overread
+# truncate already counts.
 $(OUT)/shortreport: src/shortreport.c src/cases_mouse.h src/cases_kbd.h descriptors.h $(HDRS) \
                     $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
-	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/shortreport.c $(GEN)/lifted_mouse.c $(CORE)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_BOUNDED) -o $@ src/shortreport.c \
+	    $(GEN)/lifted_mouse.c $(CORE)
 
 # no ASan: this one is a stopwatch, and the fuzzer clamps rather than faults
 $(OUT)/timing: src/timing.c $(HDRS) $(CORE) | $(GEN)
