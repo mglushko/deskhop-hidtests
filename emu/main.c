@@ -121,21 +121,47 @@ static void send_burst(const burst_t *b, bool pressed) {
 
 static uint32_t reports_sent = 0;
 
-/* The onboard LED is the only instrument this thing has, so it reports which of
-   the three failure regions the rig is in. Without it "nothing typed" covers
-   everything from an unpowered board to a working rig pointed at the wrong PC.
+/* The onboard LED is the only instrument this thing has, so it reports which
+   region the rig is in. Without it "nothing typed" covers everything from an
+   unpowered board to a working rig pointed at the wrong PC.
 
-     one short flash a second   powered, but the host never enumerated it
-     rapid blinking             enumerated, but the endpoint is never ready
+     dark                       no power
+     one flash a second         powered, but the host never enumerated it
+     two flashes a second       enumerated and armed, counting out the grace
+                                period before the first line
+     rapid blinking             enumerated, but the endpoint never goes ready
      on, dipping in bursts      sending reports, look downstream of the rig
 
-   The third is the one that matters: if the LED is dipping and nothing appears
-   on screen, the emulator is doing its job and the fault is deskhop, the active
-   output or the focused window. */
+   Armed and stalled are worth separating. Both happen after enumeration and
+   before anything is typed, but one resolves itself within GRACE_MS and the
+   other never does, and an earlier version showed the same rapid blink for
+   both - so a perfectly healthy rig waiting to start looked identical to one
+   that was stuck.
+
+   The last state is the one that matters: if the LED is dipping and nothing
+   appears on screen, the emulator is doing its job and the fault is deskhop,
+   the active output or the focused window.
+
+   Patterns are one second read as 16 slots of SLOT_MS, most significant bit
+   first, which keeps adding a state to a line of hex rather than a branch. */
+#define SLOT_MS 62
+
+typedef enum {
+    LED_UNMOUNTED = 0,  /* 1000 0000 0000 0000 */
+    LED_ARMED,          /* 1010 0000 0000 0000 */
+    LED_STALLED,        /* 1010 1010 1010 1010 */
+} led_state_t;
+
+static const uint16_t led_pattern[] = {
+    [LED_UNMOUNTED] = 0x8000,
+    [LED_ARMED]     = 0xA000,
+    [LED_STALLED]   = 0xAAAA,
+};
+
 static void led_task(void) {
 #ifdef PICO_DEFAULT_LED_PIN
     static uint32_t next_ms = 0;
-    static bool     on      = false;
+    static uint8_t  slot    = 0;
     uint32_t        t       = now_ms();
 
     if (reports_sent > 0)
@@ -143,14 +169,17 @@ static void led_task(void) {
 
     if (t < next_ms)
         return;
+    next_ms = t + SLOT_MS;
 
-    on = !on;
-    gpio_put(PICO_DEFAULT_LED_PIN, on);
+    /* tud_hid_ready() only drops momentarily once reports are in flight, and
+       none are yet, so before the first burst it cleanly separates an endpoint
+       that came up from one that did not. */
+    led_state_t st = !tud_mounted()      ? LED_UNMOUNTED
+                     : !tud_hid_ready()  ? LED_STALLED
+                                         : LED_ARMED;
 
-    if (!tud_mounted())
-        next_ms = t + (on ? 100 : 900);  /* slow: not enumerated */
-    else
-        next_ms = t + 80;                /* fast: mounted, endpoint not ready */
+    gpio_put(PICO_DEFAULT_LED_PIN, (led_pattern[st] >> (15 - slot)) & 1u);
+    slot = (uint8_t)((slot + 1) & 15);
 #endif
 }
 

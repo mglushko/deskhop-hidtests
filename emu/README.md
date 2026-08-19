@@ -107,9 +107,15 @@ wrong PC.
 | LED | meaning | where to look |
 |---|---|---|
 | dark | no power | cable, and whether the port supplies VBUS |
-| one short flash a second | powered, never enumerated | the host port, the cable, try it straight into a PC |
-| rapid blinking | enumerated, endpoint never ready | the host stack, not the rig |
+| one flash a second | powered, never enumerated | the host port, the cable, try it straight into a PC |
+| two flashes a second | enumerated and armed, counting out the grace period | nothing, wait for it |
+| rapid blinking | enumerated, endpoint never goes ready | the host stack, not the rig |
 | on, dipping three times a cycle | reports are going out | downstream of the rig, see below |
+
+Armed and stalled both sit between enumeration and the first line, and they look
+the same from outside, but one clears itself within ten seconds and the other never
+does. They are separate patterns so a healthy rig waiting to start is not mistaken
+for a stuck one.
 
 If the LED is dipping, the emulator is doing its job and the fault is past it:
 
