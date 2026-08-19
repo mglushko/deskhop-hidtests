@@ -129,6 +129,23 @@ $(GEN)/lifted_mouse.c: $(SRC)/src/mouse.c tools/lift.py | $(GEN)
 $(GEN)/lifted_cc.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 	@python3 tools/lift.py $< $@ process_consumer_report process_system_report
 
+# usb.c's routing is liftable only on a tree that factored it out as pick_receiver().
+# Everywhere else src/dispatch.h's model stands in and dispatchtest says so, because a
+# model reports what it was written to say rather than what the firmware does. One
+# grep, and only to decide how dispatchtest links.
+LIFTABLE_DISPATCH := $(shell grep -l 'process_report_f pick_receiver' $(SRC)/src/usb.c 2>/dev/null)
+
+ifneq ($(LIFTABLE_DISPATCH),)
+DISPATCH_SRC  := $(GEN)/lifted_dispatch.c
+DISPATCH_FLAG := -DHARNESS_LIFT_DISPATCH
+else
+DISPATCH_SRC  :=
+DISPATCH_FLAG :=
+endif
+
+$(GEN)/lifted_dispatch.c: $(SRC)/src/usb.c tools/lift.py | $(GEN)
+	@python3 tools/lift.py $< $@ report_carries_id pick_receiver
+
 $(GEN)/hid_parser_instr.c: $(PARSER) tools/instrument.py | $(GEN)
 	@python3 tools/instrument.py $< $@
 
@@ -159,10 +176,13 @@ $(OUT)/cctest: src/cctest.c src/cases_cc.h descriptors.h $(HDRS) $(CORE) \
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -DHARNESS_LIFT_CC -o $@ src/cctest.c \
 	    $(GEN)/lifted_cc.c src/recorders.c $(CORE)
 
-# Models usb.c's routing rather than any decode path, so it needs no lifted source -
-# only the four distinguishable receiver addresses out of src/stubs.c.
-$(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h descriptors.h $(HDRS) $(CORE) | $(GEN)
-	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/dispatchtest.c $(CORE)
+# Routing, not decode, so the only thing it needs out of $(CORE) is the four
+# distinguishable receiver addresses in src/stubs.c. $(DISPATCH_SRC) is the target's
+# own pick_receiver() where the target has one, and empty otherwise.
+$(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h descriptors.h $(HDRS) $(CORE) \
+                     $(DISPATCH_SRC) | $(GEN)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(DISPATCH_FLAG) -o $@ src/dispatchtest.c \
+	    $(DISPATCH_SRC) $(CORE)
 
 # needs lifted_mouse.c: it drives extract_report_values, the same entry point
 # mousetest uses, so that the truncated reports go through the firmware's own

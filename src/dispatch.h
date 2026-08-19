@@ -1,16 +1,20 @@
-/* The routing half of usb.c:tuh_hid_report_received_cb, as a pure function.
+/* The routing half of usb.c:tuh_hid_report_received_cb: given an interface and the
+ * bytes that arrived, which receiver gets called.
  *
- * This is the one piece of firmware logic the harness reimplements rather than
- * lifts. tuh_hid_report_received_cb cannot go through tools/lift.py: it reaches
- * global_state and the TinyUSB host API, and computes a device_idx nothing here
- * needs. What it can do is answer the only question that matters - given an
- * interface and the bytes that arrived, which receiver gets called - and that is
- * a decision made from iface->uses_report_id, the interface protocol, and
- * report[0], all of which the harness already has.
+ * Two ways to get that answer, and the harness prefers the first:
  *
- * Shared rather than copied. mousetest.c used to carry its own version of this,
- * display-only and documented as able to go stale; src/dispatchtest.c now asserts
- * on it, so both read the same lines and a drift shows up in one place.
+ *   LIFTED. tuh_hid_report_received_cb itself cannot go through tools/lift.py - it
+ *   reaches global_state and the TinyUSB host API, and computes a device_idx nothing
+ *   here needs. But the decision inside it is a pure function of iface, the interface
+ *   protocol and report[0], and a target that has factored it out as pick_receiver()
+ *   hands the harness the real thing. The Makefile detects that and lifts it.
+ *
+ *   MODELLED. On a target that still has the routing inlined in the callback there is
+ *   nothing to lift, so the copy below stands in. It reproduces upstream at 59577cc.
+ *   dispatchtest prints which of the two it used, because a model can only report what
+ *   it was written to say - and that is exactly how the boot-protocol routing bug
+ *   survived: mousetest carried a copy of these rules, display-only and documented as
+ *   able to go stale, and it duly kept printing the old answer.
  *
  * KEEP THIS IN STEP WITH usb.c. Last checked against 59577cc, where the function
  * reads:
@@ -39,7 +43,32 @@
 
 #include "main.h"
 
-/* Returns the receiver usb.c would invoke, or NULL if the report is dropped.
+#ifdef HARNESS_LIFT_DISPATCH
+
+/* The target factored its routing into pick_receiver(), so tools/lift.py pulls that
+   out of usb.c verbatim and the model below is not used at all. This is the only
+   configuration in which the dispatch result describes the firmware rather than the
+   harness's reading of it. */
+process_report_f pick_receiver(const hid_interface_t *iface, uint8_t itf_protocol,
+                               uint8_t const *report);
+
+#define HID_ROUTE_IS_LIFTED 1
+
+static inline process_report_f hid_route(const hid_interface_t *iface, uint8_t itf_protocol,
+                                         const uint8_t *report) {
+    return pick_receiver(iface, itf_protocol, report);
+}
+
+#else
+
+#define HID_ROUTE_IS_LIFTED 0
+
+/* Stand-in for a target whose usb.c still has the routing inlined in the callback,
+   where there is no function to lift. It reproduces the upstream logic at 59577cc.
+   A model can only ever report what it was written to say, so dispatchtest prints
+   which of the two it used and nobody should read a modelled result as a
+   measurement of the firmware.
+
    `report` must hold at least one byte, as it does on any real transfer. */
 static inline process_report_f hid_route(const hid_interface_t *iface, uint8_t itf_protocol,
                                          const uint8_t *report) {
@@ -63,6 +92,8 @@ static inline process_report_f hid_route(const hid_interface_t *iface, uint8_t i
 
     return NULL;
 }
+
+#endif
 
 /* Name of a receiver, for tables. */
 static inline const char *hid_receiver_name(process_report_f f) {

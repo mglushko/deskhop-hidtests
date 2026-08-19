@@ -277,7 +277,7 @@ over the current 46-descriptor corpus.
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
 | `truncate` | 2199 of 4092 prefixes overread | 2080 of 4092 prefixes overread |
 | `shortreport` | 779 of 1169 truncated reports overread | 779 of 1169, identical - the fix is in the parser, this is the decode path |
-| `dispatch` | 12 of 18 routed correctly; 6 misrouted, 3 more arrive by luck | same - `usb.c` is untouched by any of these PRs |
+| `dispatch` | 13 of 20 routed correctly; 7 misrouted, 3 more arrive by luck | same - `usb.c` is untouched by any of these PRs |
 | `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there |
 | `timing` | segfaults | ~17.5 ns/element on x86-64 |
 
@@ -476,10 +476,27 @@ The last row is the worst: a keyboard report arrives at the path that sends Powe
 Sleep. And `extract_kbd_data`'s `HID_PROTOCOL_BOOT` branch is unreachable for every
 keyboard that declares a report ID - the branch exists for exactly these devices.
 
-Three rows in `make dispatch` pass *by luck*, flagged as such, because the modifier
-happens to equal a bound report ID. Left Ctrl on a report-ID-1 keyboard is the common
-case, which is a plausible reason this has gone unnoticed: the first thing anyone tries
-after enabling boot protocol is often a modifier combination.
+The mouse side has the same mistake, reached through `force_mouse_boot_mode` instead:
+there `report[0]` is the button byte, so a boot-mode mouse on a report-ID interface is
+routed by which buttons are held.
+
+Three rows in `make dispatch` pass *by luck*, flagged as such. The target does not have
+to be asked which routing it uses to know that - in boot protocol `report[0]` is data,
+so routing must not depend on it, and the test simply perturbs that byte and sees
+whether the receiver moves. Left Ctrl on a report-ID-1 keyboard is the common case,
+which is a plausible reason this has gone unnoticed: the first thing anyone tries after
+enabling boot protocol is often a modifier combination.
+
+**How `make dispatch` knows.** `tuh_hid_report_received_cb` cannot be lifted - it reaches
+`global_state` and the TinyUSB host API - but the decision inside it is a pure function
+of the interface, the interface protocol and `report[0]`. A target that factors that out
+as `pick_receiver()` gets it lifted verbatim like everything else here, and the run says
+`routing: lifted from the target's usb.c`. A target that still has it inlined in the
+callback has nothing to lift, so `src/dispatch.h`'s model stands in and the run says
+`MODELLED` instead. Only the first is a measurement of the firmware; the second reports
+what the model was written to say, which is exactly how this bug survived in the first
+place - `mousetest` carried a copy of these rules, display-only and documented as able to
+go stale, and it duly kept printing the old answer.
 
 `usb.c` is byte for byte the same on `main`, on all three PRs and on `deskhop-extended`,
 so this is upstream's and long-standing rather than anything a fix introduced.

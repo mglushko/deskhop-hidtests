@@ -95,6 +95,14 @@ static const route_case_t cases[] = {
                                        process_keyboard_report, NULL},
 {"superlight2 rx, boot, Alt",          D(superlight2_rx_keyboard), KBD, B, {0x04,0x00,0x04}, 8,
                                        process_keyboard_report, NULL},
+
+/* the same mistake on the mouse side, where report[0] is the button byte. Reached
+   through force_mouse_boot_mode rather than force_kbd_boot_protocol. */
+{"hires_mouse, boot, no button",       D(hires_mouse),          MSE, B, {0x00,0x0A,0x00}, 5,
+                                       process_mouse_report, NULL},
+{"hires_mouse, boot, button 1",        D(hires_mouse),          MSE, B, {0x01,0x0A,0x00}, 5,
+                                       process_mouse_report,
+                                       "arrives only because button 1 sets bit 0, matching report ID 1"},
 };
 
 #undef D
@@ -104,6 +112,24 @@ static const route_case_t cases[] = {
 #undef MSE
 #undef NON
 
+/* In boot protocol report[0] is data - a modifier byte on a keyboard, a button byte
+   on a mouse - and never a report ID, so routing must not depend on it. If perturbing
+   that byte moves the receiver, this row only landed on the right one because the
+   value happened to match a bound report ID. Checked by behaviour rather than by
+   knowing which routing is in use, so it stays true either way. */
+static bool routed_by_luck(const hid_interface_t *iface, const route_case_t *c,
+                           process_report_f got) {
+    uint8_t probe[sizeof c->report];
+
+    if (c->protocol != HID_PROTOCOL_BOOT || got == NULL)
+        return false;
+
+    memcpy(probe, c->report, sizeof probe);
+    probe[0] = (uint8_t)(probe[0] ^ 0xA5);
+
+    return hid_route(iface, c->itf_protocol, probe) != got;
+}
+
 static const char *itf_name(uint8_t p) {
     return p == HID_ITF_PROTOCOL_KEYBOARD ? "kbd"
          : p == HID_ITF_PROTOCOL_MOUSE    ? "mouse" : "none";
@@ -112,6 +138,11 @@ static const char *itf_name(uint8_t p) {
 int main(void) {
     static hid_interface_t iface;
     int failures = 0, accidents = 0;
+
+    printf("  routing: %s\n\n", HID_ROUTE_IS_LIFTED
+           ? "lifted from the target's usb.c (pick_receiver)"
+           : "MODELLED in src/dispatch.h - the target has no pick_receiver() to lift, so "
+             "this\n           describes the model, not the firmware");
 
     printf("  %-38s %-6s %-6s %-9s %-9s %s\n", "scenario", "itf", "proto", "reached", "wanted", "");
     printf("  ");
@@ -131,18 +162,20 @@ int main(void) {
            it, because nothing in usb.c revises it. That pairing is the bug. */
         process_report_f got = hid_route(&iface, c->itf_protocol, c->report);
 
-        bool ok = (got == c->want);
+        bool ok   = (got == c->want);
+        bool luck = ok && routed_by_luck(&iface, c, got);
+
         if (!ok)
             failures++;
-        else if (c->note)
+        else if (luck)
             accidents++;
 
         printf("  %-38s %-6s %-6s %-9s %-9s %s\n", c->what, itf_name(c->itf_protocol),
                c->protocol == HID_PROTOCOL_BOOT ? "boot" : "report",
                hid_receiver_name(got), hid_receiver_name(c->want),
-               ok ? (c->note ? "ok, by luck" : "ok") : "MISROUTED");
+               ok ? (luck ? "ok, by luck" : "ok") : "MISROUTED");
 
-        if (c->note)
+        if (luck && c->note)
             printf("  %-38s %s\n", "", c->note);
     }
 
@@ -150,18 +183,22 @@ int main(void) {
     printf("\n  %u/%u reports reached the receiver they should\n", total - failures, total);
 
     if (accidents)
-        printf("  %d more reached it only because the modifier happened to match a report ID\n",
-               accidents);
+        printf("  %d of those only because report[0] happened to match a bound report ID -\n"
+               "  change the modifier or the button held and they stop arriving\n", accidents);
 
     if (failures) {
         printf("\n  %d MISROUTED. A keyboard in boot protocol sends no report ID, but usb.c still\n",
                failures);
         printf("  reads report[0] as one, because iface->uses_report_id comes from the descriptor\n");
         printf("  and is never revised. extract_kbd_data's HID_PROTOCOL_BOOT branch is therefore\n");
-        printf("  unreachable for every keyboard that declares a report ID.\n");
+        printf("  unreachable for every keyboard that declares a report ID, and a boot-mode mouse\n");
+        printf("  is routed by its button byte the same way.\n");
         return 1;
     }
 
-    printf("  every report reached its receiver\n");
+    if (HID_ROUTE_IS_LIFTED)
+        printf("  every report reached its receiver, measured against the target's own routing\n");
+    else
+        printf("  every report reached its receiver - but see the routing note above\n");
     return 0;
 }
