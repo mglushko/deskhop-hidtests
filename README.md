@@ -495,6 +495,16 @@ anyone plugged anything in - `make dispatch` had the row as `(dropped)` against
 setting is a checkbox on the config page, and anyone who ticks it with a report-ID
 mouse loses the pointer.
 
+**The fix is confirmed on the same hardware.** With the routing change flashed and the
+box still ticked, the pointer moves normally. One thing to expect and not mistake for a
+regression: the scroll wheel stops working in boot mode. That is boot protocol, not the
+fix - the boot mouse report is three bytes, buttons/X/Y, with no wheel in it, and
+deskhop says so itself in the branch that prefers report protocol ("looking at you,
+mouse wheel"). Untick the box and the wheel returns. Before `fe908d0` the boot branch
+read the wheel byte anyway, off the end of a three-byte report and into TinyUSB's shared
+endpoint buffer, so whatever scrolling that produced was stale bytes rather than the
+wheel.
+
 The keyboard half is still harness-only. The same dongle's interface 1 is
 `SubClass_01 Prot_01`, a boot keyboard with report ID 7 - the right shape - but has no
 keyboard paired to it, so no keystrokes flow.
