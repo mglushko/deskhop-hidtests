@@ -277,7 +277,7 @@ over the current 46-descriptor corpus.
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
 | `truncate` | 2199 of 4092 prefixes overread | 2080 of 4092 prefixes overread |
 | `shortreport` | 779 of 1169 truncated reports overread | 779 of 1169, identical - the fix is in the parser, this is the decode path |
-| `dispatch` | 13 of 20 routed correctly; 7 misrouted, 3 more arrive by luck | same - `usb.c` is untouched by any of these PRs |
+| `dispatch` | 14 of 22 routed correctly; 8 misrouted, 4 more arrive by luck | same - `usb.c` is untouched by any of these PRs |
 | `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there |
 | `timing` | segfaults | ~17.5 ns/element on x86-64 |
 
@@ -478,7 +478,10 @@ keyboard that declares a report ID - the branch exists for exactly these devices
 
 The mouse side has the same mistake, reached through `force_mouse_boot_mode` instead:
 there `report[0]` is the button byte, so a boot-mode mouse on a report-ID interface is
-routed by which buttons are held.
+routed by which buttons are held. That one is reachable on hardware in this corpus -
+the Keychron Ultra-Link's interface 0 is `Class_03 SubClass_01 Prot_02`, a boot-capable
+mouse, and its pointer sits on report ID 1, so in boot protocol the cursor is dead
+unless the left button is held.
 
 Three rows in `make dispatch` pass *by luck*, flagged as such. The target does not have
 to be asked which routing it uses to know that - in boot protocol `report[0]` is data,

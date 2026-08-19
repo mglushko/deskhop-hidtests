@@ -103,6 +103,16 @@ static const route_case_t cases[] = {
 {"hires_mouse, boot, button 1",        D(hires_mouse),          MSE, B, {0x01,0x0A,0x00}, 5,
                                        process_mouse_report,
                                        "arrives only because button 1 sets bit 0, matching report ID 1"},
+
+/* Keychron Ultra-Link 8K 3434:D028 interface 0, which Windows reports as
+   Class_03 SubClass_01 Prot_02 - a boot-capable mouse - so force_mouse_boot_mode
+   (config field 71) reaches it on real hardware. Its mouse sits on report ID 1, so
+   in boot protocol the pointer is dead unless the left button is held. */
+{"ultralink mouse, boot, no button",   D(ultralink_mouse),      MSE, B, {0x00,0x14,0x00}, 4,
+                                       process_mouse_report, NULL},
+{"ultralink mouse, boot, left held",   D(ultralink_mouse),      MSE, B, {0x01,0x14,0x00}, 4,
+                                       process_mouse_report,
+                                       "arrives only because the left button sets bit 0, matching report ID 1"},
 };
 
 #undef D
