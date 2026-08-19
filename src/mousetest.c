@@ -25,34 +25,22 @@
  * the report rather than letting it pass as a plausible number.
  */
 #include "main.h"
+#include "dispatch.h"
 
-/* A hand copy of the routing in usb.c:tuh_hid_report_received_cb, and the only
-   place in this harness that reimplements firmware logic instead of lifting it.
-   tuh_hid_report_received_cb cannot be lifted: it reaches global_state and the
-   TinyUSB host API, and computes a device_idx this test has no use for.
-
-   The consequence is that it can go stale silently - nothing breaks if usb.c's
-   routing changes, this just keeps printing the old answer. It is display only,
-   printed in each device's header and never asserted on, so a drift cannot turn a
-   failing case into a passing one. Re-check it against usb.c when touching either.
-   Last checked against main at 59577cc: same branch structure, uses_report_id or
-   PROTOCOL_NONE goes through report_handler[report[0]], otherwise the interface
-   protocol picks the receiver directly. */
+/* Routing comes from src/dispatch.h, shared with dispatchtest, so the two cannot
+   disagree about what usb.c does. Here it stays display only - printed in each
+   device's header, never asserted on - because a mouse test should fail on decode,
+   not on routing. src/dispatchtest.c is what asserts on it. */
 static const char *dispatch(hid_interface_t *iface, uint8_t itf_protocol, const uint8_t *report) {
-    if (iface->uses_report_id || itf_protocol == HID_ITF_PROTOCOL_NONE) {
-        uint8_t report_id = iface->uses_report_id ? report[0] : 0;
+    process_report_f got = hid_route(iface, itf_protocol, report);
 
-        if (report_id < MAX_REPORTS && iface->report_handler[report_id])
-            return iface->report_handler[report_id] == process_mouse_report
-                       ? "report_handler -> process_mouse_report"
-                       : "report_handler -> WRONG RECEIVER";
+    if (got == NULL)
         return "DROPPED (no handler)";
-    }
-    if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD)
-        return "process_keyboard_report  <-- WRONG";
-    if (itf_protocol == HID_ITF_PROTOCOL_MOUSE)
-        return "process_mouse_report (direct)";
-    return "DROPPED";
+    if (got == process_mouse_report)
+        return iface->uses_report_id || itf_protocol == HID_ITF_PROTOCOL_NONE
+                   ? "report_handler -> process_mouse_report"
+                   : "process_mouse_report (direct)";
+    return "WRONG RECEIVER";
 }
 
 #include "cases_mouse.h"
