@@ -792,6 +792,21 @@ depends on someone else coming back. The descriptor is generated out of
 fixed column against the branch, so the hardware and the host cannot quietly come to
 disagree about what the device is.
 
+**Confirmed on hardware, 2026-08-19.** An RP2040 running the rig, plugged straight
+into a PC, types `abcdef,./` - the OS parses the descriptor correctly, so the rig is
+faithful. The same board plugged into a deskhop-extended v1.04 keyboard port types
+`gmovw3,./`, on every one of eleven lines. That is the collapse, on real silicon,
+matching the number `k_bitdo_cases` predicted from the host.
+
+Two of those eleven lines came through as `gmovw3,.`, losing the final `/`. That is
+not the bug showing through: `add_keys` in `keyboard.c` deduplicates before
+transmission, so the doubled NKRO walk `{54,55,56,54,55,56}` and the fixed
+`{54,55,56}` both reach the host as the same three keycodes, and the tail is
+bit-identical on either firmware. It did not happen on any of the seven lines typed
+straight into the PC, so something on the deskhop path drops a key out of three
+simultaneous key-downs now and then. Small sample, separate question, and it should
+still appear once the fix is in - if it stops, this reasoning is wrong.
+
 What it still does not cover: it is one emulated device on one interface, so it says
 nothing about how a real 8BitDo negotiates, about the other two reported devices, or
 about any bug that needs a hub, a composite device or a timing race to show up.
