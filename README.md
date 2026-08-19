@@ -478,10 +478,26 @@ keyboard that declares a report ID - the branch exists for exactly these devices
 
 The mouse side has the same mistake, reached through `force_mouse_boot_mode` instead:
 there `report[0]` is the button byte, so a boot-mode mouse on a report-ID interface is
-routed by which buttons are held. That one is reachable on hardware in this corpus -
-the Keychron Ultra-Link's interface 0 is `Class_03 SubClass_01 Prot_02`, a boot-capable
-mouse, and its pointer sits on report ID 1, so in boot protocol the cursor is dead
-unless the left button is held.
+routed by which buttons are held.
+
+**That half is confirmed on hardware.** The Keychron Ultra-Link 8K (`3434:D028`)
+presents its interface 0 as `Class_03 SubClass_01 Prot_02`, a boot-capable mouse, and
+its pointer sits on report ID 1. Ticking Force Mouse Boot Mode on deskhop-extended
+v1.03 and replugging the dongle gives exactly what the handler map predicts: the
+cursor is dead, and moves only while the left button is held, because button 1 sets
+bit 0 and report ID 1 is the one bound handler. Every other button value routes to an
+unbound slot and the report is discarded.
+
+Two things that matter about that. It is the first finding here confirmed on a device
+rather than in the harness, and the harness predicted the symptom exactly before
+anyone plugged anything in - `make dispatch` had the row as `(dropped)` against
+`want mouse`. And it moves this off the "opt-in, therefore theoretical" shelf: the
+setting is a checkbox on the config page, and anyone who ticks it with a report-ID
+mouse loses the pointer.
+
+The keyboard half is still harness-only. The same dongle's interface 1 is
+`SubClass_01 Prot_01`, a boot keyboard with report ID 7 - the right shape - but has no
+keyboard paired to it, so no keystrokes flow.
 
 Three rows in `make dispatch` pass *by luck*, flagged as such. The target does not have
 to be asked which routing it uses to know that - in boot protocol `report[0]` is data,
@@ -502,9 +518,9 @@ place - `mousetest` carried a copy of these rules, display-only and documented a
 go stale, and it duly kept printing the old answer.
 
 `usb.c` is byte for byte the same on `main`, on all three PRs and on `deskhop-extended`,
-so this is upstream's and long-standing rather than anything a fix introduced.
-`force_kbd_boot_protocol` defaults to 0 (`user_config.h`) and is settable at runtime, so
-it is opt-in. [#229] reports keys dying with that option enabled, which is *consistent*
+so this is upstream's and long-standing rather than anything a fix introduced. Both
+flags default to 0, so it is opt-in - but both are checkboxes on the config page, and
+the mouse one has now been ticked on real hardware with the predicted result. [#229] reports keys dying with that option enabled, which is *consistent*
 with this - but that reporter's Wooting declares no report ID on its keyboard interface,
 so treat the link as suggestive rather than established.
 
