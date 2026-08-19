@@ -36,6 +36,7 @@ Needs `gcc`, `python3`, and `make`. No cross compiler, no Pico SDK.
 | `make fuzz N=<n>` | does any generated descriptor push an access outside `usages[]`? |
 | `make truncate` | does a short or malformed *descriptor* make the parser read past the buffer? |
 | `make shortreport` | does a short *report* make the decode path read past the buffer? |
+| `make dispatch` | which receiver does a report actually reach? |
 | `make exhaust` | what happens when the usage array runs out before the mouse collection? |
 | `make timing` | how long does a large but legal Report Count take to parse? |
 | `make check-constants` | do the constants `harness.h` copies still match TinyUSB's? |
@@ -46,10 +47,10 @@ Needs `gcc`, `python3`, and `make`. No cross compiler, no Pico SDK.
 `test` is the one to wire into CI. It holds only the checks that must pass against
 any firmware worth shipping, so a red `make test` means the harness moved or a known
 good device stopped decoding. `fuzz`, `truncate` and `shortreport` are deliberately
-outside it: they fail by design on firmware that has the bug they look for - two of
-the three fail on `main` today - so folding them in would make the gate permanently
-red and worth nothing. Their exit status is the finding. `make findings` runs those
-three together and reports rather than gates.
+outside it, and so is `dispatch`: they fail by design on firmware that has the bug
+they look for - three of the four fail on `main` today - so folding them in would make
+the gate permanently red and worth nothing. Their exit status is the finding.
+`make findings` runs those four together and reports rather than gates.
 
 `compare` is the one to reach for when reviewing a parser change. It materialises the
 reference commit with `git archive`, builds the same harness twice, and diffs the
@@ -108,7 +109,7 @@ artifact, and it is not known whether that device really lacks a key array.
 
 ### What the corpus is already worth
 
-The corpus is 45 descriptors, 35 of them captured from real devices: 18 from upstream
+The corpus is 46 descriptors, 35 of them captured from real devices: 18 from upstream
 issues, 4 from dumps published elsewhere, and 13 dumped here from two devices on hand.
 What they have bought so far:
 
@@ -224,6 +225,12 @@ matter; see [Adding a device](#adding-a-device).
   shifts by 40. That is undefined, and on x86 it silently takes the shift mod 32 and
   returns a plausible wrong number rather than faulting. No device in the corpus
   reaches that path today, so this costs nothing and is waiting.
+- `src/dispatch.h` models the routing half of `usb.c:tuh_hid_report_received_cb` -
+  which receiver a report reaches, given the interface and the bytes. It cannot be
+  lifted (the real function reaches `global_state` and the TinyUSB host API), so it is
+  the one piece of firmware logic here that is reimplemented, and it carries a
+  "re-check against usb.c" note saying so. `mousetest` and `dispatchtest` share it, so
+  a drift shows up in one place rather than two.
 - `src/cases_mouse.h`, `src/cases_kbd.h` and `src/cases_cc.h` hold the decode cases,
   shared by `mousetest`/`kbdtest` and `shortreport`. A case added there is checked
   both for the values it decodes to and for its behaviour when truncated, without
@@ -258,18 +265,19 @@ matter; see [Adding a device](#adding-a-device).
 
 Reference results, so a broken harness is distinguishable from a broken firmware.
 Taken against `main` at `59577cc` and the [#332] fix, now PR [#361], at `ea680e4`,
-over the current 44-descriptor corpus.
+over the current 46-descriptor corpus.
 
 | check | main | [#361] |
 |---|---|---|
-| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 43 identical |
+| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 44 identical |
 | `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases |
 | `kbd` | 46 of 46 cases over 13 devices | 46 of 46 cases |
 | `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change |
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
-| `truncate` | 2175 of 4043 prefixes overread | 2056 of 4043 prefixes overread |
-| `shortreport` | 774 of 1159 truncated reports overread | 774 of 1159, identical - the fix is in the parser, this is the decode path |
+| `truncate` | 2199 of 4092 prefixes overread | 2080 of 4092 prefixes overread |
+| `shortreport` | 779 of 1169 truncated reports overread | 779 of 1169, identical - the fix is in the parser, this is the decode path |
+| `dispatch` | 12 of 18 routed correctly; 6 misrouted, 3 more arrive by luck | same - `usb.c` is untouched by any of these PRs |
 | `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there |
 | `timing` | segfaults | ~17.5 ns/element on x86-64 |
 
@@ -315,15 +323,13 @@ The other two open parser PRs, measured the same way:
 | PR | what `compare REF=main` shows |
 |---|---|
 | [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. |
-| [#358] media keys without report IDs | identical parse on all 45, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. |
+| [#358] media keys without report IDs | identical parse on all 46, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. |
 
-Three caveats on [#359]. `MAX_NKRO_BLOCKS` is 4 and the Wooting declares exactly 4, so
-there is no headroom: a keyboard splitting its bitmap five ways would still lose the
-last section, silently and in the same way.
+Three caveats on [#359], of which one is fixed and two stand.
 
-The first is now fixed on the branch, and `kbd_with_bit_field` is the case that found
-it. [#359] set `is_nkro` on the strength of any single block matching
-`maps_usage_per_bit`, and a plain keyboard-page bit field matches - eight bits of F13
+**Fixed.** [#359] set `is_nkro` on the strength of any single block matching
+`maps_usage_per_bit`, and `kbd_with_bit_field` is the case that found it. A plain
+keyboard-page bit field matches that test - eight bits of F13
 to F20 where the reserved byte usually sits is enough. That routes every report
 through `_extract_kbd_nkro`, which never reads `key_array`, so an ordinary 6KRO
 keyboard keeps its modifiers and loses every keycode. `main` is unaffected because its
@@ -332,8 +338,14 @@ of all blocks keeps both: eight bits is padding, the Wooting's four ranges are n
 Holding `a` on that device returns nothing before the fix and keycode 4 after, with
 the rest of the corpus parsing identically.
 
-The second is sharper, because it is a case where the new rule rejects something `main`
-accepted. [#359] recognises an NKRO block by `maps_usage_per_bit`, requiring
+**Still open, and the reason the count above is three rather than one.**
+`MAX_NKRO_BLOCKS` is 4 and the Wooting declares exactly 4, so there is no headroom: a
+keyboard splitting its bitmap five ways still loses the last section, silently and in
+the same way. Deciding `is_nkro` on the summed width does not change that - the fifth
+block is never recorded, so its bits are not in the sum either.
+
+**Also still open**, and sharper, because it is a case where the new rule rejects
+something `main` accepted. [#359] recognises an NKRO block by `maps_usage_per_bit`, requiring
 `usage_max - usage_min + 1 == size`. The Keychron declares `19 00 2A 98 00` with `95 98`
 - usage minimum 0, usage maximum 152, 152 bits, which is 153 usages mapped onto 152 bits
 - so the block is never recorded and `nkro_count` stays 0. `main` does record it, on
@@ -376,7 +388,7 @@ bytes; every offset the parser derived now points past the end.
 
 `make shortreport` replays each `mouse` and `kbd` case at every length from its
 receiver's floor up to full, in an exact-size allocation, forked, under ASan. On
-`main` 774 of 1159 fail. The four distinct causes, each reproducible on its own:
+`main` 779 of 1169 fail. The four distinct causes, each reproducible on its own:
 
 ```sh
 make shortreport                          # the table
@@ -426,12 +438,55 @@ cannot report something a device is unable to send:
 | `process_mouse_report` | none | 1 byte |
 | `process_keyboard_report` | `length < KBD_REPORT_LENGTH` returns | 8 bytes |
 
-Those floors are hand copies of firmware logic, like `mousetest.c`'s `dispatch()`,
+Those floors are hand copies of firmware logic, like the routing in `src/dispatch.h`,
 and unlike that one they are load bearing - raising a floor hides a finding and
 lowering one invents a false one. They are commented as such in `src/shortreport.c`.
 
-Present identically on `main` and on [#361]: 774 of 1159 either way. The [#332]
+Present identically on `main` and on [#361]: 779 of 1169 either way. The [#332]
 work is in the parser, and all four of these are in the decode path.
+
+**A keyboard in boot protocol is routed by its modifier byte.** `usb.c` picks between
+two branches on `iface->uses_report_id`, which the parser sets from the *descriptor* at
+enumeration and nothing ever revises. It never looks at `iface->protocol`. So when
+`force_kbd_boot_protocol` puts a keyboard into boot protocol the device stops sending a
+report ID, but dispatch keeps reading `report[0]` as one - and `report[0]` is now the
+modifier byte:
+
+```c
+if (iface->uses_report_id || itf_protocol == HID_ITF_PROTOCOL_NONE) {
+    uint8_t report_id = 0;
+    if (iface->uses_report_id)
+        report_id = report[0];
+    ...
+        process_report_f receiver = iface->report_handler[report_id];
+```
+
+On a keyboard declaring no report ID this is harmless - the `else if` below picks the
+receiver from the interface protocol. On one that does declare a report ID, the report
+goes to `report_handler[modifier]`, and `make dispatch` measures what that means on the
+three real devices in the corpus that are affected:
+
+| device | handlers | result |
+|---|---|---|
+| Gameball `0782:001B` | `.K` | no modifier held - `handler[0]` is NULL, keystroke discarded |
+| Keychron Ultra-Link `3434:D028` | `.......K` | only modifier `0x07` routes at all |
+| Superlight 2 receiver | `.K.CS` | Ctrl+Shift reaches `process_consumer_report`; **Alt reaches `process_system_report`** |
+
+The last row is the worst: a keyboard report arrives at the path that sends Power and
+Sleep. And `extract_kbd_data`'s `HID_PROTOCOL_BOOT` branch is unreachable for every
+keyboard that declares a report ID - the branch exists for exactly these devices.
+
+Three rows in `make dispatch` pass *by luck*, flagged as such, because the modifier
+happens to equal a bound report ID. Left Ctrl on a report-ID-1 keyboard is the common
+case, which is a plausible reason this has gone unnoticed: the first thing anyone tries
+after enabling boot protocol is often a modifier combination.
+
+`usb.c` is byte for byte the same on `main`, on all three PRs and on `deskhop-extended`,
+so this is upstream's and long-standing rather than anything a fix introduced.
+`force_kbd_boot_protocol` defaults to 0 (`user_config.h`) and is settable at runtime, so
+it is opt-in. [#229] reports keys dying with that option enabled, which is *consistent*
+with this - but that reporter's Wooting declares no report ID on its keyboard interface,
+so treat the link as suggestive rather than established.
 
 **Short descriptors read past the end of the buffer.** `make truncate` fails on
 roughly half of all prefixes, every descriptor, starting at length 1. The parse loop
@@ -449,6 +504,12 @@ points one past the end, and the read happens anyway. `desc_len` then goes negat
 and the loop exits, so it is bounded to four bytes, but it is a genuine out of bounds
 read driven entirely by device supplied data. Present on `main`, so it predates the
 [#332] work and belongs in its own issue rather than folded into that PR.
+
+This is **not** the same finding as the short-report one above, and the two are easy to
+conflate because both show up as truncation. That one is about the *report*, fixed in
+`hid_report.c` and `mouse.c`; this one is about the *descriptor*, in the parse loop, and
+is still open everywhere - `make truncate` fails 2080 of 4092 even on a tree carrying
+every fix measured here.
 
 Reproduce the smallest case with:
 
@@ -571,7 +632,7 @@ invisible to it.
 
 PR [#358] is exactly that change: it teaches `process_consumer_report` and
 `process_system_report` not to skip a leading report ID byte that isn't there. The
-parse is untouched, so `compare` still prints `identical parse` on all 45
+parse is untouched, so `compare` still prints `identical parse` on all 46
 descriptors including `cherry_kc6000_consumer`, the device it fixes. That is the
 correct answer to the question `compare` asks, and the wrong answer to "does this PR
 do anything".

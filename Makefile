@@ -14,6 +14,7 @@
 #   make fuzz N=40000                bounds check over generated descriptors
 #   make truncate                    every prefix of every descriptor, under ASan
 #   make shortreport                 every prefix of every report, under ASan
+#   make dispatch                    which receiver does a report actually reach?
 #   make exhaust                     usage array exhaustion behaviour
 #   make timing                      cost per element vs report count
 #   make test                        the regression gate: mouse, kbd, consumer, constants
@@ -88,9 +89,11 @@ HDRS      := $(addprefix $(GEN)/,$(COPY_HDRS))
 CORE := $(PARSER) $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c
 
 BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/kbdtest $(OUT)/fuzz $(OUT)/exhaust \
-        $(OUT)/timing $(OUT)/truncate $(OUT)/shortreport $(OUT)/cctest
+        $(OUT)/timing $(OUT)/truncate $(OUT)/shortreport $(OUT)/cctest \
+        $(OUT)/dispatchtest
 
-.PHONY: all dump compare mouse kbd consumer fuzz exhaust timing truncate shortreport clean \
+.PHONY: all dump compare mouse kbd consumer fuzz exhaust timing truncate shortreport \
+        dispatch clean \
         check-target \
         check-ref check-constants
 
@@ -134,7 +137,7 @@ $(GEN)/hid_parser_instr.c: $(PARSER) tools/instrument.py | $(GEN)
 $(OUT)/dump: src/dump.c descriptors.h $(HDRS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/dump.c $(CORE)
 
-$(OUT)/mousetest: src/mousetest.c src/cases_mouse.h descriptors.h $(HDRS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
+$(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/dispatch.h descriptors.h $(HDRS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
 
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
@@ -155,6 +158,11 @@ $(OUT)/cctest: src/cctest.c src/cases_cc.h descriptors.h $(HDRS) $(CORE) \
                $(GEN)/lifted_cc.c src/recorders.c | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -DHARNESS_LIFT_CC -o $@ src/cctest.c \
 	    $(GEN)/lifted_cc.c src/recorders.c $(CORE)
+
+# Models usb.c's routing rather than any decode path, so it needs no lifted source -
+# only the four distinguishable receiver addresses out of src/stubs.c.
+$(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h descriptors.h $(HDRS) $(CORE) | $(GEN)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/dispatchtest.c $(CORE)
 
 # needs lifted_mouse.c: it drives extract_report_values, the same entry point
 # mousetest uses, so that the truncated reports go through the firmware's own
@@ -190,6 +198,9 @@ exhaust: $(OUT)/exhaust
 
 shortreport: $(OUT)/shortreport
 	@$(OUT)/shortreport
+
+dispatch: $(OUT)/dispatchtest
+	@$(OUT)/dispatchtest
 
 truncate: $(OUT)/truncate
 	@$(OUT)/truncate
@@ -283,7 +294,7 @@ endif  # compare in MAKECMDGOALS
 # shipping, so a red `make test` means the harness moved or a known good device
 # stopped decoding. Safe to wire into CI.
 #
-# fuzz, truncate and shortreport are deliberately NOT here. They fail by design on
+# fuzz, truncate, shortreport and dispatch are deliberately NOT here. They fail by design on
 # firmware that has the bug they look for - fuzz and truncate both fail on main
 # today, and truncate still fails on the #332 fix - so folding them in would make
 # this permanently red and worth nothing. Their exit status is the finding, not a
@@ -296,15 +307,17 @@ test: mouse kbd consumer check-constants
 	@echo
 	@echo "known good decode unchanged against $(SRC)"
 
-# The bounds and overread checks, run for their numbers. Each prints its own
+# The bounds, overread and routing checks, run for their numbers. Each prints its own
 # summary and its own exit status is ignored here on purpose: see above.
-findings: $(OUT)/fuzz $(OUT)/truncate $(OUT)/shortreport
+findings: $(OUT)/fuzz $(OUT)/truncate $(OUT)/shortreport $(OUT)/dispatchtest
 	@echo "=== fuzz ==="
 	-@$(OUT)/fuzz $(N) $(SEED)
 	@echo; echo "=== truncate ==="
 	-@$(OUT)/truncate
 	@echo; echo "=== shortreport ==="
 	-@$(OUT)/shortreport
+	@echo; echo "=== dispatch ==="
+	-@$(OUT)/dispatchtest
 	@echo
 	@echo "these fail when they find something; read the counts, not the status"
 
