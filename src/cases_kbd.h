@@ -252,6 +252,16 @@ static const kbd_case_t k_bitdo_cases[] = {
                                                                     true, {4, 5, 6, 7, 8, 9}},
     {"usage 4 on the NKRO collection", {0x0C, 0x00, 0x10}, 17,      0x00, {4, 4}, {4, 4},
                                                                     true, {4}},
+
+    /* The two bursts emu/main.c pushes through the NKRO collection: "xyz" as the
+       hardware rig's positive control, then Enter to break the line. Pinned here so
+       every report the rig puts on the wire has a host-side answer to compare against,
+       and so a change to the script cannot quietly stop meaning what the README says. */
+    {"usages 27-29 (xyz), NKRO",  {0x0C, 0x00, [5] = 0x38}, 17,     0x00, {27, 28, 29, 27, 28, 29},
+                                                                          {27, 28, 29, 27, 28, 29},
+                                                                    true, {27, 28, 29}},
+    {"usage 40 (enter), NKRO",    {0x0C, 0x00, [7] = 0x01}, 17,     0x00, {40, 40}, {40, 40},
+                                                                    true, {40}},
 };
 
 #define DEV(d, p, c) {#d, d_##d, (int)sizeof(d_##d), p, c, (unsigned)ARRAY_SIZE(c)}

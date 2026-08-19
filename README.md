@@ -733,7 +733,7 @@ invisible to it.
 
 PR [#358] is exactly that change: it teaches `process_consumer_report` and
 `process_system_report` not to skip a leading report ID byte that isn't there. The
-parse is untouched, so `compare` still prints `identical parse` on all 46
+parse is untouched, so `compare` still prints `identical parse` on all 47
 descriptors including `cherry_kc6000_consumer`, the device it fixes. That is the
 correct answer to the question `compare` asks, and the wrong answer to "does this PR
 do anything".
@@ -767,6 +767,32 @@ and its three helpers live in `hid_report.c`, which every binary here already
 compiles; only the declaration sits in `keyboard.h`, and `keyboard.c` just calls in.
 `make kbd` covers that path now, which is how [#359] got checked at decode level and
 how the [#216] suspicion about the Model 100's bit-68 bitmap got cleared.
+
+### Everything above runs on the host
+
+That is the real limit. The harness compiles the firmware's own parser and decode
+path and feeds them real bytes, which is enough to say what the code does with a
+report, but it never enumerates a device, never negotiates a protocol and never
+sees TinyUSB's host stack. A finding here is a claim about the firmware, not about
+a keyboard on a desk.
+
+[`emu/`](emu/) closes part of that for the collection collapse. It builds an RP2040
+into a stand-in for the 8BitDo Retro Mechanical Keyboard of [#57], presenting that
+device's 245 bytes over real USB and typing a fixed line through two of its three
+keyboard collections. Plugged into a deskhop board it prints `abcdefxyz` on firmware
+with the fix and `gmovw3xyz` on firmware without it.
+
+It matters because nobody working on this owns an affected keyboard. Three upstream
+reports describe the bug and every reporter has moved on, so a device test otherwise
+depends on someone else coming back. The descriptor is generated out of
+`descriptors.h` at build time and every report the rig sends is pinned in
+`k_bitdo_cases`, with the broken column measured against the pre-fix tree and the
+fixed column against the branch, so the hardware and the host cannot quietly come to
+disagree about what the device is.
+
+What it still does not cover: it is one emulated device on one interface, so it says
+nothing about how a real 8BitDo negotiates, about the other two reported devices, or
+about any bug that needs a hub, a composite device or a timing race to show up.
 
 ## Licence
 
