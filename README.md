@@ -298,7 +298,7 @@ matter; see [Adding a device](#adding-a-device).
 
 Reference results, so a broken harness is distinguishable from a broken firmware.
 Taken against `main` at `59577cc`, the [#332] fix (now PR [#361]) at `ea680e4`, and
-`deskhop-extended`, over the current 47-descriptor corpus.
+[`deskhop-extended`][deskhop-extended], over the current 47-descriptor corpus.
 
 The third column is the one that matters day to day. `main` and [#361] are references;
 `deskhop-extended` carries all three upstream PRs plus the short-report, boot-routing and
@@ -858,6 +858,7 @@ of the build directory still says where it came from.
 [#229]: https://github.com/hrvach/deskhop/issues/229
 [#216]: https://github.com/hrvach/deskhop/issues/216
 [#297]: https://github.com/hrvach/deskhop/issues/297
+[deskhop-extended]: https://github.com/mglushko/deskhop-extended
 [#332]: https://github.com/hrvach/deskhop/issues/332
 [#335]: https://github.com/hrvach/deskhop/issues/335
 [#358]: https://github.com/hrvach/deskhop/pull/358
