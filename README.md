@@ -314,7 +314,7 @@ that is the short *descriptor* finding in the parse loop, which nothing here has
 is easy to mistake for the short *report* row above it, which is why the findings below
 separate the two.
 
-| check | main | [#361] | `deskhop-extended` |
+| check | main | [#361] | [`deskhop-extended`][deskhop-extended] |
 |---|---|---|---|
 | `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 45 identical | both fixed; 47 compared, differences confined to keyboards |
 | `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases | 124 of 124 |
