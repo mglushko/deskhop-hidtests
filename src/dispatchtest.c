@@ -23,7 +23,7 @@
  * measure that on the real devices in the corpus rather than arguing it.
  *
  * This target FAILS on firmware that has the bug, which is every branch measured
- * so far including deskhop-extended - usb.c is byte-identical to upstream there.
+ * so far including DeskHop Extended - usb.c is byte-identical to upstream there.
  * It belongs in `make findings`, not `make test`, for the same reason truncate and
  * shortreport do: its exit status is the finding.
  */

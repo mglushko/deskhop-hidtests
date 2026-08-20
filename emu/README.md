@@ -102,7 +102,7 @@ To recover the board for reflashing, hold BOOTSEL while plugging it in.
 Doing it as an A/B is what makes it conclusive: flash the pre-fix image, confirm
 `gmovw3,./`, then flash the fixed one and confirm `abcdef,./` with nothing else
 changed. Run that way on 2026-08-19 it gave 11 lines of `gmovw3,./` on
-deskhop-extended v1.04 and 48 of `abcdef,./` on deskhop-extended v1.05, against
+DeskHop Extended v1.04 and 48 of `abcdef,./` on DeskHop Extended v1.05, against
 7 lines of `abcdef,./` typed straight into a PC as the control.
 
 # Gameball, the usages[] overflow
@@ -213,7 +213,7 @@ none of them faults: each step is rounded to a whole number, mousemove events ar
 coalesced so the sampled path is a subset of the real one, and any acceleration
 at all would show up here.
 
-## Through deskhop-extended v1.05
+## Through DeskHop Extended v1.05
 
 Same rig, same bench, plugged into the keyboard port instead of the PC:
 

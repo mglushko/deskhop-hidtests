@@ -297,10 +297,10 @@ matter; see [Adding a device](#adding-a-device).
 
 Reference results, so a broken harness is distinguishable from a broken firmware.
 Taken against `main` at `59577cc`, the [#332] fix (now PR [#361]) at `ea680e4`, and
-[`deskhop-extended`][deskhop-extended], over the current 47-descriptor corpus.
+[DeskHop Extended][deskhop-extended], over the current 47-descriptor corpus.
 
 The third column is the one that matters day to day. `main` and [#361] are references;
-`deskhop-extended` carries all three upstream PRs plus the short-report, boot-routing and
+DeskHop Extended carries all three upstream PRs plus the short-report, boot-routing and
 multi-keyboard fixes, and is what actually runs on the hardware, so it is the tree whose
 regressions cost something.
 
@@ -313,7 +313,7 @@ that is the short *descriptor* finding in the parse loop, which nothing here has
 is easy to mistake for the short *report* row above it, which is why the findings below
 separate the two.
 
-| check | main | [#361] | [`deskhop-extended`][deskhop-extended] |
+| check | main | [#361] | [DeskHop Extended][deskhop-extended] |
 |---|---|---|---|
 | `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 45 identical | both fixed; 47 compared, differences confined to keyboards |
 | `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases | 124 of 124 |
@@ -527,7 +527,7 @@ routed by which buttons are held.
 
 **That half is confirmed on hardware.** The Keychron Ultra-Link 8K (`3434:D028`)
 presents its interface 0 as `Class_03 SubClass_01 Prot_02`, a boot-capable mouse, and
-its pointer sits on report ID 1. Ticking Force Mouse Boot Mode on deskhop-extended
+its pointer sits on report ID 1. Ticking Force Mouse Boot Mode on DeskHop Extended
 v1.03 and replugging the dongle gives exactly what the handler map predicts: the
 cursor is dead, and moves only while the left button is held, because button 1 sets
 bit 0 and report ID 1 is the one bound handler. Every other button value routes to an
@@ -570,7 +570,7 @@ what the model was written to say, which is exactly how this bug survived in the
 place - `mousetest` carried a copy of these rules, display-only and documented as able to
 go stale, and it duly kept printing the old answer.
 
-`usb.c` is byte for byte the same on `main`, on all three PRs and on `deskhop-extended`,
+`usb.c` is byte for byte the same on `main`, on all three PRs and on DeskHop Extended,
 so this is upstream's and long-standing rather than anything a fix introduced. Both
 flags default to 0, so it is opt-in - but both are checkboxes on the config page, and
 the mouse one has now been ticked on real hardware with the predicted result. [#229] reports keys dying with that option enabled, which is *consistent*
@@ -701,7 +701,7 @@ above showing up through this one. That is why `make kbd` only carries this devi
 tree that bounds the walk, and why `truncate` and `shortreport` are where the overread
 itself is counted.
 
-**Fixed in `deskhop-extended`.** `get_keyboard()` is now lookup only and a parse-time
+**Fixed in DeskHop Extended.** `get_keyboard()` is now lookup only and a parse-time
 `get_or_add_keyboard()` claims a slot per report ID, so an interface holds one
 `keyboard_t` per collection:
 
@@ -809,15 +809,15 @@ disagree about what the device is.
 
 **Confirmed on hardware, 2026-08-19.** An RP2040 running the rig, plugged straight
 into a PC, types `abcdef,./` - the OS parses the descriptor correctly, so the rig is
-faithful. The same board plugged into a deskhop-extended v1.04 keyboard port types
+faithful. The same board plugged into a DeskHop Extended v1.04 keyboard port types
 `gmovw3,./`, on every one of eleven lines. That is the collapse, on real silicon,
 matching the number `k_bitdo_cases` predicted from the host.
 
-**The fix, on the same hardware.** Flashed with deskhop-extended v1.05 and left
+**The fix, on the same hardware.** Flashed with DeskHop Extended v1.05 and left
 running, the same board through the same port typed `abcdef,./` for 48 lines with
 nothing else changed. So both halves are measured on silicon, not just on the host.
 
-Two of the eleven deskhop-extended v1.04 lines came through as `gmovw3,.`, losing the
+Two of the eleven DeskHop Extended v1.04 lines came through as `gmovw3,.`, losing the
 final `/`. That was written up here as unrelated to the collapse, on the grounds that
 `add_keys` deduplicates before transmission, so the doubled NKRO walk
 `{54,55,56,54,55,56}` and the fixed `{54,55,56}` reach the host as the same three

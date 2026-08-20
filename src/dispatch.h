@@ -32,7 +32,7 @@
  *     else if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD) process_keyboard_report(...);
  *     else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE)    process_mouse_report(...);
  *
- * deskhop-extended carries this verbatim too - `git diff 59577cc..HEAD -- src/usb.c`
+ * DeskHop Extended carries this verbatim too - `git diff 59577cc..HEAD -- src/usb.c`
  * is empty there.
  *
  * Note what this does NOT depend on: iface->protocol. Boot protocol changes what
