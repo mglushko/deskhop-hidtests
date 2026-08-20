@@ -185,7 +185,7 @@ static void device_task(void) {
 #define ITF_TRACKBALL 0
 #define LEN_TRACKBALL 5      /* [buttons, X, Y, wheel, pan], no report ID */
 
-#define STEP_MS       25     /* 64 steps at 25 ms is a revolution every 1.6 s */
+#define STEP_MS       25     /* 48 steps at 25 ms is a revolution every 1.2 s */
 #define REVOLUTIONS   3      /* circles between scroll bursts */
 #define SCROLL_MS     150
 #define PAUSE_MS      700

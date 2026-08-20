@@ -102,8 +102,8 @@ To recover the board for reflashing, hold BOOTSEL while plugging it in.
 Doing it as an A/B is what makes it conclusive: flash the pre-fix image, confirm
 `gmovw3,./`, then flash the fixed one and confirm `abcdef,./` with nothing else
 changed. Run that way on 2026-08-19 it gave 11 lines of `gmovw3,./` on
-deskhop-extended v1.04 and 48 of `abcdef,./` on v1.05, against 7 lines of
-`abcdef,./` typed straight into a PC as the control.
+deskhop-extended v1.04 and 48 of `abcdef,./` on deskhop-extended v1.05, against
+7 lines of `abcdef,./` typed straight into a PC as the control.
 
 # Gameball, the usages[] overflow
 
@@ -143,11 +143,12 @@ look like a stuck Shift. That is the real device's descriptor, not a simplificat
 ## The End Collection encoding
 
 All three Gameball descriptors encode End Collection as `0xC1 0x00`, bSize 1 where
-the spec says 0, at four places. deskhop skips the item by its declared size and is
-unaffected. Windows is not so relaxed: the descriptor as dumped enumerates and is
-then suspended with no driver bound, and `gameball-c0-emu`, which is the same
-interface with only those items rewritten to `0xC0`, works. That is the difference
-between LED code 2 and a moving pointer, and nothing else changed between them.
+the spec says 0 - every End Collection item in the three, five in total. deskhop
+skips the item by its declared size and is unaffected. Windows is not so relaxed:
+the descriptor as dumped enumerates and is then suspended with no driver bound, and
+`gameball-c0-emu`, which is the same interface with only those items rewritten to
+`0xC0`, works. That is the difference between LED code 2 and a moving pointer, and
+nothing else changed between them.
 
 There is a second anomaly in the same bytes, and it is the one that produces a
 staircase rather than a circle. The trackball's X, Y, wheel and pan carry no

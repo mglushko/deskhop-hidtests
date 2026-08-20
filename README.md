@@ -813,18 +813,18 @@ faithful. The same board plugged into a deskhop-extended v1.04 keyboard port typ
 `gmovw3,./`, on every one of eleven lines. That is the collapse, on real silicon,
 matching the number `k_bitdo_cases` predicted from the host.
 
-**The fix, on the same hardware.** Flashed with v1.05 and left running, the same board
-through the same port typed `abcdef,./` for 48 lines with nothing else changed. So
-both halves are measured on silicon, not just on the host.
+**The fix, on the same hardware.** Flashed with deskhop-extended v1.05 and left
+running, the same board through the same port typed `abcdef,./` for 48 lines with
+nothing else changed. So both halves are measured on silicon, not just on the host.
 
-Two of the eleven v1.04 lines came through as `gmovw3,.`, losing the final `/`. That
-was written up here as unrelated to the collapse, on the grounds that `add_keys`
-deduplicates before transmission, so the doubled NKRO walk `{54,55,56,54,55,56}` and
-the fixed `{54,55,56}` reach the host as the same three keycodes and the tail is
-bit-identical either way. The prediction attached to it was that the truncation would
-survive the fix. It did not: 48 clean lines, which at a two in eleven rate is under a
-hundredth of a per cent. The dedup argument was answering the wrong question, and the
-truncation belongs to the bug.
+Two of the eleven deskhop-extended v1.04 lines came through as `gmovw3,.`, losing the
+final `/`. That was written up here as unrelated to the collapse, on the grounds that
+`add_keys` deduplicates before transmission, so the doubled NKRO walk
+`{54,55,56,54,55,56}` and the fixed `{54,55,56}` reach the host as the same three
+keycodes and the tail is bit-identical either way. The prediction attached to it was
+that the truncation would survive the fix. It did not: 48 clean lines, which at a two
+in eleven rate is under a hundredth of a per cent. The dedup argument was answering
+the wrong question, and the truncation belongs to the bug.
 
 The likeliest remaining explanation is cost rather than content. On a collapsed
 interface every incoming report, the 6KRO ones included, is walked as two 120-bit

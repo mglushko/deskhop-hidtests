@@ -25,9 +25,10 @@
  *  Gameball trackball, VID 0782 PID 001B - github.com/hrvach/deskhop/issues/332
  *
  *  All three of these encode End Collection as 0xC1 0x00, which is bSize 1 where
- *  the HID spec says 0, at four places in total. deskhop's parser skips the item
- *  by its declared size and is unaffected, which `make dump` and `make mouse`
- *  both confirm: every field lands at the right offset either way.
+ *  the HID spec says 0 - every End Collection item in the three, five in total.
+ *  deskhop's parser skips the item by its declared size and is unaffected, which
+ *  `make dump` and `make mouse` both confirm: every field lands at the right
+ *  offset either way.
  *
  *  Windows is not so relaxed. Emulating the trackball interface on an RP2040 and
  *  plugging it into a PC, the bytes below enumerate and are then suspended with
