@@ -1,23 +1,57 @@
-/* USB descriptors for the 8BitDo Retro Mechanical Keyboard emulator.
+/* USB descriptors for the emulated devices.
  *
- * The report descriptor is the real device's 245 bytes, generated straight out
- * of the harness corpus by gen_desc.py. The interface around it is deliberately
- * bInterfaceSubClass = 0, bInterfaceProtocol = 0 (NONE), which is both what a
- * six-collection composite interface really looks like and what keeps deskhop
- * on the report-ID path: HID_ITF_PROTOCOL_NONE routes through
- * iface->report_handler[report_id], which is exactly the code the collection
- * collapse breaks. Declaring it as a boot keyboard instead would risk the host
- * putting it in boot protocol, where reports carry no ID and the bug is
- * unreachable.
+ * Every report descriptor here is generated out of ../descriptors.h by
+ * gen_desc.py at build time, so the rig and the harness corpus cannot drift.
+ * Which device this binary is depends on EMU_BITDO or EMU_GAMEBALL, set by
+ * CMake, which builds both.
+ *
+ * The interface classes are chosen deliberately, not copied from a template.
+ * deskhop routes on bInterfaceProtocol before it looks at anything else, so
+ * getting these wrong moves the device onto a different code path and quietly
+ * tests something other than what is intended. Each one is justified below.
  */
 #include "tusb.h"
-#include "bitdo_desc.h"
+#include "emu_desc.h"
 
-/* The real device's IDs, so deskhop sees byte-for-byte what the reporters of
-   hrvach/deskhop#57 and #295 plugged in. Nothing in deskhop keys off VID/PID;
-   change these freely if a cloned ID upsets a host's device cache. */
-#define EMU_VID 0x2DC8
-#define EMU_PID 0x5201
+#if defined(EMU_BITDO)
+#  define EMU_VID 0x2DC8   /* 8BitDo */
+#  define EMU_PID 0x5201
+#  define EMU_PRODUCT "8BitDo Retro emulator"
+#  define EMU_SERIAL  "COLLAPSE-1"
+#  define EMU_BCD     0x0100
+#elif defined(EMU_GAMEBALL)
+#  define EMU_VID 0x0782   /* Gameball */
+#  define EMU_PID 0x001B
+   /* Distinct serial and bcdDevice per variant, on purpose. Windows caches a
+      device's descriptors against VID, PID and bcdDevice, so re-flashing a
+      different interface layout onto the same identity gets the cached copy
+      rather than the new one, and the device looks broken for a reason that is
+      nothing to do with its firmware. Anything that changes the descriptor
+      layout here should change these too. */
+#  if defined(EMU_FULLFIX)
+#    define EMU_PRODUCT "Gameball emulator (three interfaces, repaired)"
+#    define EMU_SERIAL  "GAMEBALL-3FIX"
+#    define EMU_BCD     0x0304
+#  elif defined(EMU_FIXED)
+#    define EMU_PRODUCT "Gameball emulator (trackball, descriptor repaired)"
+#    define EMU_SERIAL  "GAMEBALL-FIX"
+#    define EMU_BCD     0x0303
+#  elif defined(EMU_NORMALISED)
+#    define EMU_PRODUCT "Gameball emulator (trackball, spec End Collection)"
+#    define EMU_SERIAL  "GAMEBALL-C0"
+#    define EMU_BCD     0x0302
+#  elif defined(EMU_MINIMAL)
+#    define EMU_PRODUCT "Gameball emulator (trackball only)"
+#    define EMU_SERIAL  "GAMEBALL-1IF"
+#    define EMU_BCD     0x0301
+#  else
+#    define EMU_PRODUCT "Gameball emulator"
+#    define EMU_SERIAL  "GAMEBALL-3IF"
+#    define EMU_BCD     0x0300
+#  endif
+#else
+#  error "define EMU_BITDO or EMU_GAMEBALL"
+#endif
 
 tusb_desc_device_t const desc_device = {
     .bLength            = sizeof(tusb_desc_device_t),
@@ -29,7 +63,7 @@ tusb_desc_device_t const desc_device = {
     .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
     .idVendor           = EMU_VID,
     .idProduct          = EMU_PID,
-    .bcdDevice          = 0x0100,
+    .bcdDevice          = EMU_BCD,
     .iManufacturer      = 0x01,
     .iProduct           = 0x02,
     .iSerialNumber      = 0x03,
@@ -40,24 +74,103 @@ uint8_t const *tud_descriptor_device_cb(void) {
     return (uint8_t const *)&desc_device;
 }
 
+/*============================================================================*/
+#if defined(EMU_BITDO)
+
+/* One interface, deliberately bInterfaceSubClass 0 and bInterfaceProtocol 0.
+   That is what a six collection composite interface really looks like, and it
+   keeps deskhop on the report ID path where the collection collapse lives.
+   Declaring a boot keyboard would risk the host negotiating boot protocol,
+   where reports carry no ID and the bug is unreachable. */
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
     (void)instance;
-    return bitdo_report_desc;
+    return bitdo_desc;
 }
 
 enum { ITF_NUM_HID, ITF_NUM_TOTAL };
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
 
-#define EPNUM_HID     0x81
-#define CONFIG_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
+uint8_t const desc_configuration[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, 0, HID_ITF_PROTOCOL_NONE, BITDO_DESC_LEN,
+                       0x81, CFG_TUD_HID_EP_BUFSIZE, 10),
+};
+
+/*============================================================================*/
+#elif defined(EMU_GAMEBALL)
+
+/* Three interfaces, in the order the real device presents them.
+ *
+ *   0  trackball  bInterfaceProtocol = MOUSE. This one matters. The descriptor
+ *                 declares no report ID, so if the interface came up as NONE
+ *                 then report_carries_id() is false and pick_receiver() falls
+ *                 into the report_handler[report[0]] branch, where report[0] is
+ *                 the button byte. The pointer would then be routed by which
+ *                 buttons were held. Declaring MOUSE takes the direct branch
+ *                 instead, which is both correct and what a real trackball does.
+ *   1  gesture    Vendor page 0xFFE0, no boot anything, so subclass 0 and
+ *                 protocol 0. This is the interface that carries the bug: its
+ *                 first report declares Report Count 0x3FC8, which is 16328,
+ *                 against a 128 entry usages[] array. Nothing is ever sent on
+ *                 it. Enumerating is the whole test.
+ *   2  keyboard   Boot keyboard. Note it declares eight modifier bits and 48
+ *                 bits of padding and no key array at all, so it can report
+ *                 modifiers and nothing else. That is the device's own doing,
+ *                 not a simplification here.
+ */
+#if defined(EMU_MINIMAL) || defined(EMU_NORMALISED) || defined(EMU_FIXED)
+
+/* Bisect build: the trackball interface on its own, nothing else. If the circle
+   appears here and not on the full device, the fault is in presenting the other
+   two interfaces rather than in the trackball or in anything downstream. */
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
+    (void)instance;
+    return gameball_trackball_desc;
+}
+
+enum { ITF_NUM_TRACKBALL, ITF_NUM_TOTAL };
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
+
+uint8_t const desc_configuration[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
+    TUD_HID_DESCRIPTOR(ITF_NUM_TRACKBALL, 0, HID_ITF_PROTOCOL_MOUSE,
+                       GAMEBALL_TRACKBALL_DESC_LEN, 0x81, CFG_TUD_HID_EP_BUFSIZE, 10),
+};
+
+#else
+
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
+    switch (instance) {
+        case 0:  return gameball_trackball_desc;
+        case 1:  return gameball_gesture_desc;
+        default: return gameball_keyboard_desc;
+    }
+}
+
+enum { ITF_NUM_TRACKBALL, ITF_NUM_GESTURE, ITF_NUM_KEYBOARD, ITF_NUM_TOTAL };
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + 3 * TUD_HID_DESC_LEN)
 
 uint8_t const desc_configuration[] = {
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
 
-    /* boot_protocol = 0 gives bInterfaceSubClass 0 and bInterfaceProtocol 0.
-       10 ms polling matches an ordinary keyboard. */
-    TUD_HID_DESCRIPTOR(ITF_NUM_HID, 0, HID_ITF_PROTOCOL_NONE, BITDO_DESC_LEN,
-                       EPNUM_HID, CFG_TUD_HID_EP_BUFSIZE, 10),
+    TUD_HID_DESCRIPTOR(ITF_NUM_TRACKBALL, 0, HID_ITF_PROTOCOL_MOUSE,
+                       GAMEBALL_TRACKBALL_DESC_LEN, 0x81, CFG_TUD_HID_EP_BUFSIZE, 10),
+    TUD_HID_DESCRIPTOR(ITF_NUM_GESTURE, 0, HID_ITF_PROTOCOL_NONE,
+                       GAMEBALL_GESTURE_DESC_LEN, 0x82, CFG_TUD_HID_EP_BUFSIZE, 10),
+    TUD_HID_DESCRIPTOR(ITF_NUM_KEYBOARD, 0, HID_ITF_PROTOCOL_KEYBOARD,
+                       GAMEBALL_KEYBOARD_DESC_LEN, 0x83, CFG_TUD_HID_EP_BUFSIZE, 10),
 };
+
+#endif
+
+#endif
+/*============================================================================*/
+
+/* A config descriptor whose wTotalLength disagrees with the bytes that follow is
+   accepted by the host right up until it tries to open the interfaces, which
+   looks exactly like a device that enumerates and then does nothing. */
+TU_VERIFY_STATIC(sizeof(desc_configuration) == CONFIG_TOTAL_LEN,
+                 "config descriptor length does not match its contents");
 
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
     (void)index;
@@ -68,8 +181,8 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
 static char const *string_desc_arr[] = {
     (const char[]){0x09, 0x04},
     "deskhop-hidtests",
-    "8BitDo Retro emulator",
-    "COLLAPSE-1",
+    EMU_PRODUCT,
+    EMU_SERIAL,
 };
 
 static uint16_t _desc_str[32];

@@ -1,57 +1,82 @@
-/* 8BitDo Retro Mechanical Keyboard emulator: an on-hardware test for the
- * keyboard collection collapse.
+/* Hardware stand-ins for devices in the deskhop-hidtests corpus.
  *
- * WHAT IT PROVES
+ * The harness compiles the firmware's own parser and feeds it real bytes, which
+ * is enough to say what the code does with a report but never enumerates
+ * anything. These builds close that gap for two devices whose bugs were found
+ * on the host and had no way to be seen on a desk. CMake builds both.
  *
- * The 8BitDo's interface declares three keyboard collections on one interface,
- * on report IDs 1 (6KRO), 12 and 10 (both 120-bit NKRO bitmaps). Before the fix
- * all three collapse onto keyboards[0], so the NKRO bitmap descriptors overwrite
- * the 6KRO one and an incoming report ID 1 is walked as if it were a bitmap.
+ *============================================================================
+ * EMU_BITDO - 8BitDo Retro Mechanical Keyboard, hrvach/deskhop#57
+ *============================================================================
  *
- * That turns the six-key burst below into a completely different set of keys,
- * which is what makes this a hardware test anyone can read off a screen:
+ * Interface 2 declares three keyboard collections on one interface, on report
+ * IDs 1 (6KRO), 12 and 10 (both 120-bit NKRO bitmaps). Before the fix all three
+ * collapse onto keyboards[0], the NKRO bitmap descriptors overwrite the 6KRO
+ * one, and an incoming report ID 1 is walked as if it were a bitmap:
  *
  *     typed by the emulator     6KRO keycodes 04 05 06 07 08 09
  *     fixed firmware            abcdef
  *     broken firmware           gmovw3
  *
- * Those are not guesses. They are the measured expectations pinned in
- * src/cases_kbd.h (k_bitdo_cases), where the broken column reads
- * {10,16,18,25,26,32} and the fixed column {4,5,6,7,8,9}. Byte 0x04 at payload
- * offset 2 lands on bit 2 of the bitmap's second byte, so usage 8+2 = 10 = 'g',
- * and so on up the report.
+ * Measured, not guessed: k_bitdo_cases pins the broken column at
+ * {10,16,18,25,26,32} and the fixed at {4,5,6,7,8,9}.
  *
- * The trailing ",./" is typed through the NKRO collection on report ID 12. It is
- * the positive control, and it also guards against the one way this test could
- * pass for the wrong reason.
- *
- * That way is boot protocol. extract_kbd_data returns _extract_kbd_boot before it
- * ever consults the descriptor, and the 8BitDo's 6KRO layout IS the boot layout,
- * so a 9-byte report ID 1 decodes to abcdef in boot protocol whether the fix is
- * present or not. deskhop only reaches that state if it was built with
- * ENFORCE_KEYBOARD_BOOT_PROTOCOL 1 and the rig is on board A, but a test that
- * cannot tell the difference is not worth running.
- *
- * So the control uses usages 54, 55 and 56 rather than letters. Those sit in
- * bitmap bytes 6 and 7, which land at wire offsets 8 and 9 - outside the eight
- * bytes _extract_kbd_boot copies. In boot protocol they contribute no keycodes at
- * all, so the tail disappears. Usage 40 on the same collection supplies the line
- * break and vanishes the same way.
+ * The trailing ",./" is the control and also guards the one way this could pass
+ * for the wrong reason. extract_kbd_data returns _extract_kbd_boot before the
+ * descriptor is consulted, and the 8BitDo's 6KRO layout IS the boot layout, so
+ * report ID 1 decodes to abcdef in boot protocol whether or not the fix is in.
+ * The control therefore uses usages 54 to 56, which sit in bitmap bytes 6 and 7
+ * at wire offsets 8 and 9, past the eight bytes _extract_kbd_boot copies. In
+ * boot protocol they vanish and the tail disappears with them.
  *
  *     abcdef,./  and line breaks   fixed
  *     gmovw3,./  and line breaks   broken, the collapse is present
- *     abcdef     no tail, no line breaks   boot protocol, this run proves nothing
- *     nothing                      the rig is not reaching the PC
+ *     abcdef     no tail, no breaks   boot protocol, this run proves nothing
  *
- * This types on a timer with no user input, so open a text editor and leave it
- * focused. Hold BOOTSEL while plugging the board in to get back to UF2 mode.
+ *============================================================================
+ * EMU_GAMEBALL - Gameball trackball 0782:001B, hrvach/deskhop#332
+ *============================================================================
+ *
+ * Three interfaces, presented in the order the real device does. The bug is not
+ * on the interface you watch, which is the whole reason this one has to be a
+ * composite device rather than a single descriptor.
+ *
+ * The gesture interface declares Report Count 0x3FC8, which is 16328, against a
+ * 128 entry usages[] array, and in parser_state_t the very next member after
+ * usages[] is p_usage, a pointer the parser then dereferences. On a tree without
+ * a bound the parse runs off the end of the array and into that pointer. Parsing
+ * this descriptor on upstream main aborts under ASan on the host; on an RP2040
+ * it corrupts a live pointer instead.
+ *
+ * Nothing is ever sent on the gesture interface. Enumerating is the entire test,
+ * because the damage happens at parse time. What you watch is the trackball, on
+ * interface 0, which moves the pointer in a square and works both side scroll
+ * pads. If the parse survived, the square is smooth and the scrolling works. If
+ * it did not, the board is unlikely to still be forwarding anything.
+ *
+ * The circle is 32 relative steps whose deltas sum to zero on both axes, so the
+ * pointer returns to where it started every revolution rather than walking off
+ * toward a screen edge and tripping deskhop's own output switching. The LED is
+ * solid while it circles and flickers while it scrolls.
+ *
+ * The keyboard interface is presented and never used. It declares eight modifier
+ * bits and 48 bits of padding and no key array at all, so it could only ever
+ * report modifiers, which would look like a stuck Shift. That is the real
+ * device's descriptor, not a simplification.
+ *
+ *============================================================================
+ *
+ * The onboard LED reports which region a failure is in, so "nothing happened"
+ * does not have to cover everything from an unpowered board to a working rig
+ * pointed at the wrong PC. See emu/README.md. Hold BOOTSEL while plugging the
+ * board in to get back to UF2 mode.
  */
 #include <string.h>
 
 #include "pico/stdlib.h"
 #include "tusb.h"
 
-#include "bitdo_desc.h"
+#include "emu_desc.h"
 
 /* tusb_init() is a no-op unless TUD_OPT_RHPORT is defined, and that needs
    CFG_TUSB_RHPORT0_MODE rather than CFG_TUD_ENABLED alone. Getting it wrong
@@ -60,14 +85,25 @@
 #  error "TUD_OPT_RHPORT undefined - tusb_init() would not start the device stack"
 #endif
 
+#define GRACE_MS      10000  /* time to focus a window after plugging in */
+
+static uint32_t now_ms(void) {
+    return to_ms_since_boot(get_absolute_time());
+}
+
+static uint32_t reports_sent = 0;
+
+/*==============================================================================
+ *  8BitDo: type a line through two of the three keyboard collections
+ *============================================================================*/
+#if defined(EMU_BITDO)
+
 #define RID_6KRO      0x01   /* modifiers, one reserved byte, six keycodes */
 #define RID_NKRO      0x0C   /* modifiers, then a 120-bit usage bitmap     */
-
 #define LEN_6KRO      8
 #define LEN_NKRO      16
 #define NKRO_BITS     120
 
-#define GRACE_MS      10000  /* time to focus a text editor after plugging in */
 #define HOLD_MS       40
 #define GAP_MS        60
 #define CYCLE_MS      6000
@@ -89,10 +125,6 @@ static const burst_t script[] = {
 };
 
 #define SCRIPT_LEN (sizeof(script) / sizeof(script[0]))
-
-static uint32_t now_ms(void) {
-    return to_ms_since_boot(get_absolute_time());
-}
 
 static void send_burst(const burst_t *b, bool pressed) {
     if (b->rid == RID_6KRO) {
@@ -119,71 +151,7 @@ static void send_burst(const burst_t *b, bool pressed) {
     }
 }
 
-static uint32_t reports_sent = 0;
-
-/* The onboard LED is the only instrument this thing has, so it reports which
-   region the rig is in. Without it "nothing typed" covers everything from an
-   unpowered board to a working rig pointed at the wrong PC.
-
-     dark                       no power
-     one flash a second         powered, but the host never enumerated it
-     two flashes a second       enumerated and armed, counting out the grace
-                                period before the first line
-     rapid blinking             enumerated, but the endpoint never goes ready
-     on, dipping in bursts      sending reports, look downstream of the rig
-
-   Armed and stalled are worth separating. Both happen after enumeration and
-   before anything is typed, but one resolves itself within GRACE_MS and the
-   other never does, and an earlier version showed the same rapid blink for
-   both - so a perfectly healthy rig waiting to start looked identical to one
-   that was stuck.
-
-   The last state is the one that matters: if the LED is dipping and nothing
-   appears on screen, the emulator is doing its job and the fault is deskhop,
-   the active output or the focused window.
-
-   Patterns are one second read as 16 slots of SLOT_MS, most significant bit
-   first, which keeps adding a state to a line of hex rather than a branch. */
-#define SLOT_MS 62
-
-typedef enum {
-    LED_UNMOUNTED = 0,  /* 1000 0000 0000 0000 */
-    LED_ARMED,          /* 1010 0000 0000 0000 */
-    LED_STALLED,        /* 1010 1010 1010 1010 */
-} led_state_t;
-
-static const uint16_t led_pattern[] = {
-    [LED_UNMOUNTED] = 0x8000,
-    [LED_ARMED]     = 0xA000,
-    [LED_STALLED]   = 0xAAAA,
-};
-
-static void led_task(void) {
-#ifdef PICO_DEFAULT_LED_PIN
-    static uint32_t next_ms = 0;
-    static uint8_t  slot    = 0;
-    uint32_t        t       = now_ms();
-
-    if (reports_sent > 0)
-        return; /* typing_task owns the LED once reports are flowing */
-
-    if (t < next_ms)
-        return;
-    next_ms = t + SLOT_MS;
-
-    /* tud_hid_ready() only drops momentarily once reports are in flight, and
-       none are yet, so before the first burst it cleanly separates an endpoint
-       that came up from one that did not. */
-    led_state_t st = !tud_mounted()      ? LED_UNMOUNTED
-                     : !tud_hid_ready()  ? LED_STALLED
-                                         : LED_ARMED;
-
-    gpio_put(PICO_DEFAULT_LED_PIN, (led_pattern[st] >> (15 - slot)) & 1u);
-    slot = (uint8_t)((slot + 1) & 15);
-#endif
-}
-
-static void typing_task(void) {
+static void device_task(void) {
     static uint32_t next_ms = GRACE_MS;
     static uint8_t  step    = 0;
     static bool     pressed = false;
@@ -205,14 +173,180 @@ static void typing_task(void) {
     }
 
 #ifdef PICO_DEFAULT_LED_PIN
-    /* Solid between cycles, dark while a burst is held, so each line typed is
-       three visible dips. */
     gpio_put(PICO_DEFAULT_LED_PIN, !pressed);
 #endif
 }
 
-/* deskhop drives keyboard LEDs through SET_REPORT on the control endpoint,
-   so caps lock on the host lands here. Nothing to do but accept it. */
+/*==============================================================================
+ *  Gameball: draw a square and work both scroll pads, on interface 0
+ *============================================================================*/
+#elif defined(EMU_GAMEBALL)
+
+#define ITF_TRACKBALL 0
+#define LEN_TRACKBALL 5      /* [buttons, X, Y, wheel, pan], no report ID */
+
+#define STEP_MS       25     /* 64 steps at 25 ms is a revolution every 1.6 s */
+#define REVOLUTIONS   3      /* circles between scroll bursts */
+#define SCROLL_MS     150
+#define PAUSE_MS      700
+
+/* A 120 pixel circle, as 48 relative steps.
+ *
+ * Small on purpose. A big circle needs clearance on all four sides, and a corner
+ * is the worst place to start one because two directions clamp at once, which
+ * turns the loop into a staircase and loses the movement that would have closed
+ * it. 120 pixels needs little enough room that where the pointer starts stops
+ * mattering.
+ *
+ * Step count and rounding pull against each other: too few steps looks like a
+ * polygon, too many makes each step's rounding a larger share of it and the speed
+ * vary around the loop, which pointer acceleration turns into shape distortion.
+ * 48 steps at radius 60 gives 8 pixel sides and 6 percent variation.
+ *
+ * The deltas are differences between rounded points on the true circle, so the
+ * path never leaves it by more than half a pixel, and they sum to zero on both
+ * axes, so the pointer returns to where it started every revolution.
+ */
+#define CIRCLE_STEPS 48
+static const int8_t circle[CIRCLE_STEPS][2] = {
+    { -1,  8}, { -1,  8}, { -3,  7}, { -3,  7}, { -4,  7}, { -6,  5}, { -5,  6}, { -7,  4},
+    { -7,  3}, { -7,  3}, { -8,  1}, { -8,  1}, { -8, -1}, { -8, -1}, { -7, -3}, { -7, -3},
+    { -7, -4}, { -5, -6}, { -6, -5}, { -4, -7}, { -3, -7}, { -3, -7}, { -1, -8}, { -1, -8},
+    {  1, -8}, {  1, -8}, {  3, -7}, {  3, -7}, {  4, -7}, {  6, -5}, {  5, -6}, {  7, -4},
+    {  7, -3}, {  7, -3}, {  8, -1}, {  8, -1}, {  8,  1}, {  8,  1}, {  7,  3}, {  7,  3},
+    {  7,  4}, {  5,  6}, {  6,  5}, {  4,  7}, {  3,  7}, {  3,  7}, {  1,  8}, {  1,  8},
+};
+
+/* The two side pads, which is the feature #332's reporter asked about. */
+static const int8_t scroll[][2] = {   /* {wheel, pan} */
+    { 3,  0}, {-3,  0}, { 0,  3}, { 0, -3},
+};
+#define SCROLL_STEPS (sizeof(scroll) / sizeof(scroll[0]))
+
+static void device_task(void) {
+    static uint32_t next_ms   = GRACE_MS;
+    static uint8_t  tick      = 0;
+    static uint8_t  revs      = 0;
+    static uint8_t  scroll_i  = 0;
+    static bool     scrolling = false;
+    static bool     flicker   = false;
+
+    if (!tud_hid_n_ready(ITF_TRACKBALL) || now_ms() < next_ms)
+        return;
+
+    uint8_t p[LEN_TRACKBALL] = {0};
+
+    if (scrolling) {
+        p[3] = (uint8_t)scroll[scroll_i][0];
+        p[4] = (uint8_t)scroll[scroll_i][1];
+    } else {
+        p[1] = (uint8_t)circle[tick][0];
+        p[2] = (uint8_t)circle[tick][1];
+    }
+
+    /* If the endpoint refuses it, leave the state alone and try the same step
+       again rather than skipping a delta and deforming the circle. */
+    if (!tud_hid_n_report(ITF_TRACKBALL, 0, p, LEN_TRACKBALL))
+        return;
+
+    reports_sent++;
+
+    if (scrolling) {
+        flicker = !flicker;
+        if (++scroll_i >= SCROLL_STEPS) {
+            scroll_i  = 0;
+            scrolling = false;
+            next_ms   = now_ms() + PAUSE_MS;
+        } else {
+            next_ms = now_ms() + SCROLL_MS;
+        }
+    } else {
+        if (++tick >= CIRCLE_STEPS) {
+            tick = 0;
+            if (++revs >= REVOLUTIONS) {
+                revs      = 0;
+                scrolling = true;
+            }
+        }
+        next_ms = now_ms() + STEP_MS;
+    }
+
+#ifdef PICO_DEFAULT_LED_PIN
+    /* Solid while the pointer should be moving, flickering while the scroll
+       pads are being worked, so the two phases are told apart at a glance. */
+    gpio_put(PICO_DEFAULT_LED_PIN, scrolling ? flicker : 1);
+#endif
+}
+
+#else
+#  error "define EMU_BITDO or EMU_GAMEBALL"
+#endif
+
+/*==============================================================================
+ *  Shared: LED status and the main loop
+ *============================================================================*/
+
+/* The LED blinks a numbered code: N short flashes, then a long dark gap, over and
+   over. Count the flashes.
+ *
+ *     1   not enumerated. The host has not configured the device.
+ *     2   enumerated, then suspended by the host.
+ *     3   enumerated and awake, but the IN endpoint never became ready.
+ *     4   ready and armed, counting out the grace period before the first report.
+ *     solid / flickering   sending; see the per-device notes above.
+ *
+ * Codes 2 and 3 used to look identical, which is what made a stalled rig
+ * indistinguishable from a suspended one. Each of the three tests behind them is
+ * a separate public call, so the code says which of tud_mounted(),
+ * tud_suspended() and tud_hid_ready() is the one that is false rather than
+ * leaving it to be inferred.
+ *
+ * A code that changes on its own means enumeration is cycling: the host is
+ * configuring the device, dropping it, and trying again. */
+#define FLASH_ON_MS   120
+#define FLASH_OFF_MS  200
+#define CODE_GAP_MS   1200
+
+static uint8_t led_code(void) {
+    if (!tud_mounted())    return 1;
+    if (tud_suspended())   return 2;
+    if (!tud_hid_ready())  return 3;
+    return 4;
+}
+
+static void led_task(void) {
+#ifdef PICO_DEFAULT_LED_PIN
+    static uint32_t next_ms = 0;
+    static uint8_t  phase   = 0;
+    static uint8_t  latched = 1;
+    uint32_t        t       = now_ms();
+
+    if (reports_sent > 0)
+        return; /* device_task owns the LED once reports are flowing */
+
+    if (t < next_ms)
+        return;
+
+    /* Latch at the start of a group so a code cannot change halfway through and
+       be miscounted. */
+    if (phase == 0)
+        latched = led_code();
+
+    if (phase < (uint8_t)(latched * 2)) {
+        bool on = (phase % 2) == 0;
+        gpio_put(PICO_DEFAULT_LED_PIN, on);
+        next_ms = t + (on ? FLASH_ON_MS : FLASH_OFF_MS);
+        phase++;
+    } else {
+        gpio_put(PICO_DEFAULT_LED_PIN, 0);
+        next_ms = t + CODE_GAP_MS;
+        phase   = 0;
+    }
+#endif
+}
+
+/* deskhop drives keyboard LEDs through SET_REPORT on the control endpoint, so
+   caps lock on the host lands here. Nothing to do but accept it. */
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
                            hid_report_type_t report_type,
                            uint8_t const *buffer, uint16_t bufsize) {
@@ -220,12 +354,29 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
     (void)buffer;   (void)bufsize;
 }
 
+/* Returning 0 here stalls the control request. A boot device gets asked for an
+   input report during enumeration on some hosts, and a stall is a reason for one
+   to stop binding a driver and leave the port suspended, which presents as a
+   device that enumerates and then goes quiet. Hand back a zeroed report of the
+   right length instead. */
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
                                hid_report_type_t report_type,
                                uint8_t *buffer, uint16_t reqlen) {
-    (void)instance; (void)report_id; (void)report_type;
-    (void)buffer;   (void)reqlen;
-    return 0;
+    (void)instance; (void)report_id;
+
+    if (report_type != HID_REPORT_TYPE_INPUT)
+        return 0;
+
+#if defined(EMU_GAMEBALL)
+    uint16_t len = LEN_TRACKBALL;
+#else
+    uint16_t len = LEN_6KRO;
+#endif
+    if (len > reqlen)
+        len = reqlen;
+
+    memset(buffer, 0, len);
+    return len;
 }
 
 int main(void) {
@@ -238,7 +389,7 @@ int main(void) {
 
     while (true) {
         tud_task();
-        typing_task();
+        device_task();
         led_task();
     }
 }

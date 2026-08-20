@@ -1,0 +1,816 @@
+<title>Pointer Bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:    #eef1f5;
+    --panel:     #ffffff;
+    --panel-2:   #f7f9fb;
+    --line:      #d7dee7;
+    --line-soft: #e6ebf1;
+    --ink:       #171c23;
+    --ink-2:     #4a5665;
+    --muted:     #7b8798;
+
+    --ch-h:      #0b7285;   /* horizontal / AC Pan  */
+    --ch-h-soft: #0b728522;
+    --ch-v:      #c2410c;   /* vertical / Wheel     */
+    --ch-v-soft: #c2410c22;
+    --trace:     #5b21b6;
+    --live:      #0f766e;
+    --idle:      #9aa5b4;
+
+    --grid:      #dde4ec;
+    --shadow:    0 1px 2px rgba(16, 24, 40, .06), 0 8px 24px rgba(16, 24, 40, .05);
+
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "Archivo", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:    #0e1218;
+      --panel:     #171c24;
+      --panel-2:   #1d232c;
+      --line:      #2b333f;
+      --line-soft: #232a34;
+      --ink:       #e7ecf3;
+      --ink-2:     #b3becd;
+      --muted:     #7e8b9c;
+
+      --ch-h:      #38bec9;
+      --ch-h-soft: #38bec926;
+      --ch-v:      #f97316;
+      --ch-v-soft: #f9731626;
+      --trace:     #a78bfa;
+      --live:      #2dd4bf;
+      --idle:      #55616f;
+
+      --grid:      #232b36;
+      --shadow:    0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .3);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:    #0e1218;
+    --panel:     #171c24;
+    --panel-2:   #1d232c;
+    --line:      #2b333f;
+    --line-soft: #232a34;
+    --ink:       #e7ecf3;
+    --ink-2:     #b3becd;
+    --muted:     #7e8b9c;
+
+    --ch-h:      #38bec9;
+    --ch-h-soft: #38bec926;
+    --ch-v:      #f97316;
+    --ch-v-soft: #f9731626;
+    --trace:     #a78bfa;
+    --live:      #2dd4bf;
+    --idle:      #55616f;
+
+    --grid:      #232b36;
+    --shadow:    0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px 22px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* ---------- header ---------- */
+
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    text-wrap: balance;
+  }
+
+  .sub {
+    margin: 5px 0 0;
+    color: var(--ink-2);
+    max-width: 62ch;
+    font-size: 14px;
+  }
+
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 14px 7px 11px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--idle);
+    transition: background .2s;
+  }
+  .status[data-live="1"] { color: var(--live); border-color: color-mix(in srgb, var(--live) 40%, var(--line)); }
+  .status[data-live="1"] .dot { background: var(--live); }
+
+  /* ---------- panels ---------- */
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--line-soft);
+    background: var(--panel-2);
+  }
+
+  .panel-title {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+  }
+
+  .panel-note {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+
+  /* ---------- top row ---------- */
+
+  /* The trace sits over the scroll field rather than beside it, so the path and
+     the thing it is panning are read in one glance. The canvas takes no pointer
+     events, so wheel and drag reach the field underneath. */
+  .stage { position: relative; }
+
+  #scope {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  .scope-foot {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .stat {
+    padding: 11px 14px;
+    border-right: 1px solid var(--line-soft);
+    min-width: 0;
+  }
+  .stat:last-child { border-right: 0; }
+
+  .stat-k {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .stat-v {
+    font-family: var(--mono);
+    font-size: 19px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+    margin-top: 2px;
+  }
+  .stat-v span { font-size: 12px; color: var(--muted); font-weight: 400; }
+
+  /* ---------- channels ---------- */
+
+  .channels {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+  }
+  @media (max-width: 720px) { .channels { grid-template-columns: minmax(0, 1fr); } }
+
+  .ch { --c: var(--ch-h); --c-soft: var(--ch-h-soft); }
+  .ch.v { --c: var(--ch-v); --c-soft: var(--ch-v-soft); }
+
+  .ch .panel-head { border-bottom-color: var(--c-soft); }
+  .ch .panel-title { color: var(--c); }
+
+  .ch-body { padding: 15px 16px 16px; display: flex; flex-direction: column; gap: 13px; }
+
+  .ch-read {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .ch-now {
+    font-family: var(--mono);
+    font-size: 32px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.03em;
+    color: var(--c);
+    line-height: 1;
+  }
+
+  .ch-tot {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .meter {
+    position: relative;
+    height: 9px;
+    border-radius: 999px;
+    background: var(--c-soft);
+    overflow: hidden;
+  }
+  .meter i {
+    position: absolute;
+    top: 0; bottom: 0;
+    left: 50%;
+    width: 0;
+    background: var(--c);
+    border-radius: 999px;
+    transition: width .06s linear, left .06s linear;
+  }
+  .meter::after {
+    content: "";
+    position: absolute;
+    left: 50%; top: -2px; bottom: -2px;
+    width: 1px;
+    background: var(--line);
+  }
+
+  .ch-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- scroll field ---------- */
+
+  .field-scroll {
+    height: 420px;
+    overflow: auto;
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 100% 34px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 88px 100%,
+      var(--panel);
+    background-attachment: local, local, scroll;
+    scrollbar-width: thin;
+  }
+
+  .field-inner {
+    width: 2400px;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(27, 88px);
+    grid-auto-rows: 34px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .cell {
+    display: flex;
+    align-items: center;
+    padding-left: 9px;
+  }
+  .cell.hd { color: var(--ch-h); font-weight: 600; }
+  .cell.rw { color: var(--ch-v); font-weight: 600; }
+  .cell.mk { color: var(--ink-2); }
+
+  /* ---------- log ---------- */
+
+  .log {
+    height: 190px;
+    overflow: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    scrollbar-width: thin;
+  }
+
+  .log-row {
+    display: grid;
+    grid-template-columns: 78px 1fr 1fr 92px;
+    gap: 10px;
+    padding: 5px 16px;
+    border-bottom: 1px solid var(--line-soft);
+    color: var(--ink-2);
+  }
+  .log-row.head {
+    position: sticky; top: 0;
+    background: var(--panel-2);
+    color: var(--muted);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    font-family: var(--sans);
+  }
+  .log-row .h { color: var(--ch-h); }
+  .log-row .v { color: var(--ch-v); }
+  .log-row .z { color: var(--muted); }
+
+  .empty {
+    padding: 26px 16px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+
+  /* ---------- controls ---------- */
+
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+  button {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--panel-2); }
+  button:focus-visible { outline: 2px solid var(--trace); outline-offset: 2px; }
+
+  .hint {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .legend {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  }
+  .legend b { font-weight: 500; }
+  .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: baseline; margin-right: 5px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Pointer Bench</h1>
+      <p class="sub">
+        Reads what the browser actually receives from a pointing device: the path it traces,
+        and the two scroll axes separately. Built to check an emulated trackball, so it
+        measures rather than just reacts.
+      </p>
+    </div>
+    <div class="status" id="status" data-live="0"><span class="dot"></span><span id="statusText">idle</span></div>
+  </header>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2 class="panel-title">Trace over scroll field</h2>
+      <span class="panel-note">path holds still &mdash; the field pans beneath it</span>
+    </div>
+    <div class="stage">
+      <div class="field-scroll" id="field">
+        <div class="field-inner" id="fieldInner"></div>
+      </div>
+      <canvas id="scope"></canvas>
+    </div>
+    <div class="scope-foot">
+      <div class="stat">
+        <div class="stat-k">Roundness</div>
+        <div class="stat-v" id="round">&mdash;</div>
+      </div>
+      <div class="stat">
+        <div class="stat-k">Mean radius</div>
+        <div class="stat-v" id="radius">&mdash;</div>
+      </div>
+      <div class="stat">
+        <div class="stat-k">Aspect X:Y</div>
+        <div class="stat-v" id="aspect">&mdash;</div>
+      </div>
+      <div class="stat">
+        <div class="stat-k">Sample rate</div>
+        <div class="stat-v" id="rate">&mdash;</div>
+      </div>
+      <div class="stat">
+        <div class="stat-k">Samples</div>
+        <div class="stat-v" id="samples">0</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="channels">
+    <section class="panel ch">
+      <div class="panel-head">
+        <h2 class="panel-title">Horizontal &mdash; AC Pan</h2>
+        <span class="panel-note">deltaX</span>
+      </div>
+        <div class="ch-body">
+          <div class="ch-read">
+            <div class="ch-now" id="hNow">0</div>
+            <div class="ch-tot">
+              <div id="hCount">0 events</div>
+              <div id="hSum">sum 0</div>
+            </div>
+          </div>
+          <div class="meter"><i id="hMeter"></i></div>
+          <div class="ch-meta"><span id="hMin">min &mdash;</span><span id="hMax">max &mdash;</span></div>
+        </div>
+      </section>
+
+    <section class="panel ch v">
+      <div class="panel-head">
+        <h2 class="panel-title">Vertical &mdash; Wheel</h2>
+        <span class="panel-note">deltaY</span>
+      </div>
+        <div class="ch-body">
+          <div class="ch-read">
+            <div class="ch-now" id="vNow">0</div>
+            <div class="ch-tot">
+              <div id="vCount">0 events</div>
+              <div id="vSum">sum 0</div>
+            </div>
+          </div>
+          <div class="meter"><i id="vMeter"></i></div>
+          <div class="ch-meta"><span id="vMin">min &mdash;</span><span id="vMax">max &mdash;</span></div>
+        </div>
+      </section>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2 class="panel-title">Wheel events</h2>
+      <span class="panel-note">newest first</span>
+    </div>
+    <div class="log" id="log">
+      <div class="log-row head"><span>t +ms</span><span>deltaX</span><span>deltaY</span><span>mode</span></div>
+      <div class="empty" id="logEmpty">Nothing yet. Scroll, or plug the rig in and wait for its grace period.</div>
+    </div>
+  </section>
+
+  <div class="bar">
+    <button id="reset" type="button">Reset counters</button>
+    <span class="hint">Keep the pointer over this page. Roundness needs a closed loop, so let it run a full revolution.</span>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background: var(--trace)"></i><b>pointer path</b></span>
+    <span><i class="swatch" style="background: var(--ch-h)"></i><b>horizontal, deltaX, AC Pan</b></span>
+    <span><i class="swatch" style="background: var(--ch-v)"></i><b>vertical, deltaY, Wheel</b></span>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var MAX_PTS = 600;
+  var pts = [];
+  var moveTimes = [];
+  var lastActivity = 0;
+
+  var ch = {
+    h: { count: 0, sum: 0, min: null, max: null, now: 0 },
+    v: { count: 0, sum: 0, min: null, max: null, now: 0 }
+  };
+  var logRows = [];
+  var t0 = performance.now();
+
+  var cv = document.getElementById("scope");
+  var ctx = cv.getContext("2d");
+  var dpr = Math.max(1, window.devicePixelRatio || 1);
+
+  function css(n) {
+    return getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  }
+
+  function sizeCanvas() {
+    var r = cv.getBoundingClientRect();
+    cv.width = Math.max(1, Math.round(r.width * dpr));
+    cv.height = Math.max(1, Math.round(r.height * dpr));
+  }
+  sizeCanvas();
+  window.addEventListener("resize", sizeCanvas);
+
+  /* ---- pointer sampling ---- */
+
+  window.addEventListener("mousemove", function (e) {
+    var r = cv.getBoundingClientRect();
+    pts.push({ x: e.clientX - r.left, y: e.clientY - r.top });
+    if (pts.length > MAX_PTS) pts.shift();
+
+    var now = performance.now();
+    moveTimes.push(now);
+    while (moveTimes.length && now - moveTimes[0] > 1000) moveTimes.shift();
+    lastActivity = now;
+  }, { passive: true });
+
+  /* ---- wheel sampling ---- */
+
+  var MODES = ["pixel", "line", "page"];
+
+  window.addEventListener("wheel", function (e) {
+    var now = performance.now();
+    lastActivity = now;
+
+    if (e.deltaX) bump(ch.h, e.deltaX);
+    if (e.deltaY) bump(ch.v, e.deltaY);
+    ch.h.now = e.deltaX;
+    ch.v.now = e.deltaY;
+
+    logRows.unshift({
+      t: Math.round(now - t0),
+      x: e.deltaX,
+      y: e.deltaY,
+      m: MODES[e.deltaMode] || String(e.deltaMode)
+    });
+    if (logRows.length > 60) logRows.pop();
+    dirtyLog = true;
+  }, { passive: true });
+
+  function bump(c, d) {
+    c.count++;
+    c.sum += d;
+    c.min = c.min === null ? d : Math.min(c.min, d);
+    c.max = c.max === null ? d : Math.max(c.max, d);
+  }
+
+  /* ---- roundness ---- */
+
+  function measure() {
+    if (pts.length < 40) return null;
+    var n = pts.length, cx = 0, cy = 0, i;
+    for (i = 0; i < n; i++) { cx += pts[i].x; cy += pts[i].y; }
+    cx /= n; cy /= n;
+
+    var rs = [], sum = 0, sx = 0, sy = 0;
+    for (i = 0; i < n; i++) {
+      var dx = pts[i].x - cx, dy = pts[i].y - cy;
+      var d = Math.hypot(dx, dy);
+      rs.push(d); sum += d;
+      sx += dx * dx; sy += dy * dy;
+    }
+    var mean = sum / n;
+    if (mean < 6) return null;             /* pointer basically still */
+
+    /* Semi-axes from the second moment. For a shape swept evenly, mean(dx^2)
+       is a^2/2, so a is sqrt(2 * mean(dx^2)); same for b. Their ratio reads an
+       ellipse directly instead of leaving it to be inferred from a low
+       roundness figure, which is what separates "wobbly" from "stretched". */
+    var a = Math.sqrt(2 * sx / n), b = Math.sqrt(2 * sy / n);
+
+    rs.sort(function (a2, b2) { return a2 - b2; });
+    /* trim the tails so one stray sample does not decide the verdict */
+    var lo = rs[Math.floor(n * 0.05)], hi = rs[Math.floor(n * 0.95)];
+    return { mean: mean, spread: (hi - lo) / mean, ax: a, ay: b };
+  }
+
+  /* ---- drawing ---- */
+
+  function draw() {
+    var w = cv.width, h = cv.height;
+    ctx.clearRect(0, 0, w, h);
+
+    /* no grid drawn here: the scroll field underneath supplies it */
+
+    if (pts.length > 1) {
+      var m = measure();
+
+      /* fitted circle, so the shape has something to be compared against */
+      if (m) {
+        var n = pts.length, cx = 0, cy = 0;
+        for (var i = 0; i < n; i++) { cx += pts[i].x; cy += pts[i].y; }
+        cx = cx / n * dpr; cy = cy / n * dpr;
+        ctx.strokeStyle = css("--line");
+        ctx.setLineDash([4 * dpr, 4 * dpr]);
+        ctx.lineWidth = 1 * dpr;
+        ctx.beginPath();
+        ctx.arc(cx, cy, m.mean * dpr, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      /* path, fading toward the oldest sample */
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      var trace = css("--trace");
+      for (var k = 1; k < pts.length; k++) {
+        var a = k / pts.length;
+        ctx.strokeStyle = trace;
+        ctx.globalAlpha = 0.06 + a * 0.94;
+        ctx.lineWidth = (0.6 + a * 1.7) * dpr;
+        ctx.beginPath();
+        ctx.moveTo(pts[k - 1].x * dpr, pts[k - 1].y * dpr);
+        ctx.lineTo(pts[k].x * dpr, pts[k].y * dpr);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      /* head */
+      var last = pts[pts.length - 1];
+      ctx.fillStyle = trace;
+      ctx.beginPath();
+      ctx.arc(last.x * dpr, last.y * dpr, 3.5 * dpr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  /* ---- readouts ---- */
+
+  var dirtyLog = false;
+
+  function fmt(v) {
+    if (v === null || v === undefined) return "—";
+    var a = Math.abs(v);
+    return (a < 10 ? v.toFixed(1) : Math.round(v).toString());
+  }
+
+  function setMeter(el, v, scale) {
+    var frac = Math.max(-1, Math.min(1, v / scale));
+    var pct = Math.abs(frac) * 50;
+    el.style.width = pct + "%";
+    el.style.left = frac >= 0 ? "50%" : (50 - pct) + "%";
+  }
+
+  var els = {
+    round: document.getElementById("round"),
+    radius: document.getElementById("radius"),
+    aspect: document.getElementById("aspect"),
+    rate: document.getElementById("rate"),
+    samples: document.getElementById("samples"),
+    status: document.getElementById("status"),
+    statusText: document.getElementById("statusText"),
+    log: document.getElementById("log"),
+    logEmpty: document.getElementById("logEmpty")
+  };
+
+  ["h", "v"].forEach(function (k) {
+    els[k] = {
+      now: document.getElementById(k + "Now"),
+      count: document.getElementById(k + "Count"),
+      sum: document.getElementById(k + "Sum"),
+      min: document.getElementById(k + "Min"),
+      max: document.getElementById(k + "Max"),
+      meter: document.getElementById(k + "Meter")
+    };
+  });
+
+  function paint() {
+    draw();
+
+    var m = measure();
+    if (m) {
+      var pct = Math.max(0, 100 - m.spread * 100);
+      els.round.innerHTML = pct.toFixed(0) + "<span>%</span>";
+      els.radius.innerHTML = Math.round(m.mean) + "<span>px</span>";
+      var ratio = m.ay > 0.5 ? m.ax / m.ay : 0;
+      els.aspect.innerHTML = ratio
+        ? ratio.toFixed(3) + "<span>&nbsp;" + (Math.abs(ratio - 1) < 0.01 ? "round" : (ratio > 1 ? "wide" : "tall")) + "</span>"
+        : "&mdash;";
+    } else {
+      els.round.innerHTML = "&mdash;";
+      els.radius.innerHTML = "&mdash;";
+      els.aspect.innerHTML = "&mdash;";
+    }
+
+    els.rate.innerHTML = moveTimes.length ? moveTimes.length + "<span>/s</span>" : "&mdash;";
+    els.samples.textContent = pts.length;
+
+    ["h", "v"].forEach(function (k) {
+      var c = ch[k], e = els[k];
+      e.now.textContent = fmt(c.now);
+      e.count.textContent = c.count.toLocaleString() + (c.count === 1 ? " event" : " events");
+      e.sum.textContent = "sum " + fmt(c.sum);
+      e.min.textContent = "min " + fmt(c.min);
+      e.max.textContent = "max " + fmt(c.max);
+      var scale = Math.max(10, Math.abs(c.min || 0), Math.abs(c.max || 0));
+      setMeter(e.meter, c.now, scale);
+      c.now *= 0.82;
+      if (Math.abs(c.now) < 0.05) c.now = 0;
+    });
+
+    var live = performance.now() - lastActivity < 700;
+    els.status.setAttribute("data-live", live ? "1" : "0");
+    els.statusText.textContent = live ? "receiving" : "idle";
+
+    if (dirtyLog) { renderLog(); dirtyLog = false; }
+    requestAnimationFrame(paint);
+  }
+
+  function renderLog() {
+    if (!logRows.length) return;
+    els.logEmpty.style.display = "none";
+    var html = '<div class="log-row head"><span>t +ms</span><span>deltaX</span><span>deltaY</span><span>mode</span></div>';
+    for (var i = 0; i < logRows.length; i++) {
+      var r = logRows[i];
+      html += '<div class="log-row">'
+        + '<span class="z">' + r.t + "</span>"
+        + '<span class="' + (r.x ? "h" : "z") + '">' + (r.x ? fmt(r.x) : "0") + "</span>"
+        + '<span class="' + (r.y ? "v" : "z") + '">' + (r.y ? fmt(r.y) : "0") + "</span>"
+        + '<span class="z">' + r.m + "</span>"
+        + "</div>";
+    }
+    els.log.innerHTML = html;
+  }
+
+  /* ---- scroll field ---- */
+
+  (function buildField() {
+    var inner = document.getElementById("fieldInner");
+    var cols = 27, rows = 22, html = "";
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        if (r === 0 && c === 0) { html += '<div class="cell"></div>'; continue; }
+        if (r === 0) { html += '<div class="cell hd">' + String.fromCharCode(64 + c) + "</div>"; continue; }
+        if (c === 0) { html += '<div class="cell rw">' + String(r).padStart(2, "0") + "</div>"; continue; }
+        var mark = ((r + c) % 7 === 0);
+        html += '<div class="cell' + (mark ? " mk" : "") + '">'
+          + (mark ? String.fromCharCode(64 + c) + String(r).padStart(2, "0") : "·") + "</div>";
+      }
+    }
+    inner.innerHTML = html;
+    var f = document.getElementById("field");
+    f.scrollLeft = 0;
+  })();
+
+  /* ---- reset ---- */
+
+  document.getElementById("reset").addEventListener("click", function () {
+    pts.length = 0;
+    logRows.length = 0;
+    moveTimes.length = 0;
+    ch.h = { count: 0, sum: 0, min: null, max: null, now: 0 };
+    ch.v = { count: 0, sum: 0, min: null, max: null, now: 0 };
+    t0 = performance.now();
+    els.log.innerHTML = '<div class="log-row head"><span>t +ms</span><span>deltaX</span><span>deltaY</span><span>mode</span></div>';
+    els.log.appendChild(els.logEmpty);
+    els.logEmpty.style.display = "";
+  });
+
+  requestAnimationFrame(paint);
+})();
+</script>
