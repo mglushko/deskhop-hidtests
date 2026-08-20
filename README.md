@@ -621,6 +621,31 @@ The Microsoft 600's system control collection declares a usage range (`19 00 29 
 and no single usage of its own, and comes out carrying `0xFF02`, the last usage named
 by the *vendor* block in the previous top-level collection.
 
+**It reaches almost nothing, which is why it is still here.** Measured over all 47
+descriptors and checked against `dump`: 42 elements in 23 of them read a usage their block
+never declared. 30 land on a map row that wildcards the usage, so the stale value is copied
+into state and then read by nothing but `dump`; 11 match no row at all. Exactly one changes
+decode - `d_composite`'s consumer padding bit holds `0x00B5`, Scan Next Track, and
+`process_consumer_report` has no `break`, so a set padding bit would *replace* a real key
+rather than add one. That descriptor is hand-written, from the section used to prove parser
+changes are inert, so **no captured device here is affected**.
+
+Two things for whoever does fix it. The carry it depends on is mislabelled: `hid_parser.c`
+says "Carry the last usage" and carries the **first**, because after `p_usage +=
+usage_count` the expression `*(p_usage - usage_count)` is the old slot 0. `d_composite`
+shows it, declaring `00B5, 00B6, 00CD, 0223` and carrying `00B5`. The sentence above is
+right about the ms600 only because that block declared a single usage.
+
+And there is no settled answer to copy. HID 1.11 section 6.2.2.8 says local items do not
+carry over to the next main item; Linux clears its whole local struct per main item and
+then skips fields that declared no usage; FreeBSD clears the array but deliberately assigns
+a saved `usage_last`; this parser does neither. Linux's version is not portable here, since
+skipping depends on expanding `Usage Min..Max` into the usage array - 12288 slots there
+against 128 here, and eight descriptors in this corpus declare a range larger than the
+whole array, `ms600_consumer` declaring 1024. What fits is `return 0` from `get_usage()`
+when `usage_count` is zero: two lines, inert on every decode path, and it moves 18 `dump`
+lines.
+
 **A collection nested inside another Application collection is lost.** The Cherry MW 8C's
 second interface wraps its whole descriptor in one Application collection and opens three
 more inside it: a consumer array, a system control block and a vendor page.
