@@ -185,25 +185,42 @@ static void device_task(void) {
 #define ITF_TRACKBALL 0
 #define LEN_TRACKBALL 5      /* [buttons, X, Y, wheel, pan], no report ID */
 
-#define STEP_MS       20     /* 32 steps at 20 ms is a revolution every 640 ms */
+#define STEP_MS       25     /* 64 steps at 25 ms is a revolution every 1.6 s */
 #define REVOLUTIONS   3      /* circles between scroll bursts */
 #define SCROLL_MS     150
 #define PAUSE_MS      700
 
-/* A 300 pixel circle, as 32 relative steps. Generated so the rounded points
-   close exactly: the deltas sum to zero on both axes, so the pointer returns to
-   where it started every revolution and cannot walk off toward a screen edge.
-   Largest single step is 29, well inside int8_t. */
-#define CIRCLE_STEPS 32
+/* A 400 pixel circle, as 64 relative steps.
+ *
+ * Both numbers are a compromise and worth stating. The step count sets how
+ * polygonal it looks: 32 steps at this size gives 29 pixel sides and reads as a
+ * visible polygon rather than a circle. The rounding of each step to a whole
+ * number sets how much the speed varies around the loop, and that gets worse as
+ * the steps get smaller, from 2 percent at 32 steps to 26 percent at 128. Speed
+ * variation matters because pointer acceleration turns it into shape distortion.
+ * 64 steps at radius 200 gives 20 pixel sides and 4 percent variation.
+ *
+ * The deltas are differences between rounded points on the true circle, so the
+ * positions never drift from it by more than half a pixel, and they sum to zero
+ * on both axes, so the pointer comes back to where it started every revolution.
+ *
+ * If it still looks off, the remaining causes are outside this table. Pointer
+ * acceleration, which Windows calls "enhance pointer precision", scales fast
+ * movement non-linearly and no relative pointing device can draw a true circle
+ * through it. And a circle this size started near a screen edge gets clamped,
+ * which both flattens that side and loses the movement, so the loop stops
+ * closing and walks away across the desktop.
+ */
+#define CIRCLE_STEPS 64
 static const int8_t circle[CIRCLE_STEPS][2] = {
-    {  -3,  29}, {  -8,  28}, { -14,  26}, { -19,  23},
-    { -23,  19}, { -26,  14}, { -28,   8}, { -29,   3},
-    { -29,  -3}, { -28,  -8}, { -26, -14}, { -23, -19},
-    { -19, -23}, { -14, -26}, {  -8, -28}, {  -3, -29},
-    {   3, -29}, {   8, -28}, {  14, -26}, {  19, -23},
-    {  23, -19}, {  26, -14}, {  28,  -8}, {  29,  -3},
-    {  29,   3}, {  28,   8}, {  26,  14}, {  23,  19},
-    {  19,  23}, {  14,  26}, {   8,  28}, {   3,  29},
+    { -1, 20}, { -3, 19}, { -5, 19}, { -6, 19}, { -9, 17}, {-10, 17}, {-11, 16}, {-14, 14},
+    {-14, 14}, {-16, 11}, {-17, 10}, {-17,  9}, {-19,  6}, {-19,  5}, {-19,  3}, {-20,  1},
+    {-20, -1}, {-19, -3}, {-19, -5}, {-19, -6}, {-17, -9}, {-17,-10}, {-16,-11}, {-14,-14},
+    {-14,-14}, {-11,-16}, {-10,-17}, { -9,-17}, { -6,-19}, { -5,-19}, { -3,-19}, { -1,-20},
+    {  1,-20}, {  3,-19}, {  5,-19}, {  6,-19}, {  9,-17}, { 10,-17}, { 11,-16}, { 14,-14},
+    { 14,-14}, { 16,-11}, { 17,-10}, { 17, -9}, { 19, -6}, { 19, -5}, { 19, -3}, { 20, -1},
+    { 20,  1}, { 19,  3}, { 19,  5}, { 19,  6}, { 17,  9}, { 17, 10}, { 16, 11}, { 14, 14},
+    { 14, 14}, { 11, 16}, { 10, 17}, {  9, 17}, {  6, 19}, {  5, 19}, {  3, 19}, {  1, 20},
 };
 
 /* The two side pads, which is the feature #332's reporter asked about. */

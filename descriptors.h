@@ -23,6 +23,26 @@
 
 /*==============================================================================
  *  Gameball trackball, VID 0782 PID 001B - github.com/hrvach/deskhop/issues/332
+ *
+ *  All three of these encode End Collection as 0xC1 0x00, which is bSize 1 where
+ *  the HID spec says 0, at four places in total. deskhop's parser skips the item
+ *  by its declared size and is unaffected, which `make dump` and `make mouse`
+ *  both confirm: every field lands at the right offset either way.
+ *
+ *  Windows is not so relaxed. Emulating the trackball interface on an RP2040 and
+ *  plugging it into a PC, the bytes below enumerate and are then suspended with
+ *  no driver bound, and rewriting only those items to 0xC0 makes the same device
+ *  work. Nothing else changed between the two builds.
+ *
+ *  That leaves an open question about these bytes rather than about the parser.
+ *  The dump in #332 was taken on Windows and shows HID collection paths, so
+ *  Windows accepted whatever the reporter's device actually sent, and Windows
+ *  demonstrably does not accept this. The likeliest explanation is that the tool
+ *  which produced the dump re-encoded the descriptor and the real device sends
+ *  0xC0, in which case these four items are a transcription artifact. They are
+ *  left as dumped, because the corpus records what was reported and because no
+ *  result here depends on it, but anything drawing conclusions from these exact
+ *  bytes should know. emu/ builds gameball-c0-emu to keep the comparison live.
  *============================================================================*/
 
 /* mi_00, the trackball itself: 5 buttons, X, Y, wheel, and AC pan on a second

@@ -117,7 +117,7 @@ All three interfaces, in the order the real device does:
 
 | # | interface | bytes | class | sends |
 |---|---|---|---|---|
-| 0 | trackball | 77 | boot mouse | a 300 px circle, then both scroll pads |
+| 0 | trackball | 77 | boot mouse | a 400 px circle, then both scroll pads |
 | 1 | gesture | 350 | vendor, subclass 0 | nothing at all |
 | 2 | keyboard | 38 | boot keyboard | nothing |
 
@@ -140,9 +140,27 @@ Interface 2 is presented and never used. It declares eight modifier bits, 48 bit
 padding and no key array at all, so it could only ever report modifiers, which would
 look like a stuck Shift. That is the real device's descriptor, not a simplification.
 
+## The End Collection encoding
+
+All three Gameball descriptors encode End Collection as `0xC1 0x00`, bSize 1 where
+the spec says 0, at four places. deskhop skips the item by its declared size and is
+unaffected. Windows is not so relaxed: the descriptor as dumped enumerates and is
+then suspended with no driver bound, and `gameball-c0-emu`, which is the same
+interface with only those items rewritten to `0xC0`, works. That is the difference
+between LED code 2 and a moving pointer, and nothing else changed between them.
+
+So use **`gameball-c0-emu.uf2`** on a PC. `gameball-min-emu.uf2` is the same
+interface with the bytes exactly as dumped, kept so the comparison stays live, and
+`gameball-emu.uf2` is the full three interface device.
+
+The open question is recorded in `../descriptors.h`: #332's dump was taken on
+Windows and shows HID collection paths, so Windows accepted whatever that device
+really sent, which suggests the dump was re-encoded and the corpus bytes are a
+transcription artifact rather than the device's own.
+
 ## Reading the result
 
-The pointer circles continuously, 300 pixels across, once every 640 milliseconds.
+The pointer circles continuously, 400 pixels across, once every 1.6 seconds.
 After three revolutions it stops and works the scroll pads instead, up three, down
 three, then pan right three and left three, and then goes back to circling. The LED
 is solid while it is circling and flickers while it is scrolling, so you can tell
@@ -155,11 +173,20 @@ which phase it is in without watching the screen.
 | LED solid but the pointer is still | reports are leaving the rig and nothing is acting on them |
 | nothing, and the board stops responding | the parse took the firmware with it |
 
-The circle is built from 32 relative steps whose deltas sum to zero on both axes, so
-the pointer returns to where it started every revolution rather than walking across
-the desktop. Park it near the middle of the screen anyway before plugging in: a 300
-pixel circle centred near an edge can still reach one, and deskhop switches outputs
-on edges of its own accord.
+The circle is 64 relative steps whose deltas sum to zero on both axes, so the
+pointer returns to where it started every revolution rather than walking across the
+desktop, and each step is the difference between rounded points on the true circle,
+so the path never leaves it by more than half a pixel.
+
+Two things will still make it look off, and neither is the rig. Rounding each step
+to a whole number makes the speed vary around the loop, and **pointer acceleration**,
+which Windows calls "enhance pointer precision", turns speed variation into shape
+distortion; no relative pointing device draws a true circle through it. And a circle
+this size started near a **screen edge** gets clamped, which flattens that side and
+loses the movement, so the loop stops closing and walks off across the desktop. Park
+the pointer near the middle before plugging in, and turn acceleration off if you want
+the shape to mean anything. deskhop also switches outputs on screen edges of its own
+accord.
 
 # Both rigs
 
