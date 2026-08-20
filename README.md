@@ -422,7 +422,176 @@ Those bytes were not in the corpus before, so this is now measured rather than a
 
 ## Open findings
 
-None of these are addressed by the [#332] fix.
+Grouped by what each one costs. The last group is fixed and kept here rather than
+deleted, because those write-ups carry the measurements and, in two cases, the
+confirmation on hardware. None of the open ones are addressed by the [#332] fix.
+
+### Reads past a buffer, or misses a deadline
+
+Nothing here corrupts memory on target, and both are bounded, but both are driven by
+bytes a device chooses.
+
+**Short descriptors read past the end of the buffer.** `make truncate` fails on
+roughly half of all prefixes, every descriptor, starting at length 1. The parse loop
+reads a header and then calls `get_descriptor_value()` for up to four data bytes
+without checking they are still inside the buffer:
+
+```c
+while (desc_len > 0) {
+    item.hdr = *(header_t *)report++;
+    item.val = get_descriptor_value(report, item.hdr.size);
+```
+
+A one-byte descriptor is enough: the header consumes the only byte, `report` now
+points one past the end, and the read happens anyway. `desc_len` then goes negative
+and the loop exits, so it is bounded to four bytes, but it is a genuine out of bounds
+read driven entirely by device supplied data. Present on `main`, so it predates the
+[#332] work and belongs in its own issue rather than folded into that PR.
+
+This is **not** the same finding as the short-report one above, and the two are easy to
+conflate because both show up as truncation. That one is about the *report*, fixed in
+`hid_report.c` and `mouse.c`; this one is about the *descriptor*, in the parse loop, and
+is still open everywhere - `make truncate` fails on roughly half of all prefixes even on
+a tree carrying every fix measured here. The count is in the table above rather than
+repeated here, because repeating it is how this sentence came to quote a corpus one
+device out of date.
+
+Reproduce the smallest case with:
+
+```sh
+make all && ./build/<target>/truncate gameball_trackball 1
+```
+
+**Report Count is a 32-bit field.** Visible in `timing`: memory stays intact after the
+fix, but a large enough count still outruns the 500 ms watchdog.
+
+### Functionality lost on a real device
+
+One device, one capability, no workaround.
+
+**A collection nested inside another Application collection is lost.** The Cherry MW 8C's
+second interface wraps its whole descriptor in one Application collection and opens three
+more inside it: a consumer array, a system control block and a vendor page.
+
+`IS_BLOCK_END` means depth zero, and `handle_local_item()` promotes a `Usage` to
+`global_usage` only there, so the `Usage (System Control)` naming the second block sits at
+depth 1 and never becomes the global usage. It stays Consumer Control for the rest of the
+descriptor. The system elements then reach `extract_data()` carrying `global_usage` 0x01
+where the map row wants 0x80, nothing matches, and no ID, handler or receiver is recorded.
+`make dump D=cherry_mw8c_consumer` finds the consumer block and no system block at all:
+`handlers:.C`, `system: rid=0`. Power and sleep from that keyboard can never arrive,
+whatever the consumer fix does.
+
+All three collections do share report ID 1, because the ID is declared once in the outer
+collection before any of them opens, but that is incidental rather than causal - the block
+would be dropped the same way if it declared an ID of its own.
+
+**Fixing it exposes a second defect rather than finishing the job.**
+`iface->report_handler[val->report_id] = hay->receiver` is unconditional and there is one
+slot per ID, so once the system block matched it would overwrite the consumer's binding on
+report 1: power and sleep would start working and the media keys would stop. One report ID
+carrying two collections is something the routing cannot currently express, so the
+recognition fix alone is a net loss on the only device that wants it.
+
+The reach is that one device. 18 of the 47 descriptors here have a collection whose naming
+`Usage` sits at depth 1 or deeper, but 17 of them are the ordinary `Usage (Pointer)`
+opening a Physical collection inside a mouse, where leaving `global_usage` alone is
+correct. Only this one nests Application inside Application, so promoting the usage at any
+depth would break the other 17.
+
+Not previously reported, and separate from [#358].
+
+### Wrong data, with no device known to suffer it
+
+Each is real in the code and each was found by measurement, but nothing captured in the
+corpus is affected. Kept so the next person meets them here rather than in the field.
+
+**The usage cursor never resets across a descriptor.** Visible in `exhaust`: a device
+with more than about 126 usages ahead of its pointer collection enumerates without
+the cursor moving. It is also visible on a shipping keyboard, which is the easier
+case to argue from:
+
+```sh
+make dump D=ms600_consumer     # system: usage=0xFF02 page=0x0001
+```
+
+The Microsoft 600's system control collection declares a usage range (`19 00 29 FF`)
+and no single usage of its own, and comes out carrying `0xFF02`, the last usage named
+by the *vendor* block in the previous top-level collection.
+
+**It reaches almost nothing, which is why it is still here.** Measured over all 47
+descriptors and checked against `dump`: 42 elements in 23 of them read a usage their block
+never declared. 30 land on a map row that wildcards the usage, so the stale value is copied
+into state and then read by nothing but `dump`; 11 match no row at all. Exactly one changes
+decode - `d_composite`'s consumer padding bit holds `0x00B5`, Scan Next Track, and
+`process_consumer_report` has no `break`, so a set padding bit would *replace* a real key
+rather than add one. That descriptor is hand-written, from the section used to prove parser
+changes are inert, so **no captured device here is affected**.
+
+Two things for whoever does fix it. The carry it depends on is mislabelled: `hid_parser.c`
+says "Carry the last usage" and carries the **first**, because after `p_usage +=
+usage_count` the expression `*(p_usage - usage_count)` is the old slot 0. `d_composite`
+shows it, declaring `00B5, 00B6, 00CD, 0223` and carrying `00B5`. The sentence above is
+right about the ms600 only because that block declared a single usage.
+
+And there is no settled answer to copy. HID 1.11 section 6.2.2.8 says local items do not
+carry over to the next main item; Linux clears its whole local struct per main item and
+then skips fields that declared no usage; FreeBSD clears the array but deliberately assigns
+a saved `usage_last`; this parser does neither. Linux's version is not portable here, since
+skipping depends on expanding `Usage Min..Max` into the usage array - 12288 slots there
+against 128 here, and eight descriptors in this corpus declare a range larger than the
+whole array, `ms600_consumer` declaring 1024. What fits is `return 0` from `get_usage()`
+when `usage_count` is zero: two lines, inert on every decode path, and it moves 18 `dump`
+lines.
+
+**A second mouse collection blanks the first.** `kernel_multi_collection` declares two,
+on report IDs 1 and 2, identically laid out. The parser walks both, and the second
+overwrites `mouse.report_id` with 2. `extract_value()` opens by rejecting any report
+whose leading ID byte does not match:
+
+```c
+if (uses_id && (*raw_report++ != src->report_id))
+    return false;
+```
+
+so every field of a report ID 1 packet fails, and it decodes to all zeros - while
+`report_handler[1]` still points at `process_mouse_report`, bound while the first
+collection was being parsed. The report is routed to the mouse path and then silently
+dropped there. Reproduce with `make mouse`, last case of that device.
+
+Nothing is lost on this particular device, because both collections declare the same
+layout, so decoding ID 1 with ID 2's offsets would have given the right answer anyway.
+But an interface holds one `mouse_t`, so a device whose two collections disagreed would
+have no way to say so. Distinct from the Cherry MW 8C finding above, which is about a
+collection that declares no report ID at all rather than two that each declare one.
+
+**Push and Pop are ignored.** `bolt_rx_touchpad` is the first descriptor here to use
+`A4`/`B4`. `handle_global_item()` stores every global by tag and has no case for either,
+so `RI_GLOBAL_PUSH` and `RI_GLOBAL_POP` land in `globals[10]` and `globals[11]` and the
+global item state is never saved or restored. Benign on this device - each finger
+collection re-declares its own Report Size, Report Count and logical bounds, and the
+items that do leak past the Pop are physical units, which deskhop ignores entirely. A
+descriptor that relied on Pop to restore a Report Size would parse at the wrong width.
+
+**Button bitmaps are read as signed.** `get_report_value()` sign-extends its result
+whenever the top bit of the field is set, which is right for X, Y, wheel and pan and
+wrong for a button bitmap. An 8-button mouse with everything held reports `-1` rather
+than `255`. `mx518_mouse` was the first device in the corpus with enough buttons to
+reach bit 7, which is why this had not come up. Harmless as things stand -
+`mouse_report_t.buttons` is `uint8_t`, so the low byte ships correctly either way - but
+it is a signed read of a bitfield, and `state->mouse_buttons` holds the sign-extended
+value as `int16_t` in the meantime.
+
+`bolt_rx_iface1` sharpens it. That mouse declares a **16-bit** button field, so the
+sign extension reaches much further: holding button 16 alone reads `-32768`, and all
+sixteen together read `-1`. Both are in `make mouse`. The truncation to `uint8_t` is no
+longer harmless either, because buttons 9 to 16 have nowhere to go at all - whatever
+happens to the sign, they cannot reach the output PC through a one-byte field.
+
+### Fixed in DeskHop Extended
+
+Left in place because the reasoning and the numbers are the record of how each was found
+and confirmed.
 
 **Short reports read past the end of the buffer, in four separate places.** This
 is the counterpart to the truncated-descriptor finding below, and the more serious
@@ -577,131 +746,6 @@ the mouse one has now been ticked on real hardware with the predicted result. [#
 with this - but that reporter's Wooting declares no report ID on its keyboard interface,
 so treat the link as suggestive rather than established.
 
-**Short descriptors read past the end of the buffer.** `make truncate` fails on
-roughly half of all prefixes, every descriptor, starting at length 1. The parse loop
-reads a header and then calls `get_descriptor_value()` for up to four data bytes
-without checking they are still inside the buffer:
-
-```c
-while (desc_len > 0) {
-    item.hdr = *(header_t *)report++;
-    item.val = get_descriptor_value(report, item.hdr.size);
-```
-
-A one-byte descriptor is enough: the header consumes the only byte, `report` now
-points one past the end, and the read happens anyway. `desc_len` then goes negative
-and the loop exits, so it is bounded to four bytes, but it is a genuine out of bounds
-read driven entirely by device supplied data. Present on `main`, so it predates the
-[#332] work and belongs in its own issue rather than folded into that PR.
-
-This is **not** the same finding as the short-report one above, and the two are easy to
-conflate because both show up as truncation. That one is about the *report*, fixed in
-`hid_report.c` and `mouse.c`; this one is about the *descriptor*, in the parse loop, and
-is still open everywhere - `make truncate` fails on roughly half of all prefixes even on
-a tree carrying every fix measured here. The count is in the table above rather than
-repeated here, because repeating it is how this sentence came to quote a corpus one
-device out of date.
-
-Reproduce the smallest case with:
-
-```sh
-make all && ./build/<target>/truncate gameball_trackball 1
-```
-
-**The usage cursor never resets across a descriptor.** Visible in `exhaust`: a device
-with more than about 126 usages ahead of its pointer collection enumerates without
-the cursor moving. It is also visible on a shipping keyboard, which is the easier
-case to argue from:
-
-```sh
-make dump D=ms600_consumer     # system: usage=0xFF02 page=0x0001
-```
-
-The Microsoft 600's system control collection declares a usage range (`19 00 29 FF`)
-and no single usage of its own, and comes out carrying `0xFF02`, the last usage named
-by the *vendor* block in the previous top-level collection.
-
-**It reaches almost nothing, which is why it is still here.** Measured over all 47
-descriptors and checked against `dump`: 42 elements in 23 of them read a usage their block
-never declared. 30 land on a map row that wildcards the usage, so the stale value is copied
-into state and then read by nothing but `dump`; 11 match no row at all. Exactly one changes
-decode - `d_composite`'s consumer padding bit holds `0x00B5`, Scan Next Track, and
-`process_consumer_report` has no `break`, so a set padding bit would *replace* a real key
-rather than add one. That descriptor is hand-written, from the section used to prove parser
-changes are inert, so **no captured device here is affected**.
-
-Two things for whoever does fix it. The carry it depends on is mislabelled: `hid_parser.c`
-says "Carry the last usage" and carries the **first**, because after `p_usage +=
-usage_count` the expression `*(p_usage - usage_count)` is the old slot 0. `d_composite`
-shows it, declaring `00B5, 00B6, 00CD, 0223` and carrying `00B5`. The sentence above is
-right about the ms600 only because that block declared a single usage.
-
-And there is no settled answer to copy. HID 1.11 section 6.2.2.8 says local items do not
-carry over to the next main item; Linux clears its whole local struct per main item and
-then skips fields that declared no usage; FreeBSD clears the array but deliberately assigns
-a saved `usage_last`; this parser does neither. Linux's version is not portable here, since
-skipping depends on expanding `Usage Min..Max` into the usage array - 12288 slots there
-against 128 here, and eight descriptors in this corpus declare a range larger than the
-whole array, `ms600_consumer` declaring 1024. What fits is `return 0` from `get_usage()`
-when `usage_count` is zero: two lines, inert on every decode path, and it moves 18 `dump`
-lines.
-
-**A collection nested inside another Application collection is lost.** The Cherry MW 8C's
-second interface wraps its whole descriptor in one Application collection and opens three
-more inside it: a consumer array, a system control block and a vendor page.
-
-`IS_BLOCK_END` means depth zero, and `handle_local_item()` promotes a `Usage` to
-`global_usage` only there, so the `Usage (System Control)` naming the second block sits at
-depth 1 and never becomes the global usage. It stays Consumer Control for the rest of the
-descriptor. The system elements then reach `extract_data()` carrying `global_usage` 0x01
-where the map row wants 0x80, nothing matches, and no ID, handler or receiver is recorded.
-`make dump D=cherry_mw8c_consumer` finds the consumer block and no system block at all:
-`handlers:.C`, `system: rid=0`. Power and sleep from that keyboard can never arrive,
-whatever the consumer fix does.
-
-All three collections do share report ID 1, because the ID is declared once in the outer
-collection before any of them opens, but that is incidental rather than causal - the block
-would be dropped the same way if it declared an ID of its own.
-
-**Fixing it exposes a second defect rather than finishing the job.**
-`iface->report_handler[val->report_id] = hay->receiver` is unconditional and there is one
-slot per ID, so once the system block matched it would overwrite the consumer's binding on
-report 1: power and sleep would start working and the media keys would stop. One report ID
-carrying two collections is something the routing cannot currently express, so the
-recognition fix alone is a net loss on the only device that wants it.
-
-The reach is that one device. 18 of the 47 descriptors here have a collection whose naming
-`Usage` sits at depth 1 or deeper, but 17 of them are the ordinary `Usage (Pointer)`
-opening a Physical collection inside a mouse, where leaving `global_usage` alone is
-correct. Only this one nests Application inside Application, so promoting the usage at any
-depth would break the other 17.
-
-Not previously reported, and separate from [#358].
-
-**Report Count is a 32-bit field.** Visible in `timing`: memory stays intact after the
-fix, but a large enough count still outruns the 500 ms watchdog.
-
-**A second mouse collection blanks the first.** `kernel_multi_collection` declares two,
-on report IDs 1 and 2, identically laid out. The parser walks both, and the second
-overwrites `mouse.report_id` with 2. `extract_value()` opens by rejecting any report
-whose leading ID byte does not match:
-
-```c
-if (uses_id && (*raw_report++ != src->report_id))
-    return false;
-```
-
-so every field of a report ID 1 packet fails, and it decodes to all zeros - while
-`report_handler[1]` still points at `process_mouse_report`, bound while the first
-collection was being parsed. The report is routed to the mouse path and then silently
-dropped there. Reproduce with `make mouse`, last case of that device.
-
-Nothing is lost on this particular device, because both collections declare the same
-layout, so decoding ID 1 with ID 2's offsets would have given the right answer anyway.
-But an interface holds one `mouse_t`, so a device whose two collections disagreed would
-have no way to say so. Distinct from the Cherry MW 8C finding above, which is about a
-collection that declares no report ID at all rather than two that each declare one.
-
 **Two keyboard collections on one interface collapse into one, and the second corrupts
 the first.** The Keychron Ultra-Link 8K puts a 6KRO keyboard on report ID 7 and an NKRO
 keyboard on report ID 0x11 on the same interface. `get_keyboard()` short-circuits:
@@ -766,29 +810,6 @@ is the comparison those two entries were added for. `make kbd` goes to 55 of 55 
 devices, and the three upstream reports that share this shape - [#57], [#211] and [#295],
 one still open, one closed and reported as returning, one closed by the reporter
 hard-coding a workaround for their own keyboard - are all this fault.
-
-**Push and Pop are ignored.** `bolt_rx_touchpad` is the first descriptor here to use
-`A4`/`B4`. `handle_global_item()` stores every global by tag and has no case for either,
-so `RI_GLOBAL_PUSH` and `RI_GLOBAL_POP` land in `globals[10]` and `globals[11]` and the
-global item state is never saved or restored. Benign on this device - each finger
-collection re-declares its own Report Size, Report Count and logical bounds, and the
-items that do leak past the Pop are physical units, which deskhop ignores entirely. A
-descriptor that relied on Pop to restore a Report Size would parse at the wrong width.
-
-**Button bitmaps are read as signed.** `get_report_value()` sign-extends its result
-whenever the top bit of the field is set, which is right for X, Y, wheel and pan and
-wrong for a button bitmap. An 8-button mouse with everything held reports `-1` rather
-than `255`. `mx518_mouse` was the first device in the corpus with enough buttons to
-reach bit 7, which is why this had not come up. Harmless as things stand -
-`mouse_report_t.buttons` is `uint8_t`, so the low byte ships correctly either way - but
-it is a signed read of a bitfield, and `state->mouse_buttons` holds the sign-extended
-value as `int16_t` in the meantime.
-
-`bolt_rx_iface1` sharpens it. That mouse declares a **16-bit** button field, so the
-sign extension reaches much further: holding button 16 alone reads `-32768`, and all
-sixteen together read `-1`. Both are in `make mouse`. The truncation to `uint8_t` is no
-longer harmless either, because buttons 9 to 16 have nowhere to go at all - whatever
-happens to the sign, they cannot reach the output PC through a one-byte field.
 
 ## What this harness cannot see
 
