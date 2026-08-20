@@ -321,7 +321,12 @@ static const uint8_t d_cherry_mw8c_mouse[] = {
 /* Cherry MW 8C Advanced, interface 2 - issues/133. A consumer collection nested
    inside another consumer collection, a system control block that lists usage
    0x82 twice and never lists 0x81, and a vendor page. Kept verbatim, typo
-   included. */
+   included.
+
+   The nesting is not cosmetic: it is why the system block is dropped, and it is
+   the subject of its own finding in the README. The naming Usage of an inner
+   Application collection never becomes global_usage, so power and sleep from
+   this keyboard reach nothing. */
 static const uint8_t d_cherry_mw8c_consumer[] = {
     0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x01, 0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x75, 0x10,
     0x95, 0x01, 0x15, 0x01, 0x26, 0x9C, 0x02, 0x19, 0x01, 0x2A, 0x9C, 0x02, 0x81, 0x00, 0xC0, 0x05,

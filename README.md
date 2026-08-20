@@ -621,13 +621,37 @@ The Microsoft 600's system control collection declares a usage range (`19 00 29 
 and no single usage of its own, and comes out carrying `0xFF02`, the last usage named
 by the *vendor* block in the previous top-level collection.
 
-**A collection that shares a report ID with the one before it is lost.** The Cherry
-MW 8C's second interface puts a consumer array on report ID 1 and then opens a system
-control collection without declaring a report ID of its own, so both live in report
-1. `make dump D=cherry_mw8c_consumer` finds the consumer block and no system block at
-all: `handlers:.C`, `system: rid=0`. Power and sleep from that keyboard can never
-arrive, whatever the consumer fix does. Not previously reported, and separate from
-[#358].
+**A collection nested inside another Application collection is lost.** The Cherry MW 8C's
+second interface wraps its whole descriptor in one Application collection and opens three
+more inside it: a consumer array, a system control block and a vendor page.
+
+`IS_BLOCK_END` means depth zero, and `handle_local_item()` promotes a `Usage` to
+`global_usage` only there, so the `Usage (System Control)` naming the second block sits at
+depth 1 and never becomes the global usage. It stays Consumer Control for the rest of the
+descriptor. The system elements then reach `extract_data()` carrying `global_usage` 0x01
+where the map row wants 0x80, nothing matches, and no ID, handler or receiver is recorded.
+`make dump D=cherry_mw8c_consumer` finds the consumer block and no system block at all:
+`handlers:.C`, `system: rid=0`. Power and sleep from that keyboard can never arrive,
+whatever the consumer fix does.
+
+All three collections do share report ID 1, because the ID is declared once in the outer
+collection before any of them opens, but that is incidental rather than causal - the block
+would be dropped the same way if it declared an ID of its own.
+
+**Fixing it exposes a second defect rather than finishing the job.**
+`iface->report_handler[val->report_id] = hay->receiver` is unconditional and there is one
+slot per ID, so once the system block matched it would overwrite the consumer's binding on
+report 1: power and sleep would start working and the media keys would stop. One report ID
+carrying two collections is something the routing cannot currently express, so the
+recognition fix alone is a net loss on the only device that wants it.
+
+The reach is that one device. 18 of the 47 descriptors here have a collection whose naming
+`Usage` sits at depth 1 or deeper, but 17 of them are the ordinary `Usage (Pointer)`
+opening a Physical collection inside a mouse, where leaving `global_usage` alone is
+correct. Only this one nests Application inside Application, so promoting the usage at any
+depth would break the other 17.
+
+Not previously reported, and separate from [#358].
 
 **Report Count is a 32-bit field.** Visible in `timing`: memory stays intact after the
 fix, but a large enough count still outruns the 500 ms watchdog.
