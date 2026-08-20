@@ -226,6 +226,168 @@ Same rig, same bench, plugged into the keyboard port instead of the PC:
 **That is the answer #332 asks for.** The Gameball works: both scroll pads reach the
 host with the right signs and magnitudes, and the pointer path survives the trip.
 
+The three points of roundness are not acceleration. It was switched off for that
+reading, and `calculate_mouse_acceleration_factor` returns 1.0 before touching its
+curve when `enable_acceleration` is clear, so that path contributed nothing at all.
+
+What is left is that deskhop scales the two axes differently. `update_mouse_position`
+multiplies each axis by its own factor, and the defaults are
+
+    MOUSE_SPEED_A_FACTOR_X 16
+    MOUSE_SPEED_A_FACTOR_Y 28
+
+which is a ratio of 1.75. They differ because deskhop sends absolute coordinates on a
+0..32767 grid in both axes, and that grid covers a wider distance horizontally than
+vertically on any normal screen, so a raw delta would travel further sideways than it
+should. 1.75 compensates for a screen of that aspect. A 16:9 screen is 1.778, so the
+compensation is 1.6% short and a circle arrives 1.6% wide. On 16:10 it would be 9%
+out, and on a 21:9 ultrawide about 33%.
+
+The bench now measures this directly rather than leaving it to be inferred from a low
+roundness figure, because "wobbly" and "stretched" are different faults with different
+causes. **Aspect X:Y** comes from the second moments of the sampled path: for a shape
+swept evenly, `mean(dx^2)` is `a^2/2`, so the semi-axes are `sqrt(2*mean(dx^2))` and
+`sqrt(2*mean(dy^2))` and their ratio is the ellipse. 1.000 is round; 1.016 is a 16:9
+screen against the default factors; anything larger says the factors do not match the
+screen and `speed_y / speed_x` wants setting to its actual aspect ratio.
+
+## Reading the result
+
+| what you see | meaning |
+|---|---|
+| `abcdef,./` in a column | the collections each got their own `keyboard_t`, fix confirmed |
+| `gmovw3,./` in a column | the collapse is present, reports decode against the wrong collection |
+| `abcdef` run together, no tail | boot protocol, this run proves nothing either way |
+| `,./` alone | the 6KRO collection produced nothing, a third state worth reporting |
+| nothing | the rig is not reaching the PC, check the port, cable and active output |
+
+Doing it as an A/B is what makes it conclusive: flash the pre-fix image, confirm
+`gmovw3,./`, then flash the fixed one and confirm `abcdef,./` with nothing else
+changed. Run that way on 2026-08-19 it gave 11 lines of `gmovw3,./` on
+deskhop-extended v1.04 and 48 of `abcdef,./` on v1.05, against 7 lines of
+`abcdef,./` typed straight into a PC as the control.
+
+# Gameball, the usages[] overflow
+
+[#332] is titled "Not functional with Gameball trackball" and asks, in the reporter's
+words, whether it could even work. The interesting part is that the interface carrying
+the bug is not the interface you would watch.
+
+## What it presents
+
+All three interfaces, in the order the real device does:
+
+| # | interface | bytes | class | sends |
+|---|---|---|---|---|
+| 0 | trackball | 77 | boot mouse | a 120 px circle, then both scroll pads |
+| 1 | gesture | 350 | vendor, subclass 0 | nothing at all |
+| 2 | keyboard | 38 | boot keyboard | nothing |
+
+Interface 1 is the whole test. Its first report declares Report Count `0x3FC8`, which
+is 16328, against `usages[HID_MAX_USAGES]` where `HID_MAX_USAGES` is 128. In
+`parser_state_t` the member immediately after that array is `p_usage`, a pointer the
+parser then dereferences, so a tree without a bound runs off the end of the array and
+straight into it. Parsing this descriptor on upstream main aborts under ASan on the
+host; on an RP2040 it corrupts a live pointer instead. Nothing is ever sent on that
+interface, because the damage happens at parse time and enumerating is enough.
+
+Interface 0 is what you watch. `bInterfaceProtocol` is deliberately `MOUSE`: the
+trackball descriptor declares no report ID, so an interface presenting as `NONE` would
+make `report_carries_id()` false and drop `pick_receiver()` into the
+`report_handler[report[0]]` branch, where `report[0]` is the button byte and the
+pointer gets routed by which buttons are held. `MOUSE` takes the direct branch, which
+is both correct and what a real trackball does.
+
+Interface 2 is presented and never used. It declares eight modifier bits, 48 bits of
+padding and no key array at all, so it could only ever report modifiers, which would
+look like a stuck Shift. That is the real device's descriptor, not a simplification.
+
+## The End Collection encoding
+
+All three Gameball descriptors encode End Collection as `0xC1 0x00`, bSize 1 where
+the spec says 0, at four places. deskhop skips the item by its declared size and is
+unaffected. Windows is not so relaxed: the descriptor as dumped enumerates and is
+then suspended with no driver bound, and `gameball-c0-emu`, which is the same
+interface with only those items rewritten to `0xC0`, works. That is the difference
+between LED code 2 and a moving pointer, and nothing else changed between them.
+
+There is a second anomaly in the same bytes, and it is the one that produces a
+staircase rather than a circle. The trackball's X, Y, wheel and pan carry no
+Logical Minimum of their own, so the 0 left over from the button block stands and
+`25 7F` caps them at 127: all four read as **unsigned 0..127**. A host honouring
+that discards every negative delta, so the pointer can only travel right and down,
+wherever on screen it starts. A trackball that really declared this could not
+work, so the real device does not.
+
+deskhop is unaffected by either. `get_report_value` takes the sign from the field
+width rather than the declared range, which `make mouse` confirms at 22/22 with
+`0xEC` decoding to -20. Both anomalies are evidence about the dump, not the parser,
+and together they suggest #332's descriptor was reconstructed from parsed data
+rather than captured: a reconstruction is what loses an inherited global item and
+re-encodes End Collection with a size byte.
+
+### Which build to flash
+
+| build | interfaces | descriptor | for |
+|---|---|---|---|
+| `gameball-full-emu` | all three | both repairs | **testing #332** |
+| `gameball-fixed-emu` | trackball | both repairs | a working pointer, nothing else |
+| `gameball-c0-emu` | trackball | End Collection only | isolating the second anomaly |
+| `gameball-min-emu` | trackball | exactly as dumped | isolating the first |
+| `gameball-emu` | all three | exactly as dumped | the corpus bytes, unaltered |
+
+The bottom two do not enumerate on Windows. They are kept so each finding keeps
+its own evidence rather than being folded into a single build nobody can check.
+
+`gameball-full-emu` is the one that tests the parser bug, because the Report Count
+of 16328 lives on the gesture interface and only the three interface builds present
+it. The repairs are applied there because a host has to accept the device before
+anything can be tested at all, and the evidence says they move the bytes closer to
+what the real device sends. The 16328 is untouched.
+
+The open question is recorded in `../descriptors.h`: #332's dump was taken on
+Windows and shows HID collection paths, so Windows accepted whatever that device
+really sent, which suggests the dump was re-encoded and the corpus bytes are a
+transcription artifact rather than the device's own.
+
+## Measured on a PC, 2026-08-19
+
+`gameball-fixed-emu` into a PC, read on the bench:
+
+| what the rig sends | what the browser reported |
+|---|---|
+| wheel `+3` / `-3` | deltaY `-500` / `+500` |
+| pan `+3` / `-3` | deltaX `+300` / `-300` |
+| 48 step circle, radius 60 | radius 60 px, roundness 95% |
+
+The signs are the part worth checking, and they are right in both directions. HID
+wheel counts positive away from you while the browser counts deltaY positive
+downward, so `+3` arriving as `-500` is correct. AC Pan and deltaX share a
+direction, so `+3` arriving as `+300` is correct too. Both axes inverted, or
+neither, would have meant something was wrong.
+
+The two magnitudes differ because the host scales the axes separately, vertical by
+its lines-per-notch setting and horizontal by characters-per-notch, not because
+one axis is weaker than the other. And the measured radius matching the designed
+radius says the host is not scaling the movement, so pointer acceleration was not
+in play for that reading. The missing 5% of roundness has three plausible homes,
+none of them faults: each step is rounded to a whole number, mousemove events are
+coalesced so the sampled path is a subset of the real one, and any acceleration
+at all would show up here.
+
+## Through deskhop-extended v1.05
+
+Same rig, same bench, plugged into the keyboard port instead of the PC:
+
+| | direct to PC | through deskhop |
+|---|---|---|
+| wheel `+3` / `-3` | deltaY `-500` / `+500` | same |
+| pan `+3` / `-3` | deltaX `+300` / `-300` | same |
+| circle | radius 60, roundness 95% | radius 60, roundness 92% |
+
+**That is the answer #332 asks for.** The Gameball works: both scroll pads reach the
+host with the right signs and magnitudes, and the pointer path survives the trip.
+
 The three points of roundness have a mechanism worth naming, but it only accounts
 for part of the gap. deskhop applies its own acceleration curve in `mouse.c`, keyed
 on the movement magnitude, and this circle's steps average 7.9 px, which lands on

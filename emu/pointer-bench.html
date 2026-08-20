@@ -201,7 +201,7 @@
 
   .scope-foot {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     border-top: 1px solid var(--line-soft);
   }
 
@@ -443,15 +443,19 @@
       <div class="stat">
         <div class="stat-k">Roundness</div>
         <div class="stat-v" id="round">&mdash;</div>
-        </div>
+      </div>
       <div class="stat">
         <div class="stat-k">Mean radius</div>
         <div class="stat-v" id="radius">&mdash;</div>
-        </div>
+      </div>
+      <div class="stat">
+        <div class="stat-k">Aspect X:Y</div>
+        <div class="stat-v" id="aspect">&mdash;</div>
+      </div>
       <div class="stat">
         <div class="stat-k">Sample rate</div>
         <div class="stat-v" id="rate">&mdash;</div>
-        </div>
+      </div>
       <div class="stat">
         <div class="stat-k">Samples</div>
         <div class="stat-v" id="samples">0</div>
@@ -603,18 +607,26 @@
     for (i = 0; i < n; i++) { cx += pts[i].x; cy += pts[i].y; }
     cx /= n; cy /= n;
 
-    var rs = [], sum = 0;
+    var rs = [], sum = 0, sx = 0, sy = 0;
     for (i = 0; i < n; i++) {
-      var d = Math.hypot(pts[i].x - cx, pts[i].y - cy);
+      var dx = pts[i].x - cx, dy = pts[i].y - cy;
+      var d = Math.hypot(dx, dy);
       rs.push(d); sum += d;
+      sx += dx * dx; sy += dy * dy;
     }
     var mean = sum / n;
     if (mean < 6) return null;             /* pointer basically still */
 
-    rs.sort(function (a, b) { return a - b; });
+    /* Semi-axes from the second moment. For a shape swept evenly, mean(dx^2)
+       is a^2/2, so a is sqrt(2 * mean(dx^2)); same for b. Their ratio reads an
+       ellipse directly instead of leaving it to be inferred from a low
+       roundness figure, which is what separates "wobbly" from "stretched". */
+    var a = Math.sqrt(2 * sx / n), b = Math.sqrt(2 * sy / n);
+
+    rs.sort(function (a2, b2) { return a2 - b2; });
     /* trim the tails so one stray sample does not decide the verdict */
     var lo = rs[Math.floor(n * 0.05)], hi = rs[Math.floor(n * 0.95)];
-    return { mean: mean, spread: (hi - lo) / mean };
+    return { mean: mean, spread: (hi - lo) / mean, ax: a, ay: b };
   }
 
   /* ---- drawing ---- */
@@ -687,6 +699,7 @@
   var els = {
     round: document.getElementById("round"),
     radius: document.getElementById("radius"),
+    aspect: document.getElementById("aspect"),
     rate: document.getElementById("rate"),
     samples: document.getElementById("samples"),
     status: document.getElementById("status"),
@@ -714,9 +727,14 @@
       var pct = Math.max(0, 100 - m.spread * 100);
       els.round.innerHTML = pct.toFixed(0) + "<span>%</span>";
       els.radius.innerHTML = Math.round(m.mean) + "<span>px</span>";
+      var ratio = m.ay > 0.5 ? m.ax / m.ay : 0;
+      els.aspect.innerHTML = ratio
+        ? ratio.toFixed(3) + "<span>&nbsp;" + (Math.abs(ratio - 1) < 0.01 ? "round" : (ratio > 1 ? "wide" : "tall")) + "</span>"
+        : "&mdash;";
     } else {
       els.round.innerHTML = "&mdash;";
       els.radius.innerHTML = "&mdash;";
+      els.aspect.innerHTML = "&mdash;";
     }
 
     els.rate.innerHTML = moveTimes.length ? moveTimes.length + "<span>/s</span>" : "&mdash;";
