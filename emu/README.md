@@ -221,7 +221,8 @@ Same rig, same bench, plugged into the keyboard port instead of the PC:
 |---|---|---|
 | wheel `+3` / `-3` | deltaY `-500` / `+500` | same |
 | pan `+3` / `-3` | deltaX `+300` / `-300` | same |
-| circle | radius 60, roundness 95% | radius 60, roundness 92% |
+| circle, speed 13/22 | radius 60, roundness 95% | radius 60, roundness 92% |
+| circle, speed 13/23 | | radius 61, roundness 94 to 95% |
 
 **That is the answer #332 asks for.** The Gameball works: both scroll pads reach the
 host with the right signs and magnitudes, and the pointer path survives the trip.
@@ -252,8 +253,11 @@ pointer.
 The reading that produced 92% was taken with 13 and 22, a ratio of 1.692, on a
 2560x1440 screen, which is exactly 16:9 and wants 1.778. That is 5.1% short, so the
 path arrives 5.1% wide, which costs about 4.9 points of roundness on its own and lands
-near 93% against the 5% baseline. Observed was 92%. Changing `speed_y` alone from 22 to
-23 gives 1.769, within 0.5%, and should read near 95%.
+near 93% against the 5% baseline. Observed was 92%.
+
+Changing `speed_y` alone from 22 to 23 gives 1.769, within 0.5% of the screen, and was
+predicted to read near 95%. Measured: **94 to 95%, radius 61 px**. So the three points
+were the aspect mismatch, and the rule holds.
 
 Worth noting which way that cuts: the shipped default of 16 and 28 is 1.6% out on a
 16:9 screen, while the customised 13 and 22 is 5.1% out. Lowering one speed to taste,
@@ -407,7 +411,8 @@ Same rig, same bench, plugged into the keyboard port instead of the PC:
 |---|---|---|
 | wheel `+3` / `-3` | deltaY `-500` / `+500` | same |
 | pan `+3` / `-3` | deltaX `+300` / `-300` | same |
-| circle | radius 60, roundness 95% | radius 60, roundness 92% |
+| circle, speed 13/22 | radius 60, roundness 95% | radius 60, roundness 92% |
+| circle, speed 13/23 | | radius 61, roundness 94 to 95% |
 
 **That is the answer #332 asks for.** The Gameball works: both scroll pads reach the
 host with the right signs and magnitudes, and the pointer path survives the trip.
