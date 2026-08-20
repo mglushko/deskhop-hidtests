@@ -28,7 +28,11 @@
       rather than the new one, and the device looks broken for a reason that is
       nothing to do with its firmware. Anything that changes the descriptor
       layout here should change these too. */
-#  if defined(EMU_NORMALISED)
+#  if defined(EMU_FIXED)
+#    define EMU_PRODUCT "Gameball emulator (trackball, descriptor repaired)"
+#    define EMU_SERIAL  "GAMEBALL-FIX"
+#    define EMU_BCD     0x0303
+#  elif defined(EMU_NORMALISED)
 #    define EMU_PRODUCT "Gameball emulator (trackball, spec End Collection)"
 #    define EMU_SERIAL  "GAMEBALL-C0"
 #    define EMU_BCD     0x0302
@@ -110,7 +114,7 @@ uint8_t const desc_configuration[] = {
  *                 modifiers and nothing else. That is the device's own doing,
  *                 not a simplification here.
  */
-#if defined(EMU_MINIMAL) || defined(EMU_NORMALISED)
+#if defined(EMU_MINIMAL) || defined(EMU_NORMALISED) || defined(EMU_FIXED)
 
 /* Bisect build: the trackball interface on its own, nothing else. If the circle
    appears here and not on the full device, the fault is in presenting the other

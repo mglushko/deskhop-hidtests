@@ -66,3 +66,11 @@ emu_device(gameball-min-emu "EMU_GAMEBALL;EMU_MINIMAL"
 # descriptor over that, rather than over anything the emulator is doing.
 emu_device(gameball-c0-emu "EMU_GAMEBALL;EMU_NORMALISED"
   d_gameball_trackball=gameball_trackball --normalise-end-collection)
+
+# Both repairs. On top of End Collection, the axes get a negative Logical
+# Minimum: the corpus descriptor never sets one, so the 0 left over from the
+# button block stands and X, Y, wheel and pan read as unsigned 0..127. A host
+# that honours that throws away every negative delta and the pointer can only
+# travel right and down.
+emu_device(gameball-fixed-emu "EMU_GAMEBALL;EMU_FIXED"
+  d_gameball_trackball=gameball_trackball --normalise-end-collection --fix-signed-axes)

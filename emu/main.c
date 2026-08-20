@@ -190,37 +190,31 @@ static void device_task(void) {
 #define SCROLL_MS     150
 #define PAUSE_MS      700
 
-/* A 400 pixel circle, as 64 relative steps.
+/* A 120 pixel circle, as 48 relative steps.
  *
- * Both numbers are a compromise and worth stating. The step count sets how
- * polygonal it looks: 32 steps at this size gives 29 pixel sides and reads as a
- * visible polygon rather than a circle. The rounding of each step to a whole
- * number sets how much the speed varies around the loop, and that gets worse as
- * the steps get smaller, from 2 percent at 32 steps to 26 percent at 128. Speed
- * variation matters because pointer acceleration turns it into shape distortion.
- * 64 steps at radius 200 gives 20 pixel sides and 4 percent variation.
+ * Small on purpose. A big circle needs clearance on all four sides, and a corner
+ * is the worst place to start one because two directions clamp at once, which
+ * turns the loop into a staircase and loses the movement that would have closed
+ * it. 120 pixels needs little enough room that where the pointer starts stops
+ * mattering.
+ *
+ * Step count and rounding pull against each other: too few steps looks like a
+ * polygon, too many makes each step's rounding a larger share of it and the speed
+ * vary around the loop, which pointer acceleration turns into shape distortion.
+ * 48 steps at radius 60 gives 8 pixel sides and 6 percent variation.
  *
  * The deltas are differences between rounded points on the true circle, so the
- * positions never drift from it by more than half a pixel, and they sum to zero
- * on both axes, so the pointer comes back to where it started every revolution.
- *
- * If it still looks off, the remaining causes are outside this table. Pointer
- * acceleration, which Windows calls "enhance pointer precision", scales fast
- * movement non-linearly and no relative pointing device can draw a true circle
- * through it. And a circle this size started near a screen edge gets clamped,
- * which both flattens that side and loses the movement, so the loop stops
- * closing and walks away across the desktop.
+ * path never leaves it by more than half a pixel, and they sum to zero on both
+ * axes, so the pointer returns to where it started every revolution.
  */
-#define CIRCLE_STEPS 64
+#define CIRCLE_STEPS 48
 static const int8_t circle[CIRCLE_STEPS][2] = {
-    { -1, 20}, { -3, 19}, { -5, 19}, { -6, 19}, { -9, 17}, {-10, 17}, {-11, 16}, {-14, 14},
-    {-14, 14}, {-16, 11}, {-17, 10}, {-17,  9}, {-19,  6}, {-19,  5}, {-19,  3}, {-20,  1},
-    {-20, -1}, {-19, -3}, {-19, -5}, {-19, -6}, {-17, -9}, {-17,-10}, {-16,-11}, {-14,-14},
-    {-14,-14}, {-11,-16}, {-10,-17}, { -9,-17}, { -6,-19}, { -5,-19}, { -3,-19}, { -1,-20},
-    {  1,-20}, {  3,-19}, {  5,-19}, {  6,-19}, {  9,-17}, { 10,-17}, { 11,-16}, { 14,-14},
-    { 14,-14}, { 16,-11}, { 17,-10}, { 17, -9}, { 19, -6}, { 19, -5}, { 19, -3}, { 20, -1},
-    { 20,  1}, { 19,  3}, { 19,  5}, { 19,  6}, { 17,  9}, { 17, 10}, { 16, 11}, { 14, 14},
-    { 14, 14}, { 11, 16}, { 10, 17}, {  9, 17}, {  6, 19}, {  5, 19}, {  3, 19}, {  1, 20},
+    { -1,  8}, { -1,  8}, { -3,  7}, { -3,  7}, { -4,  7}, { -6,  5}, { -5,  6}, { -7,  4},
+    { -7,  3}, { -7,  3}, { -8,  1}, { -8,  1}, { -8, -1}, { -8, -1}, { -7, -3}, { -7, -3},
+    { -7, -4}, { -5, -6}, { -6, -5}, { -4, -7}, { -3, -7}, { -3, -7}, { -1, -8}, { -1, -8},
+    {  1, -8}, {  1, -8}, {  3, -7}, {  3, -7}, {  4, -7}, {  6, -5}, {  5, -6}, {  7, -4},
+    {  7, -3}, {  7, -3}, {  8, -1}, {  8, -1}, {  8,  1}, {  8,  1}, {  7,  3}, {  7,  3},
+    {  7,  4}, {  5,  6}, {  6,  5}, {  4,  7}, {  3,  7}, {  3,  7}, {  1,  8}, {  1,  8},
 };
 
 /* The two side pads, which is the feature #332's reporter asked about. */

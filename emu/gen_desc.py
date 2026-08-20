@@ -39,6 +39,43 @@ def normalise_end_collection(data):
     return out, fixed
 
 
+def fix_signed_axes(data):
+    """Give relative axes a negative Logical Minimum.
+
+    The Gameball descriptors never set Logical Minimum for X, Y, wheel or pan, so
+    the 0 left over from the button block stands and the axes read as unsigned
+    0..127. A parser that honours that discards every negative delta and the
+    pointer can only travel right and down. deskhop reads the field as signed
+    regardless and is unaffected; Windows is not.
+
+    Inserts Logical Minimum -127 before the first relative Input item that needs
+    it. It is a global item, so every axis after it inherits the fix.
+    """
+    out, i, fixed, lmin, lmax = [], 0, 0, None, None
+    while i < len(data):
+        p = data[i]
+        size = p & 3
+        size = 4 if size == 3 else size
+        item = data[i:i + 1 + size]
+        val = 0
+        for k, d in enumerate(item[1:]):
+            val |= d << (8 * k)
+        typ, tag = (p >> 2) & 3, p & 0xFC
+
+        if typ == 1 and tag == 0x14:
+            lmin = val
+        if typ == 1 and tag == 0x24:
+            lmax = val
+        if typ == 0 and tag == 0x80 and (val & 0x04) and lmin == 0 and lmax and not fixed:
+            out.extend([0x15, (256 - lmax) & 0xFF])   # Logical Minimum -lmax
+            lmin = -lmax
+            fixed += 1
+
+        out.extend(item)
+        i += 1 + size
+    return out, fixed
+
+
 def extract(text, name):
     m = re.search(r'static const uint8_t %s\[\]\s*=\s*\{(.*?)\};' % re.escape(name),
                   text, re.S)
@@ -54,8 +91,11 @@ def extract(text, name):
 
 
 def main():
-    argv = [a for a in sys.argv[1:] if a != "--normalise-end-collection"]
-    normalise = len(argv) != len(sys.argv) - 1
+    flags = {"--normalise-end-collection", "--fix-signed-axes"}
+    given = {a for a in sys.argv[1:] if a in flags}
+    argv = [a for a in sys.argv[1:] if a not in flags]
+    normalise = "--normalise-end-collection" in given
+    signed = "--fix-signed-axes" in given
     src, out, pairs = argv[0], argv[1], argv[2:]
     if not pairs:
         sys.exit("gen_desc.py: no <c_name>=<prefix> pairs given")
@@ -77,6 +117,10 @@ def main():
             data, fixed = normalise_end_collection(data)
             if fixed:
                 print("gen_desc.py: %s, rewrote %d End Collection item(s)" % (prefix, fixed))
+        if signed:
+            data, fixed = fix_signed_axes(data)
+            if fixed:
+                print("gen_desc.py: %s, gave the relative axes a signed range" % prefix)
         macro = prefix.upper() + "_DESC_LEN"
 
         lines.append("#define %s %d" % (macro, len(data)))

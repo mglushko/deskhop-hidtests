@@ -43,6 +43,22 @@
  *  left as dumped, because the corpus records what was reported and because no
  *  result here depends on it, but anything drawing conclusions from these exact
  *  bytes should know. emu/ builds gameball-c0-emu to keep the comparison live.
+ *
+ *  A second anomaly says the same thing more strongly. The trackball's X, Y,
+ *  wheel and pan carry no Logical Minimum of their own, so the 0 left over from
+ *  the button block stands and all four read as unsigned 0..127. A trackball that
+ *  really declared that could only ever travel right and down, which is not a
+ *  product anyone shipped, and emulating these bytes reproduces exactly that on a
+ *  PC: the pointer walks down and right in steps and no negative movement
+ *  survives. Real mice declare Logical Minimum -127 here.
+ *
+ *  deskhop is unaffected by both. get_report_value reads the field as signed from
+ *  its size rather than from the declared range, which `make mouse` confirms:
+ *  0xEC decodes to -20. So the harness numbers stand either way, and the two
+ *  anomalies are evidence about the dump rather than about the parser. Together
+ *  they suggest #332's descriptor was reconstructed from parsed data rather than
+ *  captured, since a reconstruction is exactly what loses a global item that was
+ *  inherited and re-encodes End Collection with a size byte.
  *============================================================================*/
 
 /* mi_00, the trackball itself: 5 buttons, X, Y, wheel, and AC pan on a second
