@@ -188,6 +188,31 @@ Windows and shows HID collection paths, so Windows accepted whatever that device
 really sent, which suggests the dump was re-encoded and the corpus bytes are a
 transcription artifact rather than the device's own.
 
+## Measured on a PC, 2026-08-19
+
+`gameball-fixed-emu` into a PC, read on the bench:
+
+| what the rig sends | what the browser reported |
+|---|---|
+| wheel `+3` / `-3` | deltaY `-500` / `+500` |
+| pan `+3` / `-3` | deltaX `+300` / `-300` |
+| 48 step circle, radius 60 | radius 60 px, roundness 95% |
+
+The signs are the part worth checking, and they are right in both directions. HID
+wheel counts positive away from you while the browser counts deltaY positive
+downward, so `+3` arriving as `-500` is correct. AC Pan and deltaX share a
+direction, so `+3` arriving as `+300` is correct too. Both axes inverted, or
+neither, would have meant something was wrong.
+
+The two magnitudes differ because the host scales the axes separately, vertical by
+its lines-per-notch setting and horizontal by characters-per-notch, not because
+one axis is weaker than the other. And the measured radius matching the designed
+radius says the host is not scaling the movement, so pointer acceleration was not
+in play for that reading. The missing 5% of roundness has three plausible homes,
+none of them faults: each step is rounded to a whole number, mousemove events are
+coalesced so the sampled path is a subset of the real one, and any acceleration
+at all would show up here.
+
 ## Reading the result
 
 The pointer circles continuously, 120 pixels across, once every 1.2 seconds.
