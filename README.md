@@ -48,8 +48,8 @@ Needs `gcc`, `python3`, and `make`. No cross compiler, no Pico SDK.
 any firmware worth shipping, so a red `make test` means the harness moved or a known
 good device stopped decoding. `fuzz`, `truncate` and `shortreport` are deliberately
 outside it, and so is `dispatch`: they fail by design on firmware that has the bug
-they look for - three of the four fail on `main` today - so folding them in would make
-the gate permanently red and worth nothing. Their exit status is the finding.
+they look for - three of the four fail on `main` in the table below - so folding them in
+would make the gate permanently red and worth nothing. Their exit status is the finding.
 `make findings` runs those four together and reports rather than gates.
 
 `compare` is the one to reach for when reviewing a parser change. It materialises the
@@ -101,7 +101,7 @@ Windows' parsed caps rather than reading the device, and the table in [What the 
 already worth](#what-the-corpus-is-already-worth) lists five ways that went wrong on the
 two devices dumped both ways - including key arrays vanishing into padding and whole
 collections coming back empty. Windows does not expose raw report descriptors to user
-mode at all, so no tool on that side can do better by reading harder; [hidapi's
+mode, so a tool on that side is reconstructing rather than reading; [hidapi's
 reconstructor][hidapi] is a closer approximation than HidSharp's if you have no
 alternative. Note that `descriptors.h` still carries entries dumped this way from
 issues, and the Gameball set shows three artifacts of it. `gameball_keyboard`'s
@@ -109,7 +109,7 @@ issues, and the Gameball set shows three artifacts of it. `gameball_keyboard`'s
 device really lacks one. All three of its descriptors encode End Collection as
 `0xC1 0x00`, bSize 1 where the spec says 0. And the trackball's X, Y, wheel and pan
 carry no Logical Minimum of their own, so the 0 left over from the button block stands
-and all four read as unsigned 0..127, which no trackball could work with.
+and all four read as unsigned 0..127, a range that discards every negative delta.
 
 The device paths in [#332] settle how they got that way rather than leaving it to be
 guessed. They carry Windows' `col01` and `col02` collection suffixes, which is Windows
@@ -145,9 +145,9 @@ What they have bought so far:
 - **Cherry MW 8 vs MW 8C** ([#133], "older version worked fine"). The two dumps
   explain the difference in one line of `dump` each: the MW 8 puts buttons, 12-bit
   X/Y and wheel in a single report, the MW 8C splits them across report IDs 1 and 2.
-  Both parse and decode correctly on today's `main` - their 32 cases in `make mouse`
-  all pass - so whatever broke for that reporter was fixed by `6c92c11`, which tracks
-  offsets per report ID.
+  Both parse and decode correctly on `main` - their 32 cases in `make mouse` all pass -
+  so whatever broke for that reporter was fixed by `6c92c11`, which tracks offsets per
+  report ID.
 - **Cherry KC6000** ([#117], media keys not working). A consumer control block with
   no report ID at all, which is the case PR [#358] addresses - and the only device
   here that separates that PR from `main`. `make consumer` shows what it costs: on
@@ -167,9 +167,8 @@ What they have bought so far:
   top-level collection.
 
 The four that did not come from an issue were added to break that selection bias -
-every real device above is one that already misbehaved, which is a poor sample of what
-a parser meets in the wild. These are captures published elsewhere, picked for shapes
-the corpus did not have:
+every real device above is one that already misbehaved, which is a biased sample.
+These are captures published elsewhere, picked for shapes the corpus did not have:
 
 - **Logitech MX518** (`046d:c08e`, from the [tmk_keyboard wiki][tmk]) declares a
   padding item with Report Count 0, puts a two-byte vendor block *inside* the mouse's
@@ -249,7 +248,7 @@ matter; see [Adding a device](#adding-a-device).
   *swapped* Report Count for 1-bit fields, so a mouse declaring 40 one-bit buttons
   shifts by 40. That is undefined, and on x86 it silently takes the shift mod 32 and
   returns a plausible wrong number rather than faulting. No device in the corpus
-  reaches that path today, so this costs nothing and is waiting.
+  reaches that path, so this costs nothing and is waiting.
 - The decode tests key their expectations on what the target can do, detected by the
   Makefile rather than declared by the target. `MAX_NKRO_BLOCKS` used to be enough on its
   own, but stopped being once more than one fix existed: [#359] defines it and so does
@@ -318,7 +317,7 @@ separate the two.
 |---|---|---|---|
 | `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 45 identical | both fixed; 47 compared, differences confined to keyboards |
 | `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases | 124 of 124 |
-| `kbd` | 46 of 46 cases over 13 devices | 46 of 46 cases | **50 of 50 over 14** |
+| `kbd` | 49 of 49 cases over 14 devices | same - #361 is a parser change | **55 of 55 over 15** |
 | `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change | 18 of 18; verdict "has the #358 fix" |
 | `dispatch` | 14 of 22 routed correctly; 8 misrouted, 4 more arrive by luck | same - `usb.c` is untouched by these PRs | **22 of 22**, lifted rather than modelled |
 | `check-constants` | all 47 agree with TinyUSB | same | same |
@@ -404,23 +403,22 @@ by one should be honoured or rejected is a judgement call worth making deliberat
 
 [#358] changes two functions, and in practice only one of them matters. Its consumer
 half fixes a real device, the Cherry KC6000. Its system half needs an interface with a
-System Control collection and no report ID anywhere on it, and no such device has ever
-been reported: every descriptor dump in all 220 deskhop issues was searched - 150 unique
-interface descriptors - and all nine carrying a system collection declare a report ID.
-The reason looks structural rather than accidental. System Control is a two or three bit
-block that vendors bundle onto a shared interface with Consumer Control, and once two
-collections share an interface, report IDs become mandatory. The nearest real miss is
-`cherry_mw8c_consumer`, whose system collection declares no ID *of its own* - but its
-interface still uses IDs from the consumer block ahead of it, so `uses_report_id` is set
-and the PR is inert on it.
+System Control collection and no report ID anywhere on it, and no descriptor in the
+deskhop issue tracker has one: all 220 issues were searched on 2026-08-19, yielding 150
+unique interface descriptors, and all nine carrying a system collection declare a report
+ID. The reason looks structural rather than accidental: all nine sit on an interface
+shared with Consumer Control, and once two collections share an interface, report IDs
+are what tell them apart. The nearest real miss is `cherry_mw8c_consumer`, whose system
+collection declares no ID *of its own* - but its interface still uses IDs from the
+consumer block ahead of it, so `uses_report_id` is set and the PR is inert on it.
 
 That is why `d_system_no_report_id` is synthetic and says so. The path is real in the
 code and absent from the field, and `make consumer` exercises it so the system half is
-measured rather than assumed - but nobody should read that row as a device anyone owns.
+measured rather than assumed - but that row is a code path, not a device.
 
 The two new devices add nothing for [#358]: the Bolt's consumer and system collections
 both declare their own report IDs, which is precisely the case that PR does *not* change.
-Those bytes had never been dumped before, so this is now measured rather than assumed.
+Those bytes were not in the corpus before, so this is now measured rather than assumed.
 
 ## Open findings
 
@@ -559,9 +557,7 @@ keyboard paired to it, so no keystrokes flow.
 Three rows in `make dispatch` pass *by luck*, flagged as such. The target does not have
 to be asked which routing it uses to know that - in boot protocol `report[0]` is data,
 so routing must not depend on it, and the test simply perturbs that byte and sees
-whether the receiver moves. Left Ctrl on a report-ID-1 keyboard is the common case,
-which is a plausible reason this has gone unnoticed: the first thing anyone tries after
-enabling boot protocol is often a modifier combination.
+whether the receiver moves. Left Ctrl on a report-ID-1 keyboard is the common case.
 
 **How `make dispatch` knows.** `tuh_hid_report_received_cb` cannot be lifted - it reaches
 `global_state` and the TinyUSB host API - but the decision inside it is a pure function
@@ -715,7 +711,7 @@ make dump D=bitdo_retro_iface2 DESKHOP=~/deskhop-extended # keyboards: 3, kbd[0]
 ```
 
 `kbd[0]` then matches `ultralink_keyboard`, the same collection parsed on its own, which
-is the comparison those two entries were added for. `make kbd` goes to 50 of 50 over 14
+is the comparison those two entries were added for. `make kbd` goes to 55 of 55 over 15
 devices, and the three upstream reports that share this shape - [#57], [#211] and [#295],
 one still open, one closed and reported as returning, one closed by the reporter
 hard-coding a workaround for their own keyboard - are all this fault.
@@ -802,9 +798,10 @@ with the fix and `gmovw3,./` on firmware without it, and drops the `,./` tail
 entirely if deskhop is in boot protocol, where the test could otherwise pass for the
 wrong reason.
 
-It matters because nobody working on this owns an affected keyboard. Three upstream
-reports describe the bug and every reporter has moved on, so a device test otherwise
-depends on someone else coming back. The descriptor is generated out of
+It matters because the collapse needs hardware this project does not have: the two
+devices dumped here are a Logi Bolt receiver and a Keychron Ultra-Link 8K, and the
+affected keyboards are the ones in [#57], [#211] and [#295]. Without the rig, a device
+test depends on one of those reporters. The descriptor is generated out of
 `descriptors.h` at build time and every report the rig sends is pinned in
 `k_bitdo_cases`, with the broken column measured against the pre-fix tree and the
 fixed column against the branch, so the hardware and the host cannot quietly come to
@@ -826,7 +823,7 @@ deduplicates before transmission, so the doubled NKRO walk `{54,55,56,54,55,56}`
 the fixed `{54,55,56}` reach the host as the same three keycodes and the tail is
 bit-identical either way. The prediction attached to it was that the truncation would
 survive the fix. It did not: 48 clean lines, which at a two in eleven rate is under a
-thousandth of a per cent. The dedup argument was answering the wrong question, and the
+hundredth of a per cent. The dedup argument was answering the wrong question, and the
 truncation belongs to the bug.
 
 The likeliest remaining explanation is cost rather than content. On a collapsed

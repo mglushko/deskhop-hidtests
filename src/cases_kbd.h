@@ -240,7 +240,7 @@ static const kbd_case_t k_bit_field_cases[] = {
 
    `keys` mirrors `keys_fixed` rather than carrying a separate number. No tree selects it
    for this device: every tree without MAX_NKRO_BLOCKS also lacks the bitmap bound and is
-   gated out below, so a value there would be one nobody has measured. */
+   gated out below, so a value there would be untested. */
 static const kbd_case_t k_bitdo_cases[] = {
     {"a, on the 6KRO collection", {0x01, 0x00, 0x00, 0x04}, 9,      0x00, {10, 10}, {10, 10},
                                                                     true, {4}},

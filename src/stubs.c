@@ -12,10 +12,10 @@
    Four identical empty bodies are the kind of thing -fipa-icf exists to merge, and
    that pass is on by default at -O2 and -Os. Measured on GCC 15 it does not fire
    here - the four keep distinct addresses at -O2 and under -flto, with and without
-   the attribute below - so this has never actually been broken. But nothing in the
-   source said the addresses had to stay distinct; it was resting on the optimiser
-   choosing not to, and on the -O1 in CFLAGS. noipa says it outright, and costs
-   nothing on four empty functions. */
+   the attribute below - so it has not fired on any build measured here. But nothing
+   in the source said the addresses had to stay distinct; it was resting on the
+   optimiser choosing not to, and on the -O1 in CFLAGS. noipa says it outright, and
+   costs nothing on four empty functions. */
 #include "main.h"
 
 /* noipa is GCC 8+ and has no Clang equivalent, so ask rather than assume. */

@@ -66,8 +66,7 @@ static inline process_report_f hid_route(const hid_interface_t *iface, uint8_t i
 /* Stand-in for a target whose usb.c still has the routing inlined in the callback,
    where there is no function to lift. It reproduces the upstream logic at 59577cc.
    A model can only ever report what it was written to say, so dispatchtest prints
-   which of the two it used and nobody should read a modelled result as a
-   measurement of the firmware.
+   which of the two it used: a modelled result is not a measurement of the firmware.
 
    `report` must hold at least one byte, as it does on any real transfer. */
 static inline process_report_f hid_route(const hid_interface_t *iface, uint8_t itf_protocol,

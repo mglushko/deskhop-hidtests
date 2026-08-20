@@ -56,10 +56,11 @@
  *  A second anomaly says the same thing more strongly. The trackball's X, Y,
  *  wheel and pan carry no Logical Minimum of their own, so the 0 left over from
  *  the button block stands and all four read as unsigned 0..127. A trackball that
- *  really declared that could only ever travel right and down, which is not a
- *  product anyone shipped, and emulating these bytes reproduces exactly that on a
- *  PC: the pointer walks down and right in steps and no negative movement
- *  survives. Real mice declare Logical Minimum -127 here.
+ *  really declared that could only ever travel right and down, and emulating these
+ *  bytes reproduces exactly that on a PC: the pointer walks down and right in steps
+ *  and no negative movement survives. Every other relative axis in this corpus
+ *  declares a negative Logical Minimum: 0x15 0x81 on d_pixart_mouse, 0x16 0x01 0xF8
+ *  on d_mx518_mouse, 0x16 0x00 0xF8 on d_kernel_multi_collection.
  *
  *  deskhop is unaffected by both. get_report_value reads the field as signed from
  *  its size rather than from the declared range, which `make mouse` confirms:
@@ -383,9 +384,9 @@ static const uint8_t d_deskhop_mouse[] = {
  *  Devices captured outside the deskhop issue tracker
  *
  *  Everything above came from someone filing a bug, which biases the corpus
- *  towards devices that already broke. These five are real captures published
- *  elsewhere, added so the corpus also holds shapes nobody has complained about.
- *  Each comment names where the bytes came from.
+ *  towards devices that already broke. These four are real captures published
+ *  elsewhere, added so the corpus also holds shapes that arrived from somewhere
+ *  other than a bug report. Each comment names where the bytes came from.
  *============================================================================*/
 
 /* Logitech MX518, VID 046D PID C08E - usbhid-dump output published on
@@ -677,13 +678,13 @@ static const uint8_t d_ultralink_vendor_c1[] = {
  *  8BitDo Retro Mechanical Keyboard, VID 2DC8 PID 5201 - issues/57
  *============================================================================*/
 
-/* Interface 2, dumped with usbhid-dump by the reporter of [#57], which is still open.
+/* Interface 2, dumped with usbhid-dump by the reporter of [#57].
    Three keyboard collections on one interface: a 6KRO boot keyboard on report ID 1,
    then NKRO bitmaps on 12 and 10, with consumer on 2 and 17 and system control on 6.
 
    The Keychron Ultra-Link has the same shape with two collections; this one has three,
-   and the third is what makes it worth carrying separately. It is also the only device
-   here whose issue is still open upstream, and the symptom the reporter describes,
+   and the third is what makes it worth carrying separately. Its issue was the only one
+   here still open upstream in August 2026, and the symptom the reporter describes,
    "I plugged my keyboard it did not work", is what the collapse produces.
 
    The same 245 bytes appear again in issues/295, reported by someone else as
@@ -724,12 +725,12 @@ static const uint8_t d_many_usages[] = {
    padding: one byte on the wire.
 
    This is the only case in which PR #358 changes process_system_report, and no real
-   device here reaches it. That is not for want of looking: every descriptor dump in
-   all 220 deskhop issues was searched - 150 unique interface descriptors - and none
+   device here reaches it. That is not for want of looking: all 220 deskhop issues
+   were searched on 2026-08-19, yielding 150 unique interface descriptors, and none
    has a System Control collection on an interface without a Report ID. The reason
-   looks structural rather than accidental. System Control is a two or three bit
-   block that vendors bundle onto a shared interface with Consumer Control, and once
-   two collections share an interface, Report IDs become mandatory.
+   looks structural rather than accidental: all nine system collections found sit on
+   an interface shared with Consumer Control, and once two collections share an
+   interface, Report IDs are what tell them apart.
 
    The nearest real miss is cherry_mw8c_consumer, whose system collection declares no
    ID *of its own* - but its interface still uses IDs from the consumer block ahead of
@@ -781,8 +782,8 @@ typedef struct {
    field, here F13-F20 sitting where the reserved byte usually is. Report layout is
    [id][modifiers][F13-F20 bits][6 key slots].
 
-   No device in this corpus does this, which is why it is synthetic - but nothing about
-   it is unusual, and it is what separates the two ways of recognising an NKRO block.
+   No device in this corpus does this, which is why it is synthetic - and it is what
+   separates the two ways of recognising an NKRO block.
    main filters on src->size > 32, so the 8-bit field is ignored and the key array is
    read: the device works. [#359] filters on the usage range mapping one usage per bit,
    which this field does, so it is recorded as an NKRO block and is_nkro is set - and
