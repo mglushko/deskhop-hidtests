@@ -213,6 +213,35 @@ none of them faults: each step is rounded to a whole number, mousemove events ar
 coalesced so the sampled path is a subset of the real one, and any acceleration
 at all would show up here.
 
+## Through deskhop-extended v1.05
+
+Same rig, same bench, plugged into the keyboard port instead of the PC:
+
+| | direct to PC | through deskhop |
+|---|---|---|
+| wheel `+3` / `-3` | deltaY `-500` / `+500` | same |
+| pan `+3` / `-3` | deltaX `+300` / `-300` | same |
+| circle | radius 60, roundness 95% | radius 60, roundness 92% |
+
+**That is the answer #332 asks for.** The Gameball works: both scroll pads reach the
+host with the right signs and magnitudes, and the pointer path survives the trip.
+
+The three points of roundness have a mechanism worth naming, but it only accounts
+for part of the gap. deskhop applies its own acceleration curve in `mouse.c`, keyed
+on the movement magnitude, and this circle's steps average 7.9 px, which lands on
+the segment between the curve's 5 and 15 points where the factor climbs fastest.
+Running the rig's real step table through that curve turns a 5.7% spread in step
+size into 6.8%, so a reading near 94% would become near 93%. Observed was 95 to 92,
+so the curve explains roughly a third of the drop in the right direction and
+something else carries the rest: the `round()` on each offset, the conversion into
+the 0..32767 absolute grid deskhop sends, or plain run to run variation in a
+measurement taken over a few revolutions.
+
+It is one toggle to test. `enable_acceleration` is configurable, from
+`ENABLE_ACCELERATION` in `user_config.h`. Turning it off should recover a point or
+so if this reading is right, and if roundness does not move at all then it is not
+the curve.
+
 ## Reading the result
 
 The pointer circles continuously, 120 pixels across, once every 1.2 seconds.
