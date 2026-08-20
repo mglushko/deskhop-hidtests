@@ -1,12 +1,17 @@
-# 8BitDo keyboard emulator
+# Hardware emulators
 
-An RP2040 that pretends to be an [8BitDo Retro Mechanical Keyboard][57] and types a
-fixed line, so the keyboard collection collapse can be confirmed on real hardware
-rather than only on the host harness.
+Spare RP2040s turned into stand-ins for devices in the corpus, so findings can be
+confirmed on real hardware rather than only on the host. Two of them, one per UF2:
 
-The point is that nobody working on this owns an affected keyboard. Three upstream
-reports describe the bug ([#57], [#211], [#295]) and all three reporters have moved
-on. This board stands in for them.
+| build | device | issue | what it is for |
+|---|---|---|---|
+| `bitdo-emu.uf2` | 8BitDo Retro Mechanical Keyboard `2dc8:5201` | [#57] | three keyboard collections on one interface |
+| `gameball-emu.uf2` | Gameball trackball `0782:001B` | [#332] | Report Count 16328 against a 128 entry array |
+
+Every report descriptor is pulled out of `../descriptors.h` by `gen_desc.py` at build
+time rather than checked in twice, so an emulator and the corpus cannot drift apart.
+
+# 8BitDo, the keyboard collection collapse
 
 ## What it presents
 
@@ -67,7 +72,7 @@ cmake -B build -G Ninja -DPICO_SDK_PATH=$HOME/deskhop-extended/pico-sdk
 cmake --build build
 ```
 
-Produces `build/bitdo-emu.uf2`.
+Produces `build/bitdo-emu.uf2` and `build/gameball-emu.uf2`. Both, every time.
 
 ## Run it
 
@@ -94,9 +99,63 @@ To recover the board for reflashing, hold BOOTSEL while plugging it in.
 | `,./` alone | the 6KRO collection produced nothing, a third state worth reporting |
 | nothing | the rig is not reaching the PC, check the port, cable and active output |
 
-Doing it as an A/B is what makes it conclusive. Flash the deskhop board with the
-pre-fix image, confirm `gmovw3xyz`, then flash the fixed image and confirm
-`abcdefxyz` with nothing else changed.
+Doing it as an A/B is what makes it conclusive: flash the pre-fix image, confirm
+`gmovw3,./`, then flash the fixed one and confirm `abcdef,./` with nothing else
+changed. Run that way on 2026-08-19 it gave 11 lines of `gmovw3,./` on
+deskhop-extended v1.04 and 48 of `abcdef,./` on v1.05, against 7 lines of
+`abcdef,./` typed straight into a PC as the control.
+
+# Gameball, the usages[] overflow
+
+[#332] is titled "Not functional with Gameball trackball" and asks, in the reporter's
+words, whether it could even work. The interesting part is that the interface carrying
+the bug is not the interface you would watch.
+
+## What it presents
+
+All three interfaces, in the order the real device does:
+
+| # | interface | bytes | class | sends |
+|---|---|---|---|---|
+| 0 | trackball | 77 | boot mouse | a square, then both scroll pads |
+| 1 | gesture | 350 | vendor, subclass 0 | nothing at all |
+| 2 | keyboard | 38 | boot keyboard | nothing |
+
+Interface 1 is the whole test. Its first report declares Report Count `0x3FC8`, which
+is 16328, against `usages[HID_MAX_USAGES]` where `HID_MAX_USAGES` is 128. In
+`parser_state_t` the member immediately after that array is `p_usage`, a pointer the
+parser then dereferences, so a tree without a bound runs off the end of the array and
+straight into it. Parsing this descriptor on upstream main aborts under ASan on the
+host; on an RP2040 it corrupts a live pointer instead. Nothing is ever sent on that
+interface, because the damage happens at parse time and enumerating is enough.
+
+Interface 0 is what you watch. `bInterfaceProtocol` is deliberately `MOUSE`: the
+trackball descriptor declares no report ID, so an interface presenting as `NONE` would
+make `report_carries_id()` false and drop `pick_receiver()` into the
+`report_handler[report[0]]` branch, where `report[0]` is the button byte and the
+pointer gets routed by which buttons are held. `MOUSE` takes the direct branch, which
+is both correct and what a real trackball does.
+
+Interface 2 is presented and never used. It declares eight modifier bits, 48 bits of
+padding and no key array at all, so it could only ever report modifiers, which would
+look like a stuck Shift. That is the real device's descriptor, not a simplification.
+
+## Reading the result
+
+Every three seconds the pointer draws a 40 pixel square and returns to where it
+started, then scrolls up three, down three, and pans right three and left three.
+
+| what you see | meaning |
+|---|---|
+| square and scrolling, repeating cleanly | the descriptor parsed safely and the trackball works |
+| pointer moves, no scrolling | the pads are not reaching the host, worth reporting |
+| nothing, and the board stops responding | the parse took the firmware with it |
+
+Park the pointer near the middle of the screen before plugging it in. The square
+returns to its origin so it cannot drift, but a single 40 pixel step starting on a
+screen edge can still trip deskhop's own edge switching.
+
+# Both rigs
 
 ## If nothing appears
 
@@ -153,3 +212,5 @@ real hardware on a bus scan.
 [#57]: https://github.com/hrvach/deskhop/issues/57
 [#211]: https://github.com/hrvach/deskhop/issues/211
 [#295]: https://github.com/hrvach/deskhop/issues/295
+
+[#332]: https://github.com/hrvach/deskhop/issues/332

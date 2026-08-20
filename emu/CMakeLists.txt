@@ -1,11 +1,14 @@
-# Builds bitdo-emu.uf2: an RP2040 that presents itself as an 8BitDo Retro
-# Mechanical Keyboard and types a fixed test line.
+# Builds one UF2 per emulated device:
+#
+#   bitdo-emu.uf2     8BitDo Retro Mechanical Keyboard, hrvach/deskhop#57
+#   gameball-emu.uf2  Gameball trackball 0782:001B, hrvach/deskhop#332
 #
 #   cmake -B build -G Ninja -DPICO_SDK_PATH=$HOME/deskhop-extended/pico-sdk
 #   cmake --build build
 #
-# The report descriptor is regenerated from ../descriptors.h on every build, so
-# the emulator and the host harness can never disagree about the device.
+# Report descriptors are regenerated from ../descriptors.h on every build, so an
+# emulator and the host harness can never disagree about the device. Each target
+# gets its own generated header holding only its own descriptors.
 cmake_minimum_required(VERSION 3.13)
 
 set(PICO_SDK_FETCH_FROM_GIT off)
@@ -14,31 +17,39 @@ if(NOT DEFINED PICO_SDK_PATH)
 endif()
 include(${PICO_SDK_PATH}/pico_sdk_import.cmake)
 
-project(bitdo_emu C CXX ASM)
+project(deskhop_emu C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 pico_sdk_init()
 
-set(GEN_DESC ${CMAKE_CURRENT_BINARY_DIR}/bitdo_desc.h)
-add_custom_command(
-  OUTPUT  ${GEN_DESC}
-  COMMAND ${CMAKE_COMMAND} -E env python3
-          ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py
-          ${CMAKE_CURRENT_LIST_DIR}/../descriptors.h
-          d_bitdo_retro_iface2
-          ${GEN_DESC}
-  DEPENDS ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py
-          ${CMAKE_CURRENT_LIST_DIR}/../descriptors.h
-  COMMENT "Extracting d_bitdo_retro_iface2 from the harness corpus"
-  VERBATIM)
-add_custom_target(bitdo_desc DEPENDS ${GEN_DESC})
+set(CORPUS ${CMAKE_CURRENT_LIST_DIR}/../descriptors.h)
 
-add_executable(bitdo-emu main.c usb_descriptors.c)
-add_dependencies(bitdo-emu bitdo_desc)
+# emu_device(<target> <define> <c_name>=<prefix> ...)
+function(emu_device target define)
+  set(gendir ${CMAKE_CURRENT_BINARY_DIR}/gen/${target})
+  set(header ${gendir}/emu_desc.h)
 
-target_include_directories(bitdo-emu PRIVATE
-  ${CMAKE_CURRENT_LIST_DIR}
-  ${CMAKE_CURRENT_BINARY_DIR})
+  add_custom_command(
+    OUTPUT  ${header}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${gendir}
+    COMMAND ${CMAKE_COMMAND} -E env python3
+            ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py ${CORPUS} ${header} ${ARGN}
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py ${CORPUS}
+    COMMENT "Extracting ${target} descriptors from the harness corpus"
+    VERBATIM)
+  add_custom_target(${target}_desc DEPENDS ${header})
 
-target_link_libraries(bitdo-emu pico_stdlib tinyusb_device)
+  add_executable(${target} main.c usb_descriptors.c)
+  add_dependencies(${target} ${target}_desc)
+  target_compile_definitions(${target} PRIVATE ${define})
+  target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_LIST_DIR} ${gendir})
+  target_link_libraries(${target} pico_stdlib tinyusb_device)
+  pico_add_extra_outputs(${target})
+endfunction()
 
-pico_add_extra_outputs(bitdo-emu)
+emu_device(bitdo-emu EMU_BITDO
+  d_bitdo_retro_iface2=bitdo)
+
+emu_device(gameball-emu EMU_GAMEBALL
+  d_gameball_trackball=gameball_trackball
+  d_gameball_gesture=gameball_gesture
+  d_gameball_keyboard=gameball_keyboard)
