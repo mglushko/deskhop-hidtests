@@ -104,8 +104,26 @@ collections coming back empty. Windows does not expose raw report descriptors to
 mode at all, so no tool on that side can do better by reading harder; [hidapi's
 reconstructor][hidapi] is a closer approximation than HidSharp's if you have no
 alternative. Note that `descriptors.h` still carries entries dumped this way from
-issues - `gameball_keyboard`'s `95 30 81 03` is the same padding-instead-of-key-array
-artifact, and it is not known whether that device really lacks a key array.
+issues, and the Gameball set shows three artifacts of it. `gameball_keyboard`'s
+`95 30 81 03` is padding where a key array should be, and it is not known whether that
+device really lacks one. All three of its descriptors encode End Collection as
+`0xC1 0x00`, bSize 1 where the spec says 0. And the trackball's X, Y, wheel and pan
+carry no Logical Minimum of their own, so the 0 left over from the button block stands
+and all four read as unsigned 0..127, which no trackball could work with.
+
+The device paths in [#332] settle how they got that way rather than leaving it to be
+guessed. They carry Windows' `col01` and `col02` collection suffixes, which is Windows
+splitting one interface into a device per collection, a view that exists only in the
+parsed caps and never on the wire. So the tool was rebuilding a descriptor from those
+caps, which is the failure mode this section already warns about, arrived at from the
+other direction.
+
+It is not a theory about the bytes either. Emulating them as posted, a PC enumerates
+the device and then suspends it with no driver bound; repairing the End Collection
+items makes it enumerate, and giving the axes a signed range makes the pointer travel
+in more than one quadrant. `emu/` keeps both states as separate builds so the
+comparison stays available. None of this is raised on [#332] itself: it does not change
+the fix there, and the reporter did not choose the tool.
 
 ### What the corpus is already worth
 

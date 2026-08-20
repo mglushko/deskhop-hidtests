@@ -34,15 +34,24 @@
  *  no driver bound, and rewriting only those items to 0xC0 makes the same device
  *  work. Nothing else changed between the two builds.
  *
- *  That leaves an open question about these bytes rather than about the parser.
- *  The dump in #332 was taken on Windows and shows HID collection paths, so
- *  Windows accepted whatever the reporter's device actually sent, and Windows
- *  demonstrably does not accept this. The likeliest explanation is that the tool
- *  which produced the dump re-encoded the descriptor and the real device sends
- *  0xC0, in which case these four items are a transcription artifact. They are
- *  left as dumped, because the corpus records what was reported and because no
+ *  These bytes are therefore not what the device sends, and the dump says so
+ *  itself. Its device paths read
+ *
+ *      \\?\hid#vid_0782&pid_001b&mi_01&col02#...{4d1e55b2-f16f-11cf-88cb-...}
+ *
+ *  which is GUID_DEVINTERFACE_HID, so it was taken on Windows, and the col01 and
+ *  col02 suffixes are Windows splitting one interface into a device per
+ *  collection. That view only exists in the parsed caps, not on the wire. So the
+ *  tool was reading Windows' parsed structure and rebuilding a descriptor from
+ *  it, which is exactly the failure mode already recorded further down this file
+ *  for winhiddump's HidSharp backend: reconstruction from caps, wrong in ways
+ *  that matter. Rebuilding End Collection with a size byte, and losing a Logical
+ *  Minimum that was inherited from an earlier global, are both what that produces.
+ *
+ *  They are left as dumped, because the corpus records what was reported and no
  *  result here depends on it, but anything drawing conclusions from these exact
- *  bytes should know. emu/ builds gameball-c0-emu to keep the comparison live.
+ *  bytes should know. emu/ builds gameball-c0-emu and gameball-fixed-emu to keep
+ *  the comparison live.
  *
  *  A second anomaly says the same thing more strongly. The trackball's X, Y,
  *  wheel and pan carry no Logical Minimum of their own, so the 0 left over from
