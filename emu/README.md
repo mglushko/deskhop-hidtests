@@ -117,7 +117,7 @@ All three interfaces, in the order the real device does:
 
 | # | interface | bytes | class | sends |
 |---|---|---|---|---|
-| 0 | trackball | 77 | boot mouse | a square, then both scroll pads |
+| 0 | trackball | 77 | boot mouse | a 300 px circle, then both scroll pads |
 | 1 | gesture | 350 | vendor, subclass 0 | nothing at all |
 | 2 | keyboard | 38 | boot keyboard | nothing |
 
@@ -142,18 +142,24 @@ look like a stuck Shift. That is the real device's descriptor, not a simplificat
 
 ## Reading the result
 
-Every three seconds the pointer draws a 40 pixel square and returns to where it
-started, then scrolls up three, down three, and pans right three and left three.
+The pointer circles continuously, 300 pixels across, once every 640 milliseconds.
+After three revolutions it stops and works the scroll pads instead, up three, down
+three, then pan right three and left three, and then goes back to circling. The LED
+is solid while it is circling and flickers while it is scrolling, so you can tell
+which phase it is in without watching the screen.
 
 | what you see | meaning |
 |---|---|
-| square and scrolling, repeating cleanly | the descriptor parsed safely and the trackball works |
-| pointer moves, no scrolling | the pads are not reaching the host, worth reporting |
+| circling, then scrolling, repeating | the descriptor parsed safely and the trackball works |
+| circles, no scrolling | the pads are not reaching the host, worth reporting |
+| LED solid but the pointer is still | reports are leaving the rig and nothing is acting on them |
 | nothing, and the board stops responding | the parse took the firmware with it |
 
-Park the pointer near the middle of the screen before plugging it in. The square
-returns to its origin so it cannot drift, but a single 40 pixel step starting on a
-screen edge can still trip deskhop's own edge switching.
+The circle is built from 32 relative steps whose deltas sum to zero on both axes, so
+the pointer returns to where it started every revolution rather than walking across
+the desktop. Park it near the middle of the screen anyway before plugging in: a 300
+pixel circle centred near an edge can still reach one, and deskhop switches outputs
+on edges of its own accord.
 
 # Both rigs
 
@@ -169,7 +175,13 @@ wrong PC.
 | one flash a second | powered, never enumerated | the host port, the cable, try it straight into a PC |
 | two flashes a second | enumerated and armed, counting out the grace period | nothing, wait for it |
 | rapid blinking | enumerated, endpoint never goes ready | the host stack, not the rig |
-| on, dipping three times a cycle | reports are going out | downstream of the rig, see below |
+| **solid** (Gameball) | **sending motion, the pointer should be moving right now** | downstream of the rig, see below |
+| flickering (Gameball) | working the two scroll pads | downstream of the rig |
+| on, dipping three times a line (8BitDo) | typing | downstream of the rig |
+
+The first four are shared. The last three mean the rig is doing its job and the
+fault, if any, is past it. Solid with a motionless pointer is the informative one:
+reports are leaving the board and not being acted on.
 
 Armed and stalled both sit between enumeration and the first line, and they look
 the same from outside, but one clears itself within ten seconds and the other never

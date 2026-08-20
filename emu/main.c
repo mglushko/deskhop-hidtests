@@ -54,8 +54,10 @@
  * pads. If the parse survived, the square is smooth and the scrolling works. If
  * it did not, the board is unlikely to still be forwarding anything.
  *
- * The square returns to where it started on purpose, so the pointer cannot drift
- * into a screen edge and trip deskhop's own output switching.
+ * The circle is 32 relative steps whose deltas sum to zero on both axes, so the
+ * pointer returns to where it started every revolution rather than walking off
+ * toward a screen edge and tripping deskhop's own output switching. The LED is
+ * solid while it circles and flickers while it scrolls.
  *
  * The keyboard interface is presented and never used. It declares eight modifier
  * bits and 48 bits of padding and no key array at all, so it could only ever
@@ -183,48 +185,85 @@ static void device_task(void) {
 #define ITF_TRACKBALL 0
 #define LEN_TRACKBALL 5      /* [buttons, X, Y, wheel, pan], no report ID */
 
-#define STEP_MS       300
-#define CYCLE_MS      3000
+#define STEP_MS       20     /* 32 steps at 20 ms is a revolution every 640 ms */
+#define REVOLUTIONS   3      /* circles between scroll bursts */
+#define SCROLL_MS     150
+#define PAUSE_MS      700
 
-typedef struct {
-    int8_t x, y, wheel, pan;
-} move_t;
-
-static const move_t script[] = {
-    /* 40 px square, returning to where it started */
-    { 40,   0,  0,  0},
-    {  0,  40,  0,  0},
-    {-40,   0,  0,  0},
-    {  0, -40,  0,  0},
-    /* the two side pads, which is the feature #332's reporter asked about */
-    {  0,   0,  3,  0},
-    {  0,   0, -3,  0},
-    {  0,   0,  0,  3},
-    {  0,   0,  0, -3},
+/* A 300 pixel circle, as 32 relative steps. Generated so the rounded points
+   close exactly: the deltas sum to zero on both axes, so the pointer returns to
+   where it started every revolution and cannot walk off toward a screen edge.
+   Largest single step is 29, well inside int8_t. */
+#define CIRCLE_STEPS 32
+static const int8_t circle[CIRCLE_STEPS][2] = {
+    {  -3,  29}, {  -8,  28}, { -14,  26}, { -19,  23},
+    { -23,  19}, { -26,  14}, { -28,   8}, { -29,   3},
+    { -29,  -3}, { -28,  -8}, { -26, -14}, { -23, -19},
+    { -19, -23}, { -14, -26}, {  -8, -28}, {  -3, -29},
+    {   3, -29}, {   8, -28}, {  14, -26}, {  19, -23},
+    {  23, -19}, {  26, -14}, {  28,  -8}, {  29,  -3},
+    {  29,   3}, {  28,   8}, {  26,  14}, {  23,  19},
+    {  19,  23}, {  14,  26}, {   8,  28}, {   3,  29},
 };
 
-#define SCRIPT_LEN (sizeof(script) / sizeof(script[0]))
+/* The two side pads, which is the feature #332's reporter asked about. */
+static const int8_t scroll[][2] = {   /* {wheel, pan} */
+    { 3,  0}, {-3,  0}, { 0,  3}, { 0, -3},
+};
+#define SCROLL_STEPS (sizeof(scroll) / sizeof(scroll[0]))
 
 static void device_task(void) {
-    static uint32_t next_ms = GRACE_MS;
-    static uint8_t  step    = 0;
+    static uint32_t next_ms   = GRACE_MS;
+    static uint8_t  tick      = 0;
+    static uint8_t  revs      = 0;
+    static uint8_t  scroll_i  = 0;
+    static bool     scrolling = false;
+    static bool     flicker   = false;
 
     if (!tud_hid_n_ready(ITF_TRACKBALL) || now_ms() < next_ms)
         return;
 
-    const move_t *m = &script[step];
-    uint8_t p[LEN_TRACKBALL] = {
-        0, (uint8_t)m->x, (uint8_t)m->y, (uint8_t)m->wheel, (uint8_t)m->pan,
-    };
+    uint8_t p[LEN_TRACKBALL] = {0};
 
-    tud_hid_n_report(ITF_TRACKBALL, 0, p, LEN_TRACKBALL);
+    if (scrolling) {
+        p[3] = (uint8_t)scroll[scroll_i][0];
+        p[4] = (uint8_t)scroll[scroll_i][1];
+    } else {
+        p[1] = (uint8_t)circle[tick][0];
+        p[2] = (uint8_t)circle[tick][1];
+    }
+
+    /* If the endpoint refuses it, leave the state alone and try the same step
+       again rather than skipping a delta and deforming the circle. */
+    if (!tud_hid_n_report(ITF_TRACKBALL, 0, p, LEN_TRACKBALL))
+        return;
+
     reports_sent++;
 
-    step = (uint8_t)((step + 1) % SCRIPT_LEN);
-    next_ms = now_ms() + (step == 0 ? CYCLE_MS : STEP_MS);
+    if (scrolling) {
+        flicker = !flicker;
+        if (++scroll_i >= SCROLL_STEPS) {
+            scroll_i  = 0;
+            scrolling = false;
+            next_ms   = now_ms() + PAUSE_MS;
+        } else {
+            next_ms = now_ms() + SCROLL_MS;
+        }
+    } else {
+        if (++tick >= CIRCLE_STEPS) {
+            tick = 0;
+            if (++revs >= REVOLUTIONS) {
+                revs      = 0;
+                scrolling = true;
+            }
+        }
+        next_ms = now_ms() + STEP_MS;
+    }
 
 #ifdef PICO_DEFAULT_LED_PIN
-    gpio_put(PICO_DEFAULT_LED_PIN, step != 0);
+    /* Solid while the pointer should be moving, flickering while the scroll
+       pads are being worked, so the two phases are told apart at a glance. */
+    gpio_put(PICO_DEFAULT_LED_PIN, scrolling ? flicker : 1);
 #endif
 }
 

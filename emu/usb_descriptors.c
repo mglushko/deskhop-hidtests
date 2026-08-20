@@ -117,6 +117,12 @@ uint8_t const desc_configuration[] = {
 #endif
 /*============================================================================*/
 
+/* A config descriptor whose wTotalLength disagrees with the bytes that follow is
+   accepted by the host right up until it tries to open the interfaces, which
+   looks exactly like a device that enumerates and then does nothing. */
+TU_VERIFY_STATIC(sizeof(desc_configuration) == CONFIG_TOTAL_LEN,
+                 "config descriptor length does not match its contents");
+
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
     (void)index;
     return desc_configuration;
