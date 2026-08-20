@@ -18,15 +18,25 @@
 #  define EMU_PID 0x5201
 #  define EMU_PRODUCT "8BitDo Retro emulator"
 #  define EMU_SERIAL  "COLLAPSE-1"
+#  define EMU_BCD     0x0100
 #elif defined(EMU_GAMEBALL)
 #  define EMU_VID 0x0782   /* Gameball */
 #  define EMU_PID 0x001B
+   /* Distinct serial and bcdDevice per variant, on purpose. Windows caches a
+      device's descriptors against VID, PID and bcdDevice, so re-flashing a
+      different interface layout onto the same identity gets the cached copy
+      rather than the new one, and the device looks broken for a reason that is
+      nothing to do with its firmware. Anything that changes the descriptor
+      layout here should change these too. */
 #  ifdef EMU_MINIMAL
 #    define EMU_PRODUCT "Gameball emulator (trackball only)"
+#    define EMU_SERIAL  "GAMEBALL-1IF"
+#    define EMU_BCD     0x0301
 #  else
 #    define EMU_PRODUCT "Gameball emulator"
+#    define EMU_SERIAL  "GAMEBALL-3IF"
+#    define EMU_BCD     0x0300
 #  endif
-#  define EMU_SERIAL  "USAGES-1"
 #else
 #  error "define EMU_BITDO or EMU_GAMEBALL"
 #endif
@@ -41,7 +51,7 @@ tusb_desc_device_t const desc_device = {
     .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
     .idVendor           = EMU_VID,
     .idProduct          = EMU_PID,
-    .bcdDevice          = 0x0100,
+    .bcdDevice          = EMU_BCD,
     .iManufacturer      = 0x01,
     .iProduct           = 0x02,
     .iSerialNumber      = 0x03,

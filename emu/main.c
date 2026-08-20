@@ -275,35 +275,39 @@ static void device_task(void) {
  *  Shared: LED status and the main loop
  *============================================================================*/
 
-/* Patterns are one second read as 16 slots of SLOT_MS, most significant bit
-   first, which keeps adding a state to a line of hex rather than a branch.
+/* The LED blinks a numbered code: N short flashes, then a long dark gap, over and
+   over. Count the flashes.
+ *
+ *     1   not enumerated. The host has not configured the device.
+ *     2   enumerated, then suspended by the host.
+ *     3   enumerated and awake, but the IN endpoint never became ready.
+ *     4   ready and armed, counting out the grace period before the first report.
+ *     solid / flickering   sending; see the per-device notes above.
+ *
+ * Codes 2 and 3 used to look identical, which is what made a stalled rig
+ * indistinguishable from a suspended one. Each of the three tests behind them is
+ * a separate public call, so the code says which of tud_mounted(),
+ * tud_suspended() and tud_hid_ready() is the one that is false rather than
+ * leaving it to be inferred.
+ *
+ * A code that changes on its own means enumeration is cycling: the host is
+ * configuring the device, dropping it, and trying again. */
+#define FLASH_ON_MS   120
+#define FLASH_OFF_MS  200
+#define CODE_GAP_MS   1200
 
-     one flash a second     powered, but the host never enumerated it
-     two flashes a second   enumerated and armed, counting out the grace period
-     rapid blinking         enumerated, but the endpoint never goes ready
-     activity               sending reports, look downstream of the rig
-
-   Armed and stalled are worth separating. Both happen after enumeration and
-   before anything is sent, but one resolves itself within GRACE_MS and the
-   other never does. */
-#define SLOT_MS 62
-
-typedef enum {
-    LED_UNMOUNTED = 0,  /* 1000 0000 0000 0000 */
-    LED_ARMED,          /* 1010 0000 0000 0000 */
-    LED_STALLED,        /* 1010 1010 1010 1010 */
-} led_state_t;
-
-static const uint16_t led_pattern[] = {
-    [LED_UNMOUNTED] = 0x8000,
-    [LED_ARMED]     = 0xA000,
-    [LED_STALLED]   = 0xAAAA,
-};
+static uint8_t led_code(void) {
+    if (!tud_mounted())    return 1;
+    if (tud_suspended())   return 2;
+    if (!tud_hid_ready())  return 3;
+    return 4;
+}
 
 static void led_task(void) {
 #ifdef PICO_DEFAULT_LED_PIN
     static uint32_t next_ms = 0;
-    static uint8_t  slot    = 0;
+    static uint8_t  phase   = 0;
+    static uint8_t  latched = 1;
     uint32_t        t       = now_ms();
 
     if (reports_sent > 0)
@@ -311,17 +315,22 @@ static void led_task(void) {
 
     if (t < next_ms)
         return;
-    next_ms = t + SLOT_MS;
 
-    /* Readiness only drops momentarily once reports are in flight, and none are
-       yet, so before the first one this cleanly separates an endpoint that came
-       up from one that did not. */
-    led_state_t st = !tud_mounted()   ? LED_UNMOUNTED
-                     : !tud_hid_ready() ? LED_STALLED
-                                        : LED_ARMED;
+    /* Latch at the start of a group so a code cannot change halfway through and
+       be miscounted. */
+    if (phase == 0)
+        latched = led_code();
 
-    gpio_put(PICO_DEFAULT_LED_PIN, (led_pattern[st] >> (15 - slot)) & 1u);
-    slot = (uint8_t)((slot + 1) & 15);
+    if (phase < (uint8_t)(latched * 2)) {
+        bool on = (phase % 2) == 0;
+        gpio_put(PICO_DEFAULT_LED_PIN, on);
+        next_ms = t + (on ? FLASH_ON_MS : FLASH_OFF_MS);
+        phase++;
+    } else {
+        gpio_put(PICO_DEFAULT_LED_PIN, 0);
+        next_ms = t + CODE_GAP_MS;
+        phase   = 0;
+    }
 #endif
 }
 
@@ -334,12 +343,29 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
     (void)buffer;   (void)bufsize;
 }
 
+/* Returning 0 here stalls the control request. A boot device gets asked for an
+   input report during enumeration on some hosts, and a stall is a reason for one
+   to stop binding a driver and leave the port suspended, which presents as a
+   device that enumerates and then goes quiet. Hand back a zeroed report of the
+   right length instead. */
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
                                hid_report_type_t report_type,
                                uint8_t *buffer, uint16_t reqlen) {
-    (void)instance; (void)report_id; (void)report_type;
-    (void)buffer;   (void)reqlen;
-    return 0;
+    (void)instance; (void)report_id;
+
+    if (report_type != HID_REPORT_TYPE_INPUT)
+        return 0;
+
+#if defined(EMU_GAMEBALL)
+    uint16_t len = LEN_TRACKBALL;
+#else
+    uint16_t len = LEN_6KRO;
+#endif
+    if (len > reqlen)
+        len = reqlen;
+
+    memset(buffer, 0, len);
+    return len;
 }
 
 int main(void) {
