@@ -243,13 +243,31 @@ should. 1.75 compensates for a screen of that aspect. A 16:9 screen is 1.778, so
 compensation is 1.6% short and a circle arrives 1.6% wide. On 16:10 it would be 9%
 out, and on a 21:9 ultrawide about 33%.
 
-The bench now measures this directly rather than leaving it to be inferred from a low
+The rule falls out of that: **`speed_y / speed_x` should equal the screen's aspect
+ratio.** They are not two independent sensitivity knobs. Equal physical movement needs
+`speed_x * width == speed_y * height`, so the ratio is `width / height` and nothing
+else. Raising both together changes sensitivity; changing one alone stretches the
+pointer.
+
+The reading that produced 92% was taken with 13 and 22, a ratio of 1.692, on a 16:9
+screen wanting 1.778. That is 5.1% short, so the path arrives 5.1% wide, which costs
+about 4.9 points of roundness on its own and lands near 93% against the 5% baseline.
+Observed was 92%.
+
+| screen | aspect | 13 / 22 is off by | speed_y wanted, keeping speed_x at 13 |
+|---|---|---|---|
+| 16:9 | 1.778 | +5.1% | 23 |
+| 16:10 | 1.600 | -5.5% | 21 |
+| 21:9 | 2.333 | +37.9% | 30 |
+| 4:3 | 1.333 | -21.2% | 17 |
+
+The bench measures this directly rather than leaving it to be inferred from a low
 roundness figure, because "wobbly" and "stretched" are different faults with different
 causes. **Aspect X:Y** comes from the second moments of the sampled path: for a shape
 swept evenly, `mean(dx^2)` is `a^2/2`, so the semi-axes are `sqrt(2*mean(dx^2))` and
-`sqrt(2*mean(dy^2))` and their ratio is the ellipse. 1.000 is round; 1.016 is a 16:9
-screen against the default factors; anything larger says the factors do not match the
-screen and `speed_y / speed_x` wants setting to its actual aspect ratio.
+`sqrt(2*mean(dy^2))` and their ratio is the ellipse. 1.000 is round. Whatever it reads
+is the factor `speed_y` is out by, so multiplying `speed_y` by it and re-running is the
+correction.
 
 ## Reading the result
 
