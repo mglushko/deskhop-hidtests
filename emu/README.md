@@ -220,6 +220,39 @@ accord.
 
 # Both rigs
 
+## pointer-bench.html
+
+A page for reading what a host actually receives, rather than guessing from whether
+something moved. Open it locally or at the hosted copy:
+
+  https://claude.ai/code/artifact/ba5ef823-b153-48bd-be51-c51c0cf5912f
+
+Both come from this file, so edit it here and republish rather than keeping a second
+copy.
+
+It exists because "the pointer moved" and "the pointer moved correctly" are different
+claims, and most of the time lost on the Gameball went into telling them apart:
+
+- **Pointer trace** draws the path with a fitted circle over it and prints a roundness
+  percentage from the radius spread, taken between the 5th and 95th percentile so one
+  stray sample cannot decide the verdict. This is what says whether a circle is a
+  circle, instead of squinting at the cursor.
+- **Two channels read separately.** Horizontal is `deltaX`, which is where AC Pan
+  arrives; vertical is `deltaY`, the wheel. Each shows the live value, an event count,
+  a running sum and min/max, on a centre-zero meter so the sign is visible. If pan is
+  not getting through, the horizontal channel stays at zero events while the vertical
+  one counts up, which is a much clearer signal than a page that does not scroll.
+- **A scroll field** 2400 pixels wide, ruled and labelled, so pan visibly moves it and
+  by a readable amount.
+- **A wheel event log** carrying `deltaMode`, because pixel, line and page modes differ
+  between hosts and change how the numbers should be read.
+
+One thing it cannot separate: the browser sees coordinates after the OS pointer curve
+has been applied, so with pointer acceleration on, no relative device traces a true
+circle and a low roundness figure is not evidence against the rig. Turn acceleration
+off before reading that number.
+
+
 ## If nothing appears
 
 The onboard LED reports which region the fault is in, so "nothing typed" does not
