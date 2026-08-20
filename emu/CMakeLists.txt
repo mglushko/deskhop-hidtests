@@ -24,7 +24,7 @@ pico_sdk_init()
 set(CORPUS ${CMAKE_CURRENT_LIST_DIR}/../descriptors.h)
 
 # emu_device(<target> <define> <c_name>=<prefix> ...)
-function(emu_device target define)
+function(emu_device target defines)
   set(gendir ${CMAKE_CURRENT_BINARY_DIR}/gen/${target})
   set(header ${gendir}/emu_desc.h)
 
@@ -40,16 +40,22 @@ function(emu_device target define)
 
   add_executable(${target} main.c usb_descriptors.c)
   add_dependencies(${target} ${target}_desc)
-  target_compile_definitions(${target} PRIVATE ${define})
+  target_compile_definitions(${target} PRIVATE ${defines})
   target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_LIST_DIR} ${gendir})
   target_link_libraries(${target} pico_stdlib tinyusb_device)
   pico_add_extra_outputs(${target})
 endfunction()
 
-emu_device(bitdo-emu EMU_BITDO
+emu_device(bitdo-emu "EMU_BITDO"
   d_bitdo_retro_iface2=bitdo)
 
-emu_device(gameball-emu EMU_GAMEBALL
+emu_device(gameball-emu "EMU_GAMEBALL"
   d_gameball_trackball=gameball_trackball
   d_gameball_gesture=gameball_gesture
   d_gameball_keyboard=gameball_keyboard)
+
+# Bisect build: the trackball interface alone. Same motion, same LED, so a run
+# against this one isolates whether presenting the other two interfaces is what
+# stops the pointer moving.
+emu_device(gameball-min-emu "EMU_GAMEBALL;EMU_MINIMAL"
+  d_gameball_trackball=gameball_trackball)

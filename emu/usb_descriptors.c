@@ -21,7 +21,11 @@
 #elif defined(EMU_GAMEBALL)
 #  define EMU_VID 0x0782   /* Gameball */
 #  define EMU_PID 0x001B
-#  define EMU_PRODUCT "Gameball emulator"
+#  ifdef EMU_MINIMAL
+#    define EMU_PRODUCT "Gameball emulator (trackball only)"
+#  else
+#    define EMU_PRODUCT "Gameball emulator"
+#  endif
 #  define EMU_SERIAL  "USAGES-1"
 #else
 #  error "define EMU_BITDO or EMU_GAMEBALL"
@@ -92,6 +96,27 @@ uint8_t const desc_configuration[] = {
  *                 modifiers and nothing else. That is the device's own doing,
  *                 not a simplification here.
  */
+#ifdef EMU_MINIMAL
+
+/* Bisect build: the trackball interface on its own, nothing else. If the circle
+   appears here and not on the full device, the fault is in presenting the other
+   two interfaces rather than in the trackball or in anything downstream. */
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
+    (void)instance;
+    return gameball_trackball_desc;
+}
+
+enum { ITF_NUM_TRACKBALL, ITF_NUM_TOTAL };
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
+
+uint8_t const desc_configuration[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
+    TUD_HID_DESCRIPTOR(ITF_NUM_TRACKBALL, 0, HID_ITF_PROTOCOL_MOUSE,
+                       GAMEBALL_TRACKBALL_DESC_LEN, 0x81, CFG_TUD_HID_EP_BUFSIZE, 10),
+};
+
+#else
+
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
     switch (instance) {
         case 0:  return gameball_trackball_desc;
@@ -113,6 +138,8 @@ uint8_t const desc_configuration[] = {
     TUD_HID_DESCRIPTOR(ITF_NUM_KEYBOARD, 0, HID_ITF_PROTOCOL_KEYBOARD,
                        GAMEBALL_KEYBOARD_DESC_LEN, 0x83, CFG_TUD_HID_EP_BUFSIZE, 10),
 };
+
+#endif
 
 #endif
 /*============================================================================*/
