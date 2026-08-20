@@ -233,17 +233,20 @@ copy.
 It exists because "the pointer moved" and "the pointer moved correctly" are different
 claims, and most of the time lost on the Gameball went into telling them apart:
 
-- **Pointer trace** draws the path with a fitted circle over it and prints a roundness
-  percentage from the radius spread, taken between the 5th and 95th percentile so one
-  stray sample cannot decide the verdict. This is what says whether a circle is a
-  circle, instead of squinting at the cursor.
+- **The trace is drawn over the scroll field**, in one box rather than two. The path
+  is in screen coordinates and the field pans underneath it, so a circle holding still
+  above a field sliding sideways is both signals read at once. It carries a fitted
+  circle and a roundness percentage from the radius spread, taken between the 5th and
+  95th percentile so one stray sample cannot decide the verdict. This is what says
+  whether a circle is a circle, instead of squinting at the cursor.
 - **Two channels read separately.** Horizontal is `deltaX`, which is where AC Pan
   arrives; vertical is `deltaY`, the wheel. Each shows the live value, an event count,
   a running sum and min/max, on a centre-zero meter so the sign is visible. If pan is
   not getting through, the horizontal channel stays at zero events while the vertical
   one counts up, which is a much clearer signal than a page that does not scroll.
-- **A scroll field** 2400 pixels wide, ruled and labelled, so pan visibly moves it and
-  by a readable amount.
+- **The field** is 2400 pixels wide, ruled and labelled, and its grid travels with its
+  cells rather than staying pinned to the viewport, so panning moves the whole thing by
+  a readable amount instead of sliding labels over a stationary grid.
 - **A wheel event log** carrying `deltaMode`, because pixel, line and page modes differ
   between hosts and change how the numbers should be read.
 

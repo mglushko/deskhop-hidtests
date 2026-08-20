@@ -186,20 +186,17 @@
 
   /* ---------- top row ---------- */
 
-  .top {
-    display: grid;
-    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
-    gap: 20px;
-  }
-  @media (max-width: 860px) { .top { grid-template-columns: minmax(0, 1fr); } }
+  /* The trace sits over the scroll field rather than beside it, so the path and
+     the thing it is panning are read in one glance. The canvas takes no pointer
+     events, so wheel and drag reach the field underneath. */
+  .stage { position: relative; }
 
   #scope {
-    display: block;
+    position: absolute;
+    inset: 0;
     width: 100%;
-    height: 340px;
-    background: var(--panel);
-    touch-action: none;
-    cursor: crosshair;
+    height: 100%;
+    pointer-events: none;
   }
 
   .scope-foot {
@@ -235,7 +232,12 @@
 
   /* ---------- channels ---------- */
 
-  .channels { display: flex; flex-direction: column; gap: 20px; }
+  .channels {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+  }
+  @media (max-width: 720px) { .channels { grid-template-columns: minmax(0, 1fr); } }
 
   .ch { --c: var(--ch-h); --c-soft: var(--ch-h-soft); }
   .ch.v { --c: var(--ch-v); --c-soft: var(--ch-v-soft); }
@@ -307,12 +309,13 @@
   /* ---------- scroll field ---------- */
 
   .field-scroll {
-    height: 260px;
+    height: 420px;
     overflow: auto;
     background:
       linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 100% 34px,
       linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 88px 100%,
       var(--panel);
+    background-attachment: local, local, scroll;
     scrollbar-width: thin;
   }
 
@@ -425,39 +428,43 @@
     <div class="status" id="status" data-live="0"><span class="dot"></span><span id="statusText">idle</span></div>
   </header>
 
-  <div class="top">
-    <section class="panel">
-      <div class="panel-head">
-        <h2 class="panel-title">Pointer trace</h2>
-        <span class="panel-note">last 600 samples</span>
+  <section class="panel">
+    <div class="panel-head">
+      <h2 class="panel-title">Trace over scroll field</h2>
+      <span class="panel-note">path holds still &mdash; the field pans beneath it</span>
+    </div>
+    <div class="stage">
+      <div class="field-scroll" id="field">
+        <div class="field-inner" id="fieldInner"></div>
       </div>
       <canvas id="scope"></canvas>
-      <div class="scope-foot">
-        <div class="stat">
-          <div class="stat-k">Roundness</div>
-          <div class="stat-v" id="round">&mdash;</div>
+    </div>
+    <div class="scope-foot">
+      <div class="stat">
+        <div class="stat-k">Roundness</div>
+        <div class="stat-v" id="round">&mdash;</div>
         </div>
-        <div class="stat">
-          <div class="stat-k">Mean radius</div>
-          <div class="stat-v" id="radius">&mdash;</div>
+      <div class="stat">
+        <div class="stat-k">Mean radius</div>
+        <div class="stat-v" id="radius">&mdash;</div>
         </div>
-        <div class="stat">
-          <div class="stat-k">Sample rate</div>
-          <div class="stat-v" id="rate">&mdash;</div>
+      <div class="stat">
+        <div class="stat-k">Sample rate</div>
+        <div class="stat-v" id="rate">&mdash;</div>
         </div>
-        <div class="stat">
-          <div class="stat-k">Samples</div>
-          <div class="stat-v" id="samples">0</div>
-        </div>
+      <div class="stat">
+        <div class="stat-k">Samples</div>
+        <div class="stat-v" id="samples">0</div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <div class="channels">
-      <section class="panel ch">
-        <div class="panel-head">
-          <h2 class="panel-title">Horizontal &mdash; AC Pan</h2>
-          <span class="panel-note">deltaX</span>
-        </div>
+  <div class="channels">
+    <section class="panel ch">
+      <div class="panel-head">
+        <h2 class="panel-title">Horizontal &mdash; AC Pan</h2>
+        <span class="panel-note">deltaX</span>
+      </div>
         <div class="ch-body">
           <div class="ch-read">
             <div class="ch-now" id="hNow">0</div>
@@ -471,11 +478,11 @@
         </div>
       </section>
 
-      <section class="panel ch v">
-        <div class="panel-head">
-          <h2 class="panel-title">Vertical &mdash; Wheel</h2>
-          <span class="panel-note">deltaY</span>
-        </div>
+    <section class="panel ch v">
+      <div class="panel-head">
+        <h2 class="panel-title">Vertical &mdash; Wheel</h2>
+        <span class="panel-note">deltaY</span>
+      </div>
         <div class="ch-body">
           <div class="ch-read">
             <div class="ch-now" id="vNow">0</div>
@@ -488,18 +495,7 @@
           <div class="ch-meta"><span id="vMin">min &mdash;</span><span id="vMax">max &mdash;</span></div>
         </div>
       </section>
-    </div>
   </div>
-
-  <section class="panel">
-    <div class="panel-head">
-      <h2 class="panel-title">Scroll field</h2>
-      <span class="panel-note">scrolls both axes &mdash; pan moves it sideways</span>
-    </div>
-    <div class="field-scroll" id="field">
-      <div class="field-inner" id="fieldInner"></div>
-    </div>
-  </section>
 
   <section class="panel">
     <div class="panel-head">
@@ -627,14 +623,7 @@
     var w = cv.width, h = cv.height;
     ctx.clearRect(0, 0, w, h);
 
-    /* grid */
-    ctx.strokeStyle = css("--grid");
-    ctx.lineWidth = 1;
-    var step = 44 * dpr;
-    ctx.beginPath();
-    for (var x = step; x < w; x += step) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, h); }
-    for (var y = step; y < h; y += step) { ctx.moveTo(0, y + .5); ctx.lineTo(w, y + .5); }
-    ctx.stroke();
+    /* no grid drawn here: the scroll field underneath supplies it */
 
     if (pts.length > 1) {
       var m = measure();
