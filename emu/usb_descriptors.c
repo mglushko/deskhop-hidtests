@@ -28,7 +28,11 @@
       rather than the new one, and the device looks broken for a reason that is
       nothing to do with its firmware. Anything that changes the descriptor
       layout here should change these too. */
-#  if defined(EMU_FIXED)
+#  if defined(EMU_FULLFIX)
+#    define EMU_PRODUCT "Gameball emulator (three interfaces, repaired)"
+#    define EMU_SERIAL  "GAMEBALL-3FIX"
+#    define EMU_BCD     0x0304
+#  elif defined(EMU_FIXED)
 #    define EMU_PRODUCT "Gameball emulator (trackball, descriptor repaired)"
 #    define EMU_SERIAL  "GAMEBALL-FIX"
 #    define EMU_BCD     0x0303

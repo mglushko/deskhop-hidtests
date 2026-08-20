@@ -117,7 +117,7 @@ All three interfaces, in the order the real device does:
 
 | # | interface | bytes | class | sends |
 |---|---|---|---|---|
-| 0 | trackball | 77 | boot mouse | a 400 px circle, then both scroll pads |
+| 0 | trackball | 77 | boot mouse | a 120 px circle, then both scroll pads |
 | 1 | gesture | 350 | vendor, subclass 0 | nothing at all |
 | 2 | keyboard | 38 | boot keyboard | nothing |
 
@@ -149,9 +149,39 @@ then suspended with no driver bound, and `gameball-c0-emu`, which is the same
 interface with only those items rewritten to `0xC0`, works. That is the difference
 between LED code 2 and a moving pointer, and nothing else changed between them.
 
-So use **`gameball-c0-emu.uf2`** on a PC. `gameball-min-emu.uf2` is the same
-interface with the bytes exactly as dumped, kept so the comparison stays live, and
-`gameball-emu.uf2` is the full three interface device.
+There is a second anomaly in the same bytes, and it is the one that produces a
+staircase rather than a circle. The trackball's X, Y, wheel and pan carry no
+Logical Minimum of their own, so the 0 left over from the button block stands and
+`25 7F` caps them at 127: all four read as **unsigned 0..127**. A host honouring
+that discards every negative delta, so the pointer can only travel right and down,
+wherever on screen it starts. A trackball that really declared this could not
+work, so the real device does not.
+
+deskhop is unaffected by either. `get_report_value` takes the sign from the field
+width rather than the declared range, which `make mouse` confirms at 22/22 with
+`0xEC` decoding to -20. Both anomalies are evidence about the dump, not the parser,
+and together they suggest #332's descriptor was reconstructed from parsed data
+rather than captured: a reconstruction is what loses an inherited global item and
+re-encodes End Collection with a size byte.
+
+### Which build to flash
+
+| build | interfaces | descriptor | for |
+|---|---|---|---|
+| `gameball-full-emu` | all three | both repairs | **testing #332** |
+| `gameball-fixed-emu` | trackball | both repairs | a working pointer, nothing else |
+| `gameball-c0-emu` | trackball | End Collection only | isolating the second anomaly |
+| `gameball-min-emu` | trackball | exactly as dumped | isolating the first |
+| `gameball-emu` | all three | exactly as dumped | the corpus bytes, unaltered |
+
+The bottom two do not enumerate on Windows. They are kept so each finding keeps
+its own evidence rather than being folded into a single build nobody can check.
+
+`gameball-full-emu` is the one that tests the parser bug, because the Report Count
+of 16328 lives on the gesture interface and only the three interface builds present
+it. The repairs are applied there because a host has to accept the device before
+anything can be tested at all, and the evidence says they move the bytes closer to
+what the real device sends. The 16328 is untouched.
 
 The open question is recorded in `../descriptors.h`: #332's dump was taken on
 Windows and shows HID collection paths, so Windows accepted whatever that device
@@ -160,7 +190,7 @@ transcription artifact rather than the device's own.
 
 ## Reading the result
 
-The pointer circles continuously, 400 pixels across, once every 1.6 seconds.
+The pointer circles continuously, 120 pixels across, once every 1.2 seconds.
 After three revolutions it stops and works the scroll pads instead, up three, down
 three, then pan right three and left three, and then goes back to circling. The LED
 is solid while it is circling and flickers while it is scrolling, so you can tell
@@ -173,7 +203,7 @@ which phase it is in without watching the screen.
 | LED solid but the pointer is still | reports are leaving the rig and nothing is acting on them |
 | nothing, and the board stops responding | the parse took the firmware with it |
 
-The circle is 64 relative steps whose deltas sum to zero on both axes, so the
+The circle is 48 relative steps whose deltas sum to zero on both axes, so the
 pointer returns to where it started every revolution rather than walking across the
 desktop, and each step is the difference between rounded points on the true circle,
 so the path never leaves it by more than half a pixel.
@@ -181,11 +211,11 @@ so the path never leaves it by more than half a pixel.
 Two things will still make it look off, and neither is the rig. Rounding each step
 to a whole number makes the speed vary around the loop, and **pointer acceleration**,
 which Windows calls "enhance pointer precision", turns speed variation into shape
-distortion; no relative pointing device draws a true circle through it. And a circle
-this size started near a **screen edge** gets clamped, which flattens that side and
-loses the movement, so the loop stops closing and walks off across the desktop. Park
-the pointer near the middle before plugging in, and turn acceleration off if you want
-the shape to mean anything. deskhop also switches outputs on screen edges of its own
+distortion; no relative pointing device draws a true circle through it. And a circle started near a **screen edge**, or worse a
+corner where two directions clamp at once, gets flattened on that side and loses the
+movement that would have closed the loop, so it walks off across the desktop. 120
+pixels is small enough that this stops mattering much, but turn acceleration off if
+you want the shape to mean anything. deskhop also switches outputs on screen edges of its own
 accord.
 
 # Both rigs
