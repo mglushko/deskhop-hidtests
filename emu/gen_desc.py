@@ -16,6 +16,29 @@ import re
 import sys
 
 
+def normalise_end_collection(data):
+    """Rewrite End Collection items that carry a data byte.
+
+    Every Gameball descriptor in the corpus encodes End Collection as 0xC1 0x00,
+    which is bSize 1 where the HID spec says 0. Tolerant parsers skip it by size
+    and never notice; a strict one reads the trailing 0x00 as an undefined Main
+    item. This produces the well formed 0xC0 form so the two can be told apart on
+    real hardware.
+    """
+    out, i, fixed = [], 0, 0
+    while i < len(data):
+        p = data[i]
+        size = p & 3
+        size = 4 if size == 3 else size
+        if (p >> 2) & 3 == 0 and (p >> 4) & 0xF == 0xC and size:
+            out.append(0xC0)
+            fixed += 1
+        else:
+            out.extend(data[i:i + 1 + size])
+        i += 1 + size
+    return out, fixed
+
+
 def extract(text, name):
     m = re.search(r'static const uint8_t %s\[\]\s*=\s*\{(.*?)\};' % re.escape(name),
                   text, re.S)
@@ -31,7 +54,9 @@ def extract(text, name):
 
 
 def main():
-    src, out, pairs = sys.argv[1], sys.argv[2], sys.argv[3:]
+    argv = [a for a in sys.argv[1:] if a != "--normalise-end-collection"]
+    normalise = len(argv) != len(sys.argv) - 1
+    src, out, pairs = argv[0], argv[1], argv[2:]
     if not pairs:
         sys.exit("gen_desc.py: no <c_name>=<prefix> pairs given")
 
@@ -48,6 +73,10 @@ def main():
             sys.exit("gen_desc.py: expected <c_name>=<prefix>, got %r" % pair)
 
         data = extract(text, name)
+        if normalise:
+            data, fixed = normalise_end_collection(data)
+            if fixed:
+                print("gen_desc.py: %s, rewrote %d End Collection item(s)" % (prefix, fixed))
         macro = prefix.upper() + "_DESC_LEN"
 
         lines.append("#define %s %d" % (macro, len(data)))

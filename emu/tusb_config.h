@@ -25,7 +25,7 @@
 
 /* The Gameball is a three interface composite device and is emulated as one,
    because the interface that carries the bug is not the interface you watch. */
-#if defined(EMU_GAMEBALL) && !defined(EMU_MINIMAL)
+#if defined(EMU_GAMEBALL) && !defined(EMU_MINIMAL) && !defined(EMU_NORMALISED)
 #  define CFG_TUD_HID           3
 #else
 #  define CFG_TUD_HID           1

@@ -59,3 +59,10 @@ emu_device(gameball-emu "EMU_GAMEBALL"
 # stops the pointer moving.
 emu_device(gameball-min-emu "EMU_GAMEBALL;EMU_MINIMAL"
   d_gameball_trackball=gameball_trackball)
+
+# Same again, but with End Collection rewritten to the well formed 0xC0. Every
+# Gameball descriptor in the corpus uses 0xC1 0x00, which is bSize 1 where the
+# spec says 0. This build is what tells you whether a strict host is refusing the
+# descriptor over that, rather than over anything the emulator is doing.
+emu_device(gameball-c0-emu "EMU_GAMEBALL;EMU_NORMALISED"
+  d_gameball_trackball=gameball_trackball --normalise-end-collection)
