@@ -41,7 +41,7 @@ Needs `gcc`, `python3`, and `make`. No cross compiler, no Pico SDK.
 | `make timing` | how long does a large but legal Report Count take to parse? |
 | `make check-constants` | do the constants `harness.h` copies still match TinyUSB's? |
 | `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `check-constants` |
-| `make findings` | the three bounds checks, run for their numbers |
+| `make findings` | the four bounds checks, run for their numbers |
 | `make all` | build everything without running it |
 
 `test` is the one to wire into CI. It holds only the checks that must pass against
@@ -597,8 +597,10 @@ read driven entirely by device supplied data. Present on `main`, so it predates 
 This is **not** the same finding as the short-report one above, and the two are easy to
 conflate because both show up as truncation. That one is about the *report*, fixed in
 `hid_report.c` and `mouse.c`; this one is about the *descriptor*, in the parse loop, and
-is still open everywhere - `make truncate` fails 2080 of 4092 even on a tree carrying
-every fix measured here.
+is still open everywhere - `make truncate` fails on roughly half of all prefixes even on
+a tree carrying every fix measured here. The count is in the table above rather than
+repeated here, because repeating it is how this sentence came to quote a corpus one
+device out of date.
 
 Reproduce the smallest case with:
 

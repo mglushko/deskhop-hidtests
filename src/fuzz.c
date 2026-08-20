@@ -166,7 +166,7 @@ int main(int argc, char **argv) {
 
     /* A run that never reached usages[] proves nothing about its bounds. Saying
        "all accesses stayed inside" would be true and useless - the same trap the
-       compare target refuses at Makefile:207. Reaching here means the parser was
+       compare target's check-ref rule refuses. Reaching here means the parser was
        instrumented but never touched the array, so the instrumentation is stale. */
     if (touches == 0) {
         printf("\n  no access to usages[] was recorded over %ld descriptor(s).\n", count);
