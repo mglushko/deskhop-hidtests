@@ -249,10 +249,16 @@ ratio.** They are not two independent sensitivity knobs. Equal physical movement
 else. Raising both together changes sensitivity; changing one alone stretches the
 pointer.
 
-The reading that produced 92% was taken with 13 and 22, a ratio of 1.692, on a 16:9
-screen wanting 1.778. That is 5.1% short, so the path arrives 5.1% wide, which costs
-about 4.9 points of roundness on its own and lands near 93% against the 5% baseline.
-Observed was 92%.
+The reading that produced 92% was taken with 13 and 22, a ratio of 1.692, on a
+2560x1440 screen, which is exactly 16:9 and wants 1.778. That is 5.1% short, so the
+path arrives 5.1% wide, which costs about 4.9 points of roundness on its own and lands
+near 93% against the 5% baseline. Observed was 92%. Changing `speed_y` alone from 22 to
+23 gives 1.769, within 0.5%, and should read near 95%.
+
+Worth noting which way that cuts: the shipped default of 16 and 28 is 1.6% out on a
+16:9 screen, while the customised 13 and 22 is 5.1% out. Lowering one speed to taste,
+which is what the config page invites, makes the pointer anisotropic unless the other
+moves with it.
 
 | screen | aspect | 13 / 22 is off by | speed_y wanted, keeping speed_x at 13 |
 |---|---|---|---|
