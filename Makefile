@@ -95,7 +95,7 @@ BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/kbdtest $(OUT)/fuzz $(OUT)/exhaust \
 .PHONY: all dump compare mouse kbd consumer fuzz exhaust timing truncate shortreport \
         dispatch clean \
         check-target \
-        check-ref check-constants
+        check-ref check-constants check-parse
 
 all: check-target $(BINS)
 	@echo "built against $(SRC) -> $(OUT)/"
@@ -346,7 +346,7 @@ endif  # compare in MAKECMDGOALS
 # check-constants is last: it is the only one needing the Pico SDK submodule
 # populated, and it skips cleanly when it is not.
 .PHONY: test findings
-test: mouse kbd consumer check-constants
+test: mouse kbd consumer check-parse check-constants
 	@echo
 	@echo "known good decode unchanged against $(SRC)"
 
@@ -382,6 +382,13 @@ check-constants:
 	  python3 tools/check_constants.py include/harness.h $(TUSB_HID) \
 	    $(PARSER) $(REPORT); \
 	fi
+
+# add_descriptor.py is the way a descriptor gets into the corpus, and its reader used
+# to drop whole lines of a dump without saying so. A short descriptor does not fail to
+# build either - it parses cleanly and describes a device nobody owns. Cheap to check
+# and it needs nothing outside the repo, so unlike check-constants there is no skip.
+check-parse:
+	@python3 tools/add_descriptor.py --selftest
 
 clean:
 	rm -rf $(B)

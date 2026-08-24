@@ -40,7 +40,8 @@ Needs `gcc`, `python3`, and `make`. No cross compiler, no Pico SDK.
 | `make exhaust` | what happens when the usage array runs out before the mouse collection? |
 | `make timing` | how long does a large but legal Report Count take to parse? |
 | `make check-constants` | do the constants `harness.h` copies still match TinyUSB's? |
-| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `check-constants` |
+| `make check-parse` | does `add_descriptor.py` still read every dump shape without dropping bytes? |
+| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `check-parse`, `check-constants` |
 | `make findings` | the four bounds checks, run for their numbers |
 | `make all` | build everything without running it |
 
@@ -60,8 +61,8 @@ device and a difference only on the broken one.
 ## Adding a device
 
 Most issues arrive with a descriptor dump. Pipe it through the converter, which eats
-`usbhid-dump` output, the Windows tool's `DESCRIPTOR:` blocks, C arrays, or bare hex,
-and ignores surrounding prose:
+`usbhid-dump` output, the Windows tool's `DESCRIPTOR:` blocks, C arrays plain or with
+the item decoded in a trailing comment, or bare hex, and ignores surrounding prose:
 
 ```sh
 gh issue view 335 --repo hrvach/deskhop --json body --jq .body \
@@ -69,14 +70,25 @@ gh issue view 335 --repo hrvach/deskhop --json body --jq .body \
 ```
 
 It prints the C array and the registry line, and warns if the items do not land
-exactly on the end or the collections are unbalanced, which catches a bad paste
-before it becomes a misleading test. Paste both into `descriptors.h` and every
-target picks the device up automatically.
+exactly on the end, the collections are unbalanced, or there is no collection at
+all, which catches a bad paste before it becomes a misleading test. Paste both into
+`descriptors.h` and every target picks the device up automatically.
 
-One trap when pasting: lines carrying fewer than four hex bytes are treated as
-prose and skipped, so a dump whose final line is a lone `C0` loses that byte and
-then warns about unbalanced collections. Reflow the dump onto one line if the
-warning looks wrong.
+It also reports every line it dropped. That matters more than it sounds, because
+the reader used to drop two ordinary shapes without a word. A decoded array, one
+item per line with the meaning in a trailing comment, failed the "this line is
+nothing but hex" test on every commented line; a dump whose last line was a lone
+`C0` fell under a four-byte-per-line minimum. Either way the result was short.
+
+What made that dangerous is that a short descriptor can pass every check. Lose a
+`Collection` and its `End Collection` together and the rest still starts on a Usage
+Page, still lands exactly on the end, and still balances at depth zero - the same
+shape of failure `check_constants.py` guards against, where nothing breaks and every
+target reports a plausible wrong answer at once. So the reader now decides a run of
+hex-only lines together rather than each line alone, strips comments first, and
+`sanity()` has a fourth check for a descriptor that declares no collection. `make
+check-parse` holds the dump shapes that have bitten, and reproduces the old
+truncation if the fix is backed out.
 
 Keep captured bytes verbatim, quirks included, and write the device name and issue
 number into the comment. Reproducing the quirk is usually the whole point.
@@ -321,6 +333,7 @@ separate the two.
 | `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change | 18 of 18; verdict "has the #358 fix" |
 | `dispatch` | 14 of 22 routed correctly; 8 misrouted, 4 more arrive by luck | same - `usb.c` is untouched by these PRs | **22 of 22**, lifted rather than modelled |
 | `check-constants` | all 47 agree with TinyUSB | same | same |
+| `check-parse` | 9 dump shapes read, 47 descriptors round trip | same - it tests this repo's reader, not the firmware | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 | 0 out of bounds, peak index 127 |
 | `truncate` | 2321 of 4337 prefixes overread | 2202 of 4337 prefixes overread | 2202 of 4337 - still open, see below |
 | `shortreport` | 779 of 1169 truncated reports overread | 779 of 1169, identical - the fix is in the parser, this is the decode path | **0 of 1185** |
@@ -369,7 +382,7 @@ The other two open parser PRs, measured the same way:
 | PR | what `compare REF=main` shows |
 |---|---|
 | [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. |
-| [#358] media keys without report IDs | identical parse on all 46, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. |
+| [#358] media keys without report IDs | identical parse on all 45 that parse at all, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. `gameball_gesture` and `many_usages` crash on both sides, as they do on `main`. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. |
 
 Three caveats on [#359], of which one is fixed and two stand.
 
