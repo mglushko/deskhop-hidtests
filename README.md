@@ -335,9 +335,9 @@ separate the two.
 | `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change | 18 of 18; verdict "has the #358 fix" |
 | `dispatch` | 14 of 22 routed correctly, 4 of those only by luck; 8 misrouted | same - `usb.c` is untouched by these PRs | **22 of 22**, lifted rather than modelled |
 | `check-constants` | all 47 agree with TinyUSB | same | same |
-| `check-parse` | 9 dump shapes read, 47 descriptors round trip | same - it tests this repo's reader, not the firmware | same |
+| `check-parse` | 7 dump shapes read and 2 non-dumps refused, 47 descriptors round trip | same - it tests this repo's reader, not the firmware | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 | 0 out of bounds, peak index 127 |
-| `truncate` | 2321 of 4337 prefixes overread | 2202 of 4337 prefixes overread | 2202 of 4337 - still open, see below |
+| `truncate` | 2321 of 4337 prefixes overread | 2202 of 4337 - the 119 fewer are all `gameball_gesture` and `many_usages`, where the usage array aborted the parse first; the descriptor overread is untouched | 2202 of 4337 - still open, see below |
 | `shortreport` | 779 of 1191 truncated reports overread | 779 of 1191, identical - the fix is in the parser, this is the decode path | **0 of 1227** |
 | `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there | never fails |
 | `timing` | segfaults | ~17.5 ns/element on x86-64 | ~17.4 ns/element |
