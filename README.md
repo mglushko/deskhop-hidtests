@@ -333,7 +333,7 @@ separate the two.
 | `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases | 124 of 124 |
 | `kbd` | 49 of 49 cases over 14 devices | same - #361 is a parser change | **55 of 55 over 15** |
 | `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change | 18 of 18; verdict "has the #358 fix" |
-| `dispatch` | 14 of 22 routed correctly; 8 misrouted, 4 more arrive by luck | same - `usb.c` is untouched by these PRs | **22 of 22**, lifted rather than modelled |
+| `dispatch` | 14 of 22 routed correctly, 4 of those only by luck; 8 misrouted | same - `usb.c` is untouched by these PRs | **22 of 22**, lifted rather than modelled |
 | `check-constants` | all 47 agree with TinyUSB | same | same |
 | `check-parse` | 9 dump shapes read, 47 descriptors round trip | same - it tests this repo's reader, not the firmware | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 | 0 out of bounds, peak index 127 |
