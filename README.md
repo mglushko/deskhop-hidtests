@@ -1,6 +1,8 @@
 # deskhop HID parser test harness
 
-Runs deskhop's `hid_parser.c` and `hid_report.c` on the host, against any checkout,
+Runs deskhop's `hid_parser.c` and `hid_report.c` on the host, along with the decode and
+routing functions `tools/lift.py` copies verbatim out of `mouse.c`, `keyboard.c` and
+`usb.c`, against any checkout,
 branch or worktree. Built while chasing [issue #332][#332] (Gameball trackball taking
 down a board) and kept because the next HID device issue will want the same tools.
 
@@ -22,7 +24,9 @@ make fuzz N=40000                       # does it stay inside usages[]?
 make compare REF=main DESKHOP=~/dh-fix
 ```
 
-Needs `gcc`, `python3`, and `make`. No cross compiler, no Pico SDK.
+Needs `gcc`, `python3`, and `make`. No cross compiler. `check-constants` is the one
+target that wants the Pico SDK, and it skips rather than fails when the submodule is not
+populated, so `make test` still passes with four checks run instead of five.
 
 ## Targets
 
@@ -72,9 +76,13 @@ gh issue view 335 --repo hrvach/deskhop --json body --jq .body \
 It prints the C array and the registry line, and warns if the items do not land
 exactly on the end, the collections are unbalanced, or there is no collection at
 all, which catches a bad paste before it becomes a misleading test. Paste both into
-`descriptors.h` and every target picks the device up automatically.
+`descriptors.h` and `dump`, `compare`, `truncate` and `check-parse` pick the device up
+automatically. `mouse`, `kbd`, `consumer`, `shortreport` and `dispatch` run hand-written
+case tables, so a new device tells them nothing until a case is added in `src/cases_*.h`.
 
-It also reports every line it dropped. That matters more than it sounds, because
+It reports the lines it dropped, though only those holding four bytes or more, and runs
+of hex-only lines too short to be data; fewer than four bytes alongside other text still
+goes in silence. That matters more than it sounds, because
 the reader used to drop two ordinary shapes without a word. A decoded array, one
 item per line with the meaning in a trailing comment, failed the "this line is
 nothing but hex" test on every commented line; a dump whose last line was a lone
@@ -277,10 +285,11 @@ matter; see [Adding a device](#adding-a-device).
   the one piece of firmware logic here that is reimplemented, and it carries a
   "re-check against usb.c" note saying so. `mousetest` and `dispatchtest` share it, so
   a drift shows up in one place rather than two.
-- `src/cases_mouse.h`, `src/cases_kbd.h` and `src/cases_cc.h` hold the decode cases,
+- `src/cases_mouse.h` and `src/cases_kbd.h` hold the mouse and keyboard decode cases,
   shared by `mousetest`/`kbdtest` and `shortreport`. A case added there is checked
   both for the values it decodes to and for its behaviour when truncated, without
-  being written twice.
+  being written twice. `src/cases_cc.h` holds the consumer and system cases and is read
+  by `cctest` alone, so nothing replays those at truncated lengths.
 - `dump` prints `cc_array` and `sys_array` under the `consumer:` and `system:`
   sections rather than under the keyboard loop. They live on a `keyboard_t`, but they
   are consumer and system state - `handle_consumer_control_values()` writes them
@@ -319,7 +328,8 @@ multi-keyboard fixes, and is what actually runs on the hardware, so it is the tr
 regressions cost something.
 
 Two rows have a larger denominator there rather than a comparable count.
-`bitdo_retro_iface2` only enters `kbd` and `shortreport` on a tree that bounds the bitmap
+`bitdo_retro_iface2`'s report-protocol rows only enter `kbd` and `shortreport` on a tree
+that bounds the bitmap
 walk, because without the bound that device reads off the end and takes the run down.
 
 `truncate` is the one row where the fork is no better than [#361], and deliberately so:
@@ -485,7 +495,8 @@ fix, but a large enough count still outruns the 500 ms watchdog.
 One device, one capability, no workaround.
 
 **A collection nested inside another Application collection is lost.** The Cherry MW 8C's
-second interface wraps its whole descriptor in one Application collection and opens three
+interface 2, the third of its three, wraps its whole descriptor in one Application
+collection and opens three
 more inside it: a consumer array, a system control block and a vendor page.
 
 `IS_BLOCK_END` means depth zero, and `handle_local_item()` promotes a `Usage` to
@@ -494,7 +505,7 @@ depth 1 and never becomes the global usage. It stays Consumer Control for the re
 descriptor. The system elements then reach `extract_data()` carrying `global_usage` 0x01
 where the map row wants 0x80, nothing matches, and no ID, handler or receiver is recorded.
 `make dump D=cherry_mw8c_consumer` finds the consumer block and no system block at all:
-`handlers:.C`, `system: rid=0`. Power and sleep from that keyboard can never arrive,
+`handlers:.C`, `system: rid=0`. Sleep and wake up from that mouse can never arrive,
 whatever the consumer fix does.
 
 All three collections do share report ID 1, because the ID is declared once in the outer
@@ -504,7 +515,7 @@ would be dropped the same way if it declared an ID of its own.
 **Fixing it exposes a second defect rather than finishing the job.**
 `iface->report_handler[val->report_id] = hay->receiver` is unconditional and there is one
 slot per ID, so once the system block matched it would overwrite the consumer's binding on
-report 1: power and sleep would start working and the media keys would stop. One report ID
+report 1: sleep and wake up would start working and the media keys would stop. One report ID
 carrying two collections is something the routing cannot currently express, so the
 recognition fix alone is a net loss on the only device that wants it.
 
@@ -522,7 +533,9 @@ Not previously reported, and separate from [#358].
 Each is real in the code and each was found by measurement, but nothing captured in the
 corpus is affected. Kept so the next person meets them here rather than in the field.
 
-**The usage cursor never resets across a descriptor.** Visible in `exhaust`: a device
+**The usage cursor never resets across a descriptor.** Visible in `exhaust` on [#361] or
+DeskHop Extended, since on `main` that run aborts under the sanitisers before it prints
+anything: a device
 with more than about 126 usages ahead of its pointer collection enumerates without
 the cursor moving. It is also visible on a shipping keyboard, which is the easier
 case to argue from:
@@ -557,7 +570,8 @@ a saved `usage_last`; this parser does neither. Linux's version is not portable 
 skipping depends on expanding `Usage Min..Max` into the usage array - 12288 slots there
 against 128 here, and sixteen descriptors in this corpus declare a range larger than the
 whole array, `ms600_consumer` and `keyboardio_media` declaring 1024. What fits is
-`return 0` from `get_usage()` when `usage_count` is zero: two lines, inert on every
+`return 0` when `usage_count` is zero - two lines in `get_usage()` on [#361] and
+Extended, one in `store_element()` on `main`, which has no `get_usage()` - inert on every
 decode path, and it changes what `dump` prints for 18 of the 47 descriptors.
 
 **A second mouse collection blanks the first.** `kernel_multi_collection` declares two,
@@ -592,7 +606,8 @@ descriptor that relied on Pop to restore a Report Size would parse at the wrong 
 **Button bitmaps are read as signed.** `get_report_value()` sign-extends its result
 whenever the top bit of the field is set, which is right for X, Y, wheel and pan and
 wrong for a button bitmap. An 8-button mouse with everything held reports `-1` rather
-than `255`. `mx518_mouse` was the first device in the corpus with enough buttons to
+than `255`. `mx518_mouse` is where `make mouse` pins the value down, but it was not the
+first here with enough buttons to
 reach bit 7, which is why this had not come up. Harmless as things stand -
 `mouse_report_t.buttons` is `uint8_t`, so the low byte ships correctly either way - but
 it is a signed read of a bitfield, and `state->mouse_buttons` holds the sign-extended
@@ -644,7 +659,9 @@ make shortreport                          # the table
    `raw_report` past the report ID byte and then hands `get_report_value()` the
    *original* length, so the `byte_offset >= len` guard is off by one in the
    shifted frame - and stacks with cause 1 for up to two bytes past the end.
-   Every report-ID device in the corpus fails at length 1 for this reason.
+   Every report-ID device in the corpus with a mouse to extract fails at length 1 for this
+   reason. `bolt_rx_touchpad` declares report IDs too, but nothing on it parses as a
+   mouse, so no offset is ever read and it stays clean.
 
 3. **`extract_bit_variable()` has no bound on the report buffer at all.** Its loop
    is bounded by `key_count < len` where `len` is `KEYS_IN_USB_REPORT`, six - the
@@ -811,7 +828,8 @@ they set `is_nkro` on the entry that also carries the 6KRO key array, and
 bits. Holding `a` produces keycode 10. On `main` it is worse still: the 120-bit walk runs
 off the end of the 9-byte report, which is the unbounded `extract_bit_variable` finding
 above showing up through this one. That is why `make kbd` only carries this device on a
-tree that bounds the walk, and why `truncate` and `shortreport` are where the overread
+tree that bounds the walk, and why `shortreport`, which replays reports rather than
+descriptors, is where the overread
 itself is counted.
 
 **Fixed in DeskHop Extended.** `get_keyboard()` is now lookup only and a parse-time
@@ -832,7 +850,8 @@ hard-coding a workaround for their own keyboard - are all this fault.
 ## What this harness cannot see
 
 `compare` diffs the *parse*. It compiles `hid_parser.c` and `hid_report.c` and stubs
-the four `process_*_report` receivers, so a change confined to `keyboard.c` is
+the four `process_*_report` receivers - but it does lift `get_keyboard` out of
+`keyboard.c`, so a change anywhere else in that file is
 invisible to it.
 
 PR [#358] is exactly that change: it teaches `process_consumer_report` and
@@ -847,7 +866,7 @@ do anything".
 what they hand to the send path is recorded and asserted. The cut is one level below
 them: `send_consumer_control` and `send_system_control` are *not* lifted, because
 they reach `queue_cc_packet`, `time_us_64()` and `state->last_activity[BOARD_ROLE]`.
-Those three, plus `queue_packet` and `global_state`, are recorded stand-ins in
+Those two senders, plus `queue_packet` and `global_state`, are recorded stand-ins in
 `src/recorders.c`, which is exactly the boundary where a test can see the decision a
 receiver made.
 
