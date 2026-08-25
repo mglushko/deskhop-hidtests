@@ -49,7 +49,7 @@ Needs `gcc`, `python3`, and `make`. No cross compiler, no Pico SDK.
 any firmware worth shipping, so a red `make test` means the harness moved or a known
 good device stopped decoding. `fuzz`, `truncate` and `shortreport` are deliberately
 outside it, and so is `dispatch`: they fail by design on firmware that has the bug
-they look for - three of the four fail on `main` in the table below - so folding them in
+they look for - all four fail on `main` in the table below - so folding them in
 would make the gate permanently red and worth nothing. Their exit status is the finding.
 `make findings` runs those four together and reports rather than gates.
 
@@ -171,8 +171,10 @@ What they have bought so far:
   report ID 1 and NKRO bitmaps on 12 and 10. On `main` all three land on `keyboards[0]`,
   which sets `is_nkro` on the entry that also holds the 6KRO key array, so a 6KRO report
   is decoded as though its bytes were bitmap bits. `make kbd` shows `a` coming out as
-  keycode 10. It is the sharper version of the Keychron finding below, and the one still
-  open upstream.
+  keycode 10 against [#359], which bounds the bitmap walk without separating the
+  collections; on `main` the unbounded walk keeps the device out of everything but its
+  boot-protocol row. It is the sharper version of the Keychron finding below, and the one
+  still open upstream.
 - **Microsoft Wired Keyboard 600** ([#297]) is the cleanest reproduction of the stale
   usage cursor: its system control block comes out as `usage=0xFF02 page=0x0001`, an
   identifier it never declares, carried over from the vendor block in the preceding
@@ -207,11 +209,11 @@ interface as the firmware receives it, rather than one collection at a time:
 
 - **Logi Bolt receiver** (`046d:c548`) contributes four interfaces. Interface 1 is the
   richest descriptor in the corpus: mouse, consumer control, system control and a fourth
-  collection, on report IDs 2, 3, 4 and 0x0B. Its mouse declares **16 buttons**, more
-  than anything else here and enough to reach bit 15 of a signed read - see the button
-  finding below. Interface 3 is a Precision Touchpad, the largest descriptor here at 429
-  bytes, and the only one using Push and Pop; it parses to nothing at all, which is the
-  right answer and is now asserted rather than assumed.
+  collection, on report IDs 2, 3, 4 and 0x0B. Its mouse declares **16 buttons**, as wide
+  as anything here - `superlight2_mouse` matches it - and enough to reach bit 15 of a
+  signed read, see the button finding below. Interface 3 is a Precision Touchpad, the
+  largest descriptor here at 429 bytes, and the only one using Push and Pop; it parses to
+  nothing at all, which is the right answer and is now asserted rather than assumed.
 - **Keychron Ultra-Link 8K** (`3434:d028`) contributes five. Interface 1 carries a 6KRO
   keyboard on report ID 7, consumer control on 0x0C, and an NKRO keyboard on 0x11 - and
   it is the entry behind two of the findings below. Both of them are invisible if you
@@ -336,7 +338,7 @@ separate the two.
 | `check-parse` | 9 dump shapes read, 47 descriptors round trip | same - it tests this repo's reader, not the firmware | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 | 0 out of bounds, peak index 127 |
 | `truncate` | 2321 of 4337 prefixes overread | 2202 of 4337 prefixes overread | 2202 of 4337 - still open, see below |
-| `shortreport` | 779 of 1169 truncated reports overread | 779 of 1169, identical - the fix is in the parser, this is the decode path | **0 of 1185** |
+| `shortreport` | 779 of 1191 truncated reports overread | 779 of 1191, identical - the fix is in the parser, this is the decode path | **0 of 1227** |
 | `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there | never fails |
 | `timing` | segfaults | ~17.5 ns/element on x86-64 | ~17.4 ns/element |
 
@@ -461,7 +463,7 @@ and the loop exits, so it is bounded to four bytes, but it is a genuine out of b
 read driven entirely by device supplied data. Present on `main`, so it predates the
 [#332] work and belongs in its own issue rather than folded into that PR.
 
-This is **not** the same finding as the short-report one above, and the two are easy to
+This is **not** the same finding as the short-report one below, and the two are easy to
 conflate because both show up as truncation. That one is about the *report*, fixed in
 `hid_report.c` and `mouse.c`; this one is about the *descriptor*, in the parse loop, and
 is still open everywhere - `make truncate` fails on roughly half of all prefixes even on
@@ -507,10 +509,11 @@ carrying two collections is something the routing cannot currently express, so t
 recognition fix alone is a net loss on the only device that wants it.
 
 The reach is that one device. 18 of the 47 descriptors here have a collection whose naming
-`Usage` sits at depth 1 or deeper, but 17 of them are the ordinary `Usage (Pointer)`
-opening a Physical collection inside a mouse, where leaving `global_usage` alone is
-correct. Only this one nests Application inside Application, so promoting the usage at any
-depth would break the other 17.
+`Usage` sits at depth 1 or deeper, and none of the other 17 opens an Application: 12 are
+the ordinary `Usage (Pointer)` on a Physical collection inside a mouse, and the remaining
+five nest a consumer collection, a vendor page or a digitizer `Usage (Finger)`. Leaving
+`global_usage` alone is correct for every one of them, so promoting the usage at any depth
+would break the other 17.
 
 Not previously reported, and separate from [#358].
 
@@ -552,10 +555,10 @@ carry over to the next main item; Linux clears its whole local struct per main i
 then skips fields that declared no usage; FreeBSD clears the array but deliberately assigns
 a saved `usage_last`; this parser does neither. Linux's version is not portable here, since
 skipping depends on expanding `Usage Min..Max` into the usage array - 12288 slots there
-against 128 here, and eight descriptors in this corpus declare a range larger than the
-whole array, `ms600_consumer` declaring 1024. What fits is `return 0` from `get_usage()`
-when `usage_count` is zero: two lines, inert on every decode path, and it moves 18 `dump`
-lines.
+against 128 here, and sixteen descriptors in this corpus declare a range larger than the
+whole array, `ms600_consumer` and `keyboardio_media` declaring 1024. What fits is
+`return 0` from `get_usage()` when `usage_count` is zero: two lines, inert on every
+decode path, and it changes what `dump` prints for 18 of the 47 descriptors.
 
 **A second mouse collection blanks the first.** `kernel_multi_collection` declares two,
 on report IDs 1 and 2, identically laid out. The parser walks both, and the second
@@ -607,7 +610,7 @@ Left in place because the reasoning and the numbers are the record of how each w
 and confirmed.
 
 **Short reports read past the end of the buffer, in four separate places.** This
-is the counterpart to the truncated-descriptor finding below, and the more serious
+is the counterpart to the truncated-descriptor finding above, and the more serious
 of the two: a descriptor arrives once at enumeration, a report arrives thousands of
 times a second, and nothing checks either against the length the other implied. A
 descriptor can declare a 30-byte NKRO bitmap and the device can then send eight
@@ -615,7 +618,7 @@ bytes; every offset the parser derived now points past the end.
 
 `make shortreport` replays each `mouse` and `kbd` case at every length from its
 receiver's floor up to full, in an exact-size allocation, forked, under ASan. On
-`main` 779 of 1169 fail. The four distinct causes, each reproducible on its own:
+`main` 779 of 1191 fail. The four distinct causes, each reproducible on its own:
 
 ```sh
 make shortreport                          # the table
@@ -669,7 +672,7 @@ Those floors are hand copies of firmware logic, like the routing in `src/dispatc
 and unlike that one they are load bearing - raising a floor hides a finding and
 lowering one invents a false one. They are commented as such in `src/shortreport.c`.
 
-Present identically on `main` and on [#361]: 779 of 1169 either way. The [#332]
+Present identically on `main` and on [#361]: 779 of 1191 either way. The [#332]
 work is in the parser, and all four of these are in the decode path.
 
 **A keyboard in boot protocol is routed by its modifier byte.** `usb.c` picks between
@@ -736,7 +739,7 @@ The keyboard half is still harness-only. The same dongle's interface 1 is
 `SubClass_01 Prot_01`, a boot keyboard with report ID 7 - the right shape - but has no
 keyboard paired to it, so no keystrokes flow.
 
-Three rows in `make dispatch` pass *by luck*, flagged as such. The target does not have
+Four rows in `make dispatch` pass *by luck*, flagged as such. The target does not have
 to be asked which routing it uses to know that - in boot protocol `report[0]` is data,
 so routing must not depend on it, and the test simply perturbs that byte and sees
 whether the receiver moves. Left Ctrl on a report-ID-1 keyboard is the common case.
@@ -752,11 +755,13 @@ what the model was written to say, which is exactly how this bug survived in the
 place - `mousetest` carried a copy of these rules, display-only and documented as able to
 go stale, and it duly kept printing the old answer.
 
-`usb.c` is byte for byte the same on `main`, on all three PRs and on DeskHop Extended,
-so this is upstream's and long-standing rather than anything a fix introduced. Both
-flags default to 0, so it is opt-in - but both are checkboxes on the config page, and
-the mouse one has now been ticked on real hardware with the predicted result. [#229] reports keys dying with that option enabled, which is *consistent*
-with this - but that reporter's Wooting declares no report ID on its keyboard interface,
+`usb.c` is byte for byte the same on `main` and on all three PRs, so this is upstream's
+and long-standing rather than anything a fix introduced. DeskHop Extended is the one tree
+where it differs, by 67 lines, which is what the `dispatch` row means by lifted rather
+than modelled. Both flags default to 0, so it is opt-in - but both are checkboxes on the
+config page, and the mouse one has now been ticked on real hardware with the predicted
+result. [#229] reports keys dying with that option enabled, which is *consistent* with
+this - but that reporter's Wooting declares no report ID on its keyboard interface,
 so treat the link as suggestive rather than established.
 
 **Two keyboard collections on one interface collapse into one, and the second corrupts
@@ -832,8 +837,8 @@ invisible to it.
 
 PR [#358] is exactly that change: it teaches `process_consumer_report` and
 `process_system_report` not to skip a leading report ID byte that isn't there. The
-parse is untouched, so `compare` still prints `identical parse` on all 47
-descriptors including `cherry_kc6000_consumer`, the device it fixes. That is the
+parse is untouched, so `compare` still prints `identical parse` on all 45 that parse
+at all, including `cherry_kc6000_consumer`, the device it fixes. That is the
 correct answer to the question `compare` asks, and the wrong answer to "does this PR
 do anything".
 
