@@ -278,8 +278,55 @@ static void device_task(void) {
 #endif
 }
 
+#elif defined(EMU_POLL)
+
+#define ITF_MOUSE 0
+#define LEN_MOUSE 5      /* [buttons, X, Y, wheel, pan], no report ID */
+
+/* Offer a report every single time the endpoint will take one.
+ *
+ * Every other emulator here paces itself on a timer, because what it is showing is a
+ * decode. This one is showing a rate, so pacing it would measure the timer instead of
+ * the polling interval. With no gate at all the reports-per-second the host sees IS the
+ * polling rate, which is the entire measurement: roughly 100/s at bInterval 10 and
+ * roughly 1000/s at bInterval 1, the full speed ceiling.
+ *
+ * The delta alternates between +1 and -1 on X. Two properties matter and both are
+ * needed:
+ *
+ *   It is never zero. deskhop drops a mouse report carrying no movement and no button
+ *   change (process_mouse_report in src/mouse.c), so a report of all zeroes would be
+ *   swallowed before it could be counted and every build would measure the same zero.
+ *
+ *   It sums to zero over each pair. At a thousand reports a second a pointer with any
+ *   net drift crosses the screen almost immediately, trips deskhop's edge switching and
+ *   takes the measurement with it. Alternating keeps it jittering in place.
+ */
+static void device_task(void) {
+    static bool right = true;
+
+    if (!tud_hid_n_ready(ITF_MOUSE))
+        return;
+
+    uint8_t p[LEN_MOUSE] = {0};
+    p[1] = right ? 1 : (uint8_t)-1;
+
+    if (!tud_hid_n_report(ITF_MOUSE, 0, p, LEN_MOUSE))
+        return;
+
+    right = !right;
+    reports_sent++;
+
+#ifdef PICO_DEFAULT_LED_PIN
+    /* Far too fast to see as anything but a dim glow, which is itself the signal that
+       reports are flowing. Divided down so the pin is not toggled a thousand times a
+       second for nothing. */
+    gpio_put(PICO_DEFAULT_LED_PIN, (reports_sent & 0x100) != 0);
+#endif
+}
+
 #else
-#  error "define EMU_BITDO or EMU_GAMEBALL"
+#  error "define EMU_BITDO, EMU_GAMEBALL or EMU_POLL"
 #endif
 
 /*==============================================================================
@@ -369,6 +416,8 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
 
 #if defined(EMU_GAMEBALL)
     uint16_t len = LEN_TRACKBALL;
+#elif defined(EMU_POLL)
+    uint16_t len = LEN_MOUSE;
 #else
     uint16_t len = LEN_6KRO;
 #endif

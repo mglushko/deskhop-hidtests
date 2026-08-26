@@ -49,8 +49,18 @@
 #    define EMU_SERIAL  "GAMEBALL-3IF"
 #    define EMU_BCD     0x0300
 #  endif
+#elif defined(EMU_POLL)
+   /* Not a real device. A plain relative mouse whose only distinguishing feature is
+      the polling interval it asks for, built once per interval so the two can be
+      compared back to back. bcdDevice and the serial differ per interval for the same
+      Windows descriptor-cache reason as above. */
+#  define EMU_VID 0x1209   /* pid.codes, generic test range */
+#  define EMU_PID 0x0002
+#  define EMU_PRODUCT "Polling emulator " TU_XSTRING(EMU_POLL)
+#  define EMU_SERIAL  "POLL-" TU_XSTRING(EMU_POLL)
+#  define EMU_BCD     (0x0400 + EMU_POLL)
 #else
-#  error "define EMU_BITDO or EMU_GAMEBALL"
+#  error "define EMU_BITDO, EMU_GAMEBALL or EMU_POLL"
 #endif
 
 tusb_desc_device_t const desc_device = {
@@ -162,6 +172,34 @@ uint8_t const desc_configuration[] = {
 };
 
 #endif
+
+/*============================================================================*/
+#elif defined(EMU_POLL)
+/*  A plain relative mouse, present only to be polled.
+ *
+ *  Everything else in this file takes its report descriptor from the corpus so the rig
+ *  and the harness cannot disagree about a real device. There is no real device here:
+ *  what is under test is the endpoint descriptor's bInterval, not how any report is
+ *  decoded, so the report descriptor is TinyUSB's own stock mouse. Using the stock one
+ *  is the point - nothing about it can confound the measurement.
+ *
+ *  EMU_POLL is the bInterval, in frames, and CMake builds one target per value.
+ */
+uint8_t const poll_mouse_desc[] = {TUD_HID_REPORT_DESC_MOUSE()};
+
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
+    (void)instance;
+    return poll_mouse_desc;
+}
+
+enum { ITF_NUM_MOUSE, ITF_NUM_TOTAL };
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
+
+uint8_t const desc_configuration[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
+    TUD_HID_DESCRIPTOR(ITF_NUM_MOUSE, 0, HID_ITF_PROTOCOL_MOUSE,
+                       sizeof(poll_mouse_desc), 0x81, CFG_TUD_HID_EP_BUFSIZE, EMU_POLL),
+};
 
 #endif
 /*============================================================================*/

@@ -1,15 +1,68 @@
 # Hardware emulators
 
-Spare RP2040s turned into stand-ins for devices in the corpus, so findings can be
-confirmed on real hardware rather than only on the host. Two of them, one per UF2:
+Spare RP2040s turned into stand-ins for a device, so a finding can be confirmed on real
+hardware rather than only on the host. One per UF2:
 
 | build | device | issue | what it is for |
 |---|---|---|---|
 | `bitdo-emu.uf2` | 8BitDo Retro Mechanical Keyboard `2dc8:5201` | [#57] | three keyboard collections on one interface |
 | `gameball-emu.uf2` | Gameball trackball `0782:001B` | [#332] | Report Count 16328 against a 128 entry array |
+| `poll-10-emu.uf2` | no real device | [#215] | an endpoint asking to be polled every 10 ms |
+| `poll-1-emu.uf2` | no real device | [#215] | the same endpoint asking for every 1 ms |
 
 Every report descriptor is pulled out of `../descriptors.h` by `gen_desc.py` at build
 time rather than checked in twice, so an emulator and the corpus cannot drift apart.
+The polling pair is the exception and the reason is in its section below: it stands for
+no real device, so there is nothing in the corpus for it to drift from.
+
+# The polling pair, what a device asks to be polled at
+
+## What it presents
+
+The same plain relative mouse twice. One interface, one interrupt IN endpoint, and the
+only difference between the two builds is the `bInterval` that endpoint asks for: 10 in
+`poll-10-emu`, 1 in `poll-1-emu`. Confirmed byte for byte - the two config descriptors
+are identical apart from the final byte, `0a` against `01`.
+
+10 is what the Lightspeed receiver in [#215] asks for once it has fallen back to full
+speed behind DeskHop. 1 is the full speed ceiling, and what DeskHop's own endpoint tells
+the PC.
+
+The report descriptor is TinyUSB's stock `TUD_HID_REPORT_DESC_MOUSE()` rather than
+anything out of the corpus. What is under test here is the endpoint descriptor, not how
+a report is decoded, and using the stock descriptor is the point: nothing about it can
+confound the measurement.
+
+## What it sends
+
+A report every single time the endpoint will take one, with no timer in the way. Every
+other emulator here paces itself, because each of those is showing a decode. This one is
+showing a rate, and pacing it would measure the timer rather than the polling interval.
+With no gate, reports per second as seen by the host **is** the polling rate.
+
+The delta alternates `+1` and `-1` on X. Both properties are load-bearing:
+
+- **Never zero.** deskhop drops a mouse report carrying no movement and no button change
+  (`process_mouse_report` in `src/mouse.c`), so an all-zero report would be swallowed
+  before it could be counted and every build would measure the same nothing.
+- **Sums to zero.** At a thousand reports a second, any net drift crosses the screen
+  almost at once, trips deskhop's edge switching and takes the measurement with it.
+  Alternating keeps the pointer jittering in place.
+
+## What to expect
+
+Watch `pointer-bench.html`'s sample rate with each build in turn, through deskhop:
+
+| | `poll-10-emu` | `poll-1-emu` |
+|---|---|---|
+| firmware that honours what was asked | ~100/s | ~1000/s |
+| firmware that clamps | ~1000/s | ~1000/s |
+
+The first row is the bug in [#215] reproduced without owning the receiver. The second is
+what the fix looks like. `poll-1-emu` is the control: it should read the same on both,
+and if it does not, the difference is not the clamp.
+
+[#215]: https://github.com/hrvach/deskhop/issues/215
 
 # 8BitDo, the keyboard collection collapse
 

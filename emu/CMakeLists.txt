@@ -2,6 +2,8 @@
 #
 #   bitdo-emu.uf2     8BitDo Retro Mechanical Keyboard, hrvach/deskhop#57
 #   gameball-emu.uf2  Gameball trackball 0782:001B, hrvach/deskhop#332
+#   poll-10-emu.uf2   a mouse asking for 10 ms polling, hrvach/deskhop#215
+#   poll-1-emu.uf2    the same mouse asking for 1 ms
 #
 #   cmake -B build -G Ninja -DPICO_SDK_PATH=$HOME/deskhop-extended/pico-sdk
 #   cmake --build build
@@ -28,14 +30,27 @@ function(emu_device target defines)
   set(gendir ${CMAKE_CURRENT_BINARY_DIR}/gen/${target})
   set(header ${gendir}/emu_desc.h)
 
-  add_custom_command(
-    OUTPUT  ${header}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${gendir}
-    COMMAND ${CMAKE_COMMAND} -E env python3
-            ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py ${CORPUS} ${header} ${ARGN}
-    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py ${CORPUS}
-    COMMENT "Extracting ${target} descriptors from the harness corpus"
-    VERBATIM)
+  # A target that names no corpus descriptors gets an empty header rather than a run of
+  # gen_desc.py with nothing to do. The script refuses that case on purpose, since for
+  # every device here it would mean the pairs were forgotten; the polling pair is the one
+  # target that legitimately has none, because it stands for no real device.
+  if(ARGN)
+    add_custom_command(
+      OUTPUT  ${header}
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${gendir}
+      COMMAND ${CMAKE_COMMAND} -E env python3
+              ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py ${CORPUS} ${header} ${ARGN}
+      DEPENDS ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py ${CORPUS}
+      COMMENT "Extracting ${target} descriptors from the harness corpus"
+      VERBATIM)
+  else()
+    add_custom_command(
+      OUTPUT  ${header}
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${gendir}
+      COMMAND ${CMAKE_COMMAND} -E echo "/* No corpus descriptors: this target stands for no real device. */" > ${header}
+      COMMENT "No corpus descriptors for ${target}"
+      VERBATIM)
+  endif()
   add_custom_target(${target}_desc DEPENDS ${header})
 
   add_executable(${target} main.c usb_descriptors.c)
@@ -86,3 +101,17 @@ emu_device(gameball-full-emu "EMU_GAMEBALL;EMU_FULLFIX"
   d_gameball_gesture=gameball_gesture
   d_gameball_keyboard=gameball_keyboard
   --normalise-end-collection --fix-signed-axes)
+
+# The pair for the polling interval, hrvach/deskhop#215. The same plain relative mouse
+# twice, differing only in the bInterval its endpoint asks for, sending a report every
+# time it is polled so the rate the host sees is the polling rate.
+#
+#   poll-10-emu   asks for 10 ms, what a Lightspeed receiver asks for behind DeskHop
+#   poll-1-emu    asks for 1 ms, the full speed ceiling
+#
+# On a board that honours what was asked, the first measures ~100 reports/s and the
+# second ~1000. On a board that clamps, both measure ~1000. Neither takes a descriptor
+# from the corpus: there is no real device here, and the report descriptor is TinyUSB's
+# stock mouse precisely so that nothing about it can confound the measurement.
+emu_device(poll-10-emu "EMU_POLL=10")
+emu_device(poll-1-emu  "EMU_POLL=1")
