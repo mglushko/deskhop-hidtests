@@ -40,27 +40,51 @@ other emulator here paces itself, because each of those is showing a decode. Thi
 showing a rate, and pacing it would measure the timer rather than the polling interval.
 With no gate, reports per second as seen by the host **is** the polling rate.
 
-The delta alternates `+1` and `-1` on X. Both properties are load-bearing:
+The delta alternates `+1` and `-1` **on Y**. Three properties are load-bearing:
 
 - **Never zero.** deskhop drops a mouse report carrying no movement and no button change
   (`process_mouse_report` in `src/mouse.c`), so an all-zero report would be swallowed
   before it could be counted and every build would measure the same nothing.
 - **Sums to zero.** At a thousand reports a second, any net drift crosses the screen
-  almost at once, trips deskhop's edge switching and takes the measurement with it.
-  Alternating keeps the pointer jittering in place.
+  almost at once. Alternating keeps the pointer in place.
+- **On Y, not X.** deskhop switches outputs on the left and right borders only, and a
+  switch parks the pointer exactly *on* the border it just crossed. A pointer sitting
+  there with alternating X deltas crosses straight back on the next outward report, half
+  the time, and then latches - the rig would ping-pong the outputs at the report rate
+  instead of measuring anything. Y has no such border, so the failure mode is designed
+  out rather than tuned around.
+
+## Reading it
+
+Two instruments, and they are independent of each other.
+
+**The LED on the emulator board.** Bit 8 of the report counter drives it, so it flips
+every 256 reports and its full period is 512: about **half a second at 1000 reports/s**
+and about **five seconds at 100**. That is a difference you can time with a wristwatch,
+it is measured on the device side, and nothing the host or the browser does can touch it.
+Start here.
+
+**`pointer-bench.html`'s sample rate**, viewed on the computer behind deskhop. Note this
+page counts `getCoalescedEvents()` rather than delivered `pointermove` events on purpose:
+browsers coalesce pointer input to roughly one event per animation frame, so a bare
+listener reads about 60/s for *both* builds and cannot tell them apart at all. If the
+tile says `(capped)` the browser has no `getCoalescedEvents`, the number means events
+rather than samples, and only the LED is telling you anything.
 
 ## What to expect
 
-Watch `pointer-bench.html`'s sample rate with each build in turn, through deskhop:
-
 | | `poll-10-emu` | `poll-1-emu` |
 |---|---|---|
-| firmware that honours what was asked | ~100/s | ~1000/s |
-| firmware that clamps | ~1000/s | ~1000/s |
+| firmware that honours what was asked | ~100/s, LED ~5 s | ~1000/s, LED ~0.5 s |
+| firmware that clamps | ~1000/s, LED ~0.5 s | ~1000/s, LED ~0.5 s |
 
-The first row is the bug in [#215] reproduced without owning the receiver. The second is
-what the fix looks like. `poll-1-emu` is the control: it should read the same on both,
-and if it does not, the difference is not the clamp.
+The top-left cell is the bug in [#215] reproduced without owning the receiver. The bottom
+row is what the fix looks like. `poll-1-emu` is the control: it should read the same in
+both rows, and if it does not, whatever changed is not the clamp.
+
+One thing to set up first: park the pointer somewhere in the middle of the screen before
+reading. Against the very top or bottom edge, half the reports resolve to the same
+absolute position and the page has nothing to count.
 
 [#215]: https://github.com/hrvach/deskhop/issues/215
 

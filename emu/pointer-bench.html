@@ -558,13 +558,35 @@
 
   /* ---- pointer sampling ---- */
 
-  window.addEventListener("mousemove", function (e) {
-    var r = cv.getBoundingClientRect();
-    pts.push({ x: e.clientX - r.left, y: e.clientY - r.top });
-    if (pts.length > MAX_PTS) pts.shift();
+  /* Sample rate counts the samples the browser actually received, not the events it
+     chose to deliver.
 
+     A bare mousemove listener cannot measure a report rate. Browsers coalesce pointer
+     input to roughly one event per animation frame, so a device sending 1000 reports a
+     second and one sending 100 both arrive as about 60 events a second and read the
+     same. getCoalescedEvents() hands back the samples that were folded into each
+     delivered event, which is the whole point of the API and the only way this page can
+     tell those two devices apart.
+
+     Falling back to counting the event itself where the API is missing keeps the page
+     working, but the number then means "events delivered" rather than "samples taken",
+     so it is labelled as capped rather than left to look like a real measurement. */
+  var coalescedSupported = typeof PointerEvent !== "undefined" &&
+                           typeof PointerEvent.prototype.getCoalescedEvents === "function";
+
+  window.addEventListener("pointermove", function (e) {
+    var r = cv.getBoundingClientRect();
     var now = performance.now();
-    moveTimes.push(now);
+
+    var samples = coalescedSupported ? e.getCoalescedEvents() : null;
+    if (!samples || !samples.length) samples = [e];
+
+    for (var i = 0; i < samples.length; i++) {
+      pts.push({ x: samples[i].clientX - r.left, y: samples[i].clientY - r.top });
+      if (pts.length > MAX_PTS) pts.shift();
+      moveTimes.push(now);
+    }
+
     while (moveTimes.length && now - moveTimes[0] > 1000) moveTimes.shift();
     lastActivity = now;
   }, { passive: true });
@@ -737,7 +759,9 @@
       els.aspect.innerHTML = "&mdash;";
     }
 
-    els.rate.innerHTML = moveTimes.length ? moveTimes.length + "<span>/s</span>" : "&mdash;";
+    els.rate.innerHTML = moveTimes.length
+      ? moveTimes.length + "<span>/s" + (coalescedSupported ? "" : " (capped)") + "</span>"
+      : "&mdash;";
     els.samples.textContent = pts.length;
 
     ["h", "v"].forEach(function (k) {

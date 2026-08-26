@@ -291,36 +291,45 @@ static void device_task(void) {
  * polling rate, which is the entire measurement: roughly 100/s at bInterval 10 and
  * roughly 1000/s at bInterval 1, the full speed ceiling.
  *
- * The delta alternates between +1 and -1 on X. Two properties matter and both are
- * needed:
+ * The delta alternates between +1 and -1 on Y. Three properties matter, all three needed:
  *
  *   It is never zero. deskhop drops a mouse report carrying no movement and no button
  *   change (process_mouse_report in src/mouse.c), so a report of all zeroes would be
  *   swallowed before it could be counted and every build would measure the same zero.
  *
  *   It sums to zero over each pair. At a thousand reports a second a pointer with any
- *   net drift crosses the screen almost immediately, trips deskhop's edge switching and
- *   takes the measurement with it. Alternating keeps it jittering in place.
+ *   net drift crosses the screen almost immediately, so alternating keeps it in place.
+ *
+ *   It is on Y and not on X. deskhop switches outputs on the left and right borders
+ *   only - is_screen_switch_needed is handed pointer_x and offset_x and nothing else -
+ *   and switching parks the pointer exactly ON the border it just crossed. A pointer
+ *   sitting on that border with a stream of alternating X deltas crosses back on the
+ *   very next outward report, half the time, and then latches: the rig would ping-pong
+ *   the outputs at the report rate instead of measuring anything. Y has no such border,
+ *   so the whole failure mode is designed out rather than tuned around.
  */
 static void device_task(void) {
-    static bool right = true;
+    static bool down = true;
 
     if (!tud_hid_n_ready(ITF_MOUSE))
         return;
 
     uint8_t p[LEN_MOUSE] = {0};
-    p[1] = right ? 1 : (uint8_t)-1;
+    p[2] = down ? 1 : (uint8_t)-1;
 
     if (!tud_hid_n_report(ITF_MOUSE, 0, p, LEN_MOUSE))
         return;
 
-    right = !right;
+    down = !down;
     reports_sent++;
 
 #ifdef PICO_DEFAULT_LED_PIN
-    /* Far too fast to see as anything but a dim glow, which is itself the signal that
-       reports are flowing. Divided down so the pin is not toggled a thousand times a
-       second for nothing. */
+    /* Bit 8 flips every 256 reports, so the LED's full period is 512 of them: about half
+       a second at 1000 reports/s and about five seconds at 100. That makes the LED a
+       direct readout of the polling rate, measured on the device side where nothing the
+       host or the browser does can touch it - and the one instrument here that does not
+       care how the operating system coalesces mouse events. Half a second against five
+       is a difference you can time with a wristwatch. */
     gpio_put(PICO_DEFAULT_LED_PIN, (reports_sent & 0x100) != 0);
 #endif
 }
