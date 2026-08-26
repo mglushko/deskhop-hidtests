@@ -67,7 +67,9 @@ static const mouse_case_t m_gameball_cases[] = {
    extract_value() skips a field whose report_id does not match the report in
    hand, so a report 1 leaves X and Y at zero and a report 2 leaves wheel and pan
    at zero. Buttons are the exception: when skipped they fall back to the last
-   known state->mouse_buttons, which is zero throughout this test. */
+   button state known for this device, which is zero throughout this test - so the
+   r2 cases below read the same on either side of that fallback changing where it
+   looks. Where it looks is the subject of run_button_fallback() in mousetest.c. */
 static const mouse_case_t m_kensington_cases[] = {
     {"r1: button 1 (left)",     {0x01, 0x01, 0x00, 0x00}, 4,     0,     0,  0,  0,  1},
     {"r1: button 2 (right)",    {0x01, 0x02, 0x00, 0x00}, 4,     0,     0,  0,  0,  2},

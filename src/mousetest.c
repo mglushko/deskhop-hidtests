@@ -117,6 +117,93 @@ static int run_device(const mouse_device_t *dev) {
     return failures;
 }
 
+#ifdef HARNESS_IFACE_MOUSE_BUTTONS
+/* Where a movement report's buttons come from when the report has none.
+
+   Two pointing devices can be attached at once - a keyboard's mouse keys for the buttons
+   and a trackball for the movement is the setup upstream #287 is about - so what the host
+   is told is the union across all of them, and state->mouse_buttons holds that union.
+   Which makes it the wrong thing for a single device's decode to read back: a device that
+   declares its buttons under a report ID of its own sends movement reports with no button
+   field at all, and falling back to the union would write another device's buttons into
+   this one's stored state, where they would stay held after that device let go.
+
+   The fallback therefore reads the interface it was handed. Three real descriptors, each
+   presetting a different stored value and a deliberately different union, so a fallback
+   that reached for either the wrong one or a hardcoded zero fails here.
+
+   Only built where the target has the per-interface field; on a tree without it the
+   fallback is state->mouse_buttons and these cases would be asserting the bug. */
+typedef struct {
+    const char    *name;
+    const uint8_t *desc;
+    int            desc_len;
+    uint8_t        report[8];
+    int            len;
+    uint8_t        stored;   /* what this interface was last seen holding */
+    int16_t        union_;   /* what every device together is holding */
+    int32_t        want;
+} fallback_case_t;
+
+static const fallback_case_t fallback_cases[] = {
+    /* Buttons on report 1, X/Y on report 2: the movement report carries no button field,
+       so the answer can only come from what this interface last held. */
+    {"kensington, r2 ball right", d_kensington_expert_mouse, sizeof(d_kensington_expert_mouse),
+     {0x02, 0x01, 0x00, 0x00}, 4, 0x01, 0x07, 0x01},
+    {"kensington, r2 nothing held", d_kensington_expert_mouse, sizeof(d_kensington_expert_mouse),
+     {0x02, 0x01, 0x00, 0x00}, 4, 0x00, 0x07, 0x00},
+
+    /* These two carry buttons in every report, so the wire wins and neither the stored
+       state nor the union may leak in. */
+    {"gameball, moving with none held", d_gameball_trackball, sizeof(d_gameball_trackball),
+     {0x00, 0x14, 0x00, 0x00, 0x00}, 5, 0x01, 0x07, 0x00},
+    {"ultralink, moving with none held", d_ultralink_mouse, sizeof(d_ultralink_mouse),
+     {0x01, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00}, 8, 0x01, 0x07, 0x00},
+};
+
+static int run_button_fallback(void) {
+    int failures = 0;
+
+    printf("buttons on a movement report that does not carry them\n\n");
+    printf("  %-34s %6s %6s %6s %6s\n", "case", "stored", "union", "got", "want");
+    printf("  ");
+    for (int i = 0; i < 62; i++)
+        printf("-");
+    printf("\n");
+
+    for (unsigned i = 0; i < ARRAY_SIZE(fallback_cases); i++) {
+        const fallback_case_t *c = &fallback_cases[i];
+        static hid_interface_t iface;
+        device_t       state = {0};
+        mouse_values_t v     = {0};
+
+        memset(&iface, 0, sizeof(iface));
+        iface.protocol = HID_PROTOCOL_REPORT;
+        parse_report_descriptor(&iface, c->desc, c->desc_len);
+
+        iface.mouse_buttons = c->stored;
+        state.mouse_buttons = c->union_;
+
+        /* exact-size allocation, as above */
+        uint8_t *report = malloc(c->len);
+        memcpy(report, c->report, c->len);
+        extract_report_values(report, c->len, &state, &v, &iface);
+        free(report);
+
+        int ok = v.buttons == c->want;
+        if (!ok)
+            failures++;
+
+        printf("  %-34s %6u %6d %6d %6d   %s\n", c->name, c->stored, c->union_, v.buttons,
+               c->want, ok ? "ok" : "MISMATCH");
+    }
+
+    printf("\n  %u/%u fell back to the interface that sent the report\n\n",
+           (unsigned)ARRAY_SIZE(fallback_cases) - failures, (unsigned)ARRAY_SIZE(fallback_cases));
+    return failures;
+}
+#endif
+
 int main(void) {
     int failures = 0, total = 0;
 
@@ -125,7 +212,14 @@ int main(void) {
         total += mouse_devices[i].count;
     }
 
-    printf("%d/%d cases across %u devices\n", total - failures, total,
+    printf("%d/%d cases across %u devices\n\n", total - failures, total,
            (unsigned)ARRAY_SIZE(mouse_devices));
+
+#ifdef HARNESS_IFACE_MOUSE_BUTTONS
+    failures += run_button_fallback();
+#else
+    printf("target has no per-interface mouse buttons, button fallback cases skipped\n");
+#endif
+
     return failures ? 1 : 0;
 }

@@ -116,14 +116,16 @@ typedef struct TU_ATTR_PACKED {
 } hid_mouse_report_t;
 
 /* The parts of device_t the lifted code actually reads. extract_report_values()
-   wants mouse_buttons; process_consumer_report() and process_system_report() want
+   names mouse_buttons; process_consumer_report() and process_system_report() want
    the two fields CURRENT_BOARD_IS_ACTIVE_OUTPUT compares.
 
    Every width here is copied from the target's src/include/structs.h and each is
-   load bearing. mouse_buttons is the one to be careful with:
-   extract_report_values() falls back to state->mouse_buttons when the button field
-   is skipped, so a wider field here would let a value survive that the firmware
-   truncates - it was int32_t once, and silently disagreed with the device.
+   load bearing. mouse_buttons is the one to be careful with. On a tree where a
+   skipped button field falls back to it, a wider field here would let a value
+   survive that the firmware truncates - it was int32_t once, and silently
+   disagreed with the device. On a tree that keeps buttons per interface the
+   fallback reads iface->mouse_buttons instead and this field goes unread, but the
+   parameter stays, so keep the width right either way.
 
    Nothing checks this copy the way `make check-constants` checks the constants
    above; check_constants.py compares macros, not struct fields. Re-read structs.h

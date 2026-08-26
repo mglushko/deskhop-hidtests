@@ -332,6 +332,11 @@ Two rows have a larger denominator there rather than a comparable count.
 that bounds the bitmap
 walk, because without the bound that device reads off the end and takes the run down.
 
+`mouse` gains four cases on the same terms. They ask where a skipped button field falls
+back to, which is only a question on a tree that keeps buttons per interface; on `main`
+and [#361] there is no such field to read and the block is not built, which `mousetest`
+says on its last line rather than passing silently.
+
 `truncate` is the one row where the fork is no better than [#361], and deliberately so:
 that is the short *descriptor* finding in the parse loop, which nothing here has fixed. It
 is easy to mistake for the short *report* row above it, which is why the findings below
@@ -340,7 +345,7 @@ separate the two.
 | check | main | [#361] | [DeskHop Extended][deskhop-extended] |
 |---|---|---|---|
 | `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 45 identical | both fixed; 47 compared, differences confined to keyboards |
-| `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases | 124 of 124 |
+| `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases | 124 of 124, plus **4 of 4** button fallback cases |
 | `kbd` | 49 of 49 cases over 14 devices | same - #361 is a parser change | **55 of 55 over 15** |
 | `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change | 18 of 18; verdict "has the #358 fix" |
 | `dispatch` | 14 of 22 routed correctly, 4 of those only by luck; 8 misrouted | same - `usb.c` is untouched by these PRs | **22 of 22**, lifted rather than modelled |
@@ -847,6 +852,30 @@ devices, and the three upstream reports that share this shape - [#57], [#211] an
 one still open, one closed and reported as returning, one closed by the reporter
 hard-coding a workaround for their own keyboard - are all this fault.
 
+**Two pointing devices cancel each other's buttons.** A mouse report carries the complete
+button state of its sender, so a trackball reporting movement with nothing pressed says
+"no buttons" as loudly as a keyboard's mouse keys say "left down". Upstream took the newest
+report at its word, so holding a button on one device and moving with the other released
+it. That is upstream [#287], reported for exactly that pair of devices, and the fix is to
+send the union across every device the way `combine_kbd_states` already does for keyboards.
+
+Most of that is state handling above the decode path and out of this harness's reach.
+One piece is not. A device that declares its buttons under a report ID of its own sends
+movement reports carrying no button field at all, and `extract_report_values()` has always
+had a fallback for that. Where the fallback looks now matters: reading the union would
+write another device's buttons into this one's stored state, where they would stay held
+after that device let go. It reads `iface->mouse_buttons` instead, and `run_button_fallback()`
+in `mousetest.c` puts a deliberately different value in each so a fallback reaching for the
+wrong one cannot pass.
+
+`kensington_expert_mouse` is the device the cases are built on, buttons on report 1 and X/Y
+on report 2. `gameball_trackball` and `ultralink_mouse` carry buttons in every report and
+are there for the opposite claim, that the wire still wins where there is something on it:
+
+```sh
+make mouse DESKHOP=~/deskhop-extended   # 4 of 4 fell back to the interface that sent the report
+```
+
 ## What this harness cannot see
 
 `compare` diffs the *parse*. It compiles `hid_parser.c` and `hid_report.c` and stubs
@@ -964,6 +993,7 @@ of the build directory still says where it came from.
 [#229]: https://github.com/hrvach/deskhop/issues/229
 [#216]: https://github.com/hrvach/deskhop/issues/216
 [#297]: https://github.com/hrvach/deskhop/issues/297
+[#287]: https://github.com/hrvach/deskhop/issues/287
 [deskhop-extended]: https://github.com/mglushko/deskhop-extended
 [#332]: https://github.com/hrvach/deskhop/issues/332
 [#335]: https://github.com/hrvach/deskhop/issues/335

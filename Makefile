@@ -140,6 +140,13 @@ $(GEN)/lifted_kbd.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 $(GEN)/lifted_mouse.c: $(SRC)/src/mouse.c tools/lift.py | $(GEN)
 	@python3 tools/lift.py $< $@ extract_value extract_report_values
 
+# Does the target keep mouse buttons per interface rather than in one global? On a tree
+# that does, extract_report_values() falls back to iface->mouse_buttons and mousetest can
+# say so; on one that does not, hid_parser.h has no such field and the cases would not
+# even compile. combine_local_mouse_buttons is what the field exists for, so it is what
+# the grep asks about.
+MOUSE_IFACE_BTN := $(shell grep -q 'combine_local_mouse_buttons' $(SRC)/src/mouse.c 2>/dev/null && echo -DHARNESS_IFACE_MOUSE_BUTTONS)
+
 # The two receivers PR #358 changes. Lifted rather than reimplemented for the same
 # reason as everything else here: a hand copy would answer the question "does this
 # PR do anything" with whatever the copy happened to say. The senders one level
@@ -173,7 +180,7 @@ $(OUT)/dump: src/dump.c descriptors.h $(HDRS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/dump.c $(CORE)
 
 $(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/dispatch.h descriptors.h $(HDRS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
-	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
 
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries
