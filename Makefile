@@ -142,10 +142,16 @@ $(GEN)/lifted_mouse.c: $(SRC)/src/mouse.c tools/lift.py | $(GEN)
 
 # Does the target keep mouse buttons per interface rather than in one global? On a tree
 # that does, extract_report_values() falls back to iface->mouse_buttons and mousetest can
-# say so; on one that does not, hid_parser.h has no such field and the cases would not
-# even compile. combine_local_mouse_buttons is what the field exists for, so it is what
-# the grep asks about.
-MOUSE_IFACE_BTN := $(shell grep -q 'combine_local_mouse_buttons' $(SRC)/src/mouse.c 2>/dev/null && echo -DHARNESS_IFACE_MOUSE_BUTTONS)
+# say so; on one that does not, the cases below would not even compile.
+#
+# The grep asks the header, because the field being there IS the compile prerequisite -
+# the same file $(HDRS) copies and the cases are built against, so the two cannot come to
+# different answers. Asking mouse.c about the helper that populates the field instead
+# would be a proxy one step removed: rename that helper and the cases would be dropped
+# silently, with mousetest's last line then saying something false about the target. A
+# tree that has the field but kept the old fallback is not a concern here, since that
+# fails loudly as MISMATCH rather than quietly as a skip.
+MOUSE_IFACE_BTN := $(shell grep -q 'mouse_buttons' $(SRC)/src/include/hid_parser.h 2>/dev/null && echo -DHARNESS_IFACE_MOUSE_BUTTONS)
 
 # The two receivers PR #358 changes. Lifted rather than reimplemented for the same
 # reason as everything else here: a hand copy would answer the question "does this
