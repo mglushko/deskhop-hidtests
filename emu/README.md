@@ -1,11 +1,12 @@
 # Hardware emulators
 
 Spare RP2040s turned into stand-ins for devices in the corpus, so findings can be
-confirmed on real hardware rather than only on the host. Two of them, one per UF2:
+confirmed on real hardware rather than only on the host. One per UF2:
 
 | build | device | issue | what it is for |
 |---|---|---|---|
 | `bitdo-emu.uf2` | 8BitDo Retro Mechanical Keyboard `2dc8:5201` | [#57] | three keyboard collections on one interface |
+| `ultralink-emu.uf2` | Keychron Ultra-Link 8K `3434:d028` | [#324] | an NKRO usage range one wider than its block |
 | `gameball-emu.uf2` | Gameball trackball `0782:001B` | [#332] | Report Count 16328 against a 128 entry array |
 
 Every report descriptor is pulled out of `../descriptors.h` by `gen_desc.py` at build
@@ -72,7 +73,7 @@ cmake -B build -G Ninja -DPICO_SDK_PATH=$HOME/deskhop-extended/pico-sdk
 cmake --build build
 ```
 
-Produces `build/bitdo-emu.uf2` and `build/gameball-emu.uf2`. Both, every time.
+Produces every UF2 in the table above, every time.
 
 ## Run it
 
@@ -98,6 +99,28 @@ To recover the board for reflashing, hold BOOTSEL while plugging it in.
 | `abcdef` run together, no tail | boot protocol, this run proves nothing either way |
 | `,./` alone | the 6KRO collection produced nothing, a third state worth reporting |
 | nothing | the rig is not reaching the PC, check the port, cable and active output |
+
+# Keychron Ultra-Link, the off-by-one usage range
+
+Same procedure, `ultralink-emu.uf2`, and the same three-burst line. Interface 1 as the
+real dongle presents it: a 6KRO keyboard on report ID 7, consumer control on 0x0C, and an
+NKRO keyboard on 0x11 whose bitmap declares 153 usages over 152 bits.
+
+The 6KRO report here is seven bytes, modifier and six keycodes, because this collection
+declares no reserved byte - its 5 + 3 LED bits are Output. The NKRO bursts are chosen so
+their bits land past the eight bytes `_extract_kbd_boot` copies: a usage sits at report
+byte `2 + usage / 8`, so anything at 48 or above is outside it.
+
+| what you see | meaning |
+|---|---|
+| `abcdef,./` and a newline | the 0x11 bitmap is being decoded, fix confirmed |
+| `abcdef` and nothing else | the bitmap was rejected, which is [#324] |
+| `abcdef` with a stray key before the newline | the collections collapsed as well, see [#57] |
+| nothing | the rig is not reaching the PC, check the port, cable and active output |
+
+Every report this rig puts on the wire is pinned as a case row against
+`d_ultralink_iface1` in `../src/cases_kbd.h`, so the script cannot quietly stop meaning
+what this table says.
 
 Doing it as an A/B is what makes it conclusive: flash the pre-fix image, confirm
 `gmovw3,./`, then flash the fixed one and confirm `abcdef,./` with nothing else
@@ -406,5 +429,6 @@ emulator`, so a bus scan distinguishes it from the real hardware.
 [#57]: https://github.com/hrvach/deskhop/issues/57
 [#211]: https://github.com/hrvach/deskhop/issues/211
 [#295]: https://github.com/hrvach/deskhop/issues/295
+[#324]: https://github.com/hrvach/deskhop/issues/324
 
 [#332]: https://github.com/hrvach/deskhop/issues/332

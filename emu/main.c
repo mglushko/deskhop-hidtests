@@ -278,8 +278,96 @@ static void device_task(void) {
 #endif
 }
 
+/*==============================================================================
+ *  Keychron Ultra-Link: type a line through both keyboard collections
+ *============================================================================*/
+#elif defined(EMU_ULTRALINK)
+
+#define RID_6KRO      0x07   /* modifiers, then six keycodes - no reserved byte */
+#define RID_NKRO      0x11   /* modifiers, then a 152-bit usage bitmap          */
+#define LEN_6KRO      7
+#define LEN_NKRO      20
+#define NKRO_BITS     152
+
+#define HOLD_MS       40
+#define GAP_MS        60
+#define CYCLE_MS      6000
+
+typedef struct {
+    uint8_t rid;
+    uint8_t usages[6];
+    uint8_t count;
+} burst_t;
+
+/* Same script as the 8BitDo, and for the same reason: the first burst is the
+   discriminator and the rest go through the NKRO collection.
+   
+   A usage lands in the report at byte 2 + usage / 8, one for the report ID and one
+   for the modifier, so anything at 48 or above falls outside the eight bytes
+   _extract_kbd_boot copies. 0x36 to 0x38 are therefore invisible in boot protocol,
+   and a run that cannot tell fixed from broken says so by losing its tail rather
+   than by typing something plausible. Enter at 0x28 lands at byte 7, inside the
+   copy, and surfaces as ErrorRollOver instead - also a tell, just a louder one. */
+static const burst_t script[] = {
+    {RID_6KRO, {0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 6},  /* abcdef */
+    {RID_NKRO, {0x36, 0x37, 0x38},                   3},  /* ,./    */
+    {RID_NKRO, {0x28},                               1},  /* Enter  */
+};
+
+#define SCRIPT_LEN (sizeof(script) / sizeof(script[0]))
+
+static void send_burst(const burst_t *b, bool pressed) {
+    if (b->rid == RID_6KRO) {
+        /* [0] modifiers, [1..6] keycode array. One byte shorter than the boot
+           layout, because this collection declares no reserved byte. */
+        uint8_t p[LEN_6KRO] = {0};
+
+        if (pressed)
+            for (uint8_t i = 0; i < b->count && i < 6; i++)
+                p[1 + i] = b->usages[i];
+
+        tud_hid_report(RID_6KRO, p, LEN_6KRO);
+    } else {
+        /* [0] modifiers, [1..19] one bit per usage, LSB first */
+        uint8_t p[LEN_NKRO] = {0};
+
+        if (pressed)
+            for (uint8_t i = 0; i < b->count; i++) {
+                uint8_t u = b->usages[i];
+                if (u < NKRO_BITS)
+                    p[1 + u / 8] |= (uint8_t)(1u << (u % 8));
+            }
+
+        tud_hid_report(RID_NKRO, p, LEN_NKRO);
+    }
+}
+
+static void device_task(void) {
+    static uint32_t next_ms = GRACE_MS;
+    static uint8_t  step    = 0;
+    static bool     pressed = false;
+
+    if (!tud_hid_ready() || now_ms() < next_ms)
+        return;
+
+    send_burst(&script[step], !pressed);
+    pressed = !pressed;
+    reports_sent++;
+
+    if (pressed) {
+        next_ms = now_ms() + HOLD_MS;
+    } else {
+        step = (uint8_t)((step + 1) % SCRIPT_LEN);
+        next_ms = now_ms() + (step == 0 ? CYCLE_MS : GAP_MS);
+    }
+
+#ifdef PICO_DEFAULT_LED_PIN
+    gpio_put(PICO_DEFAULT_LED_PIN, !pressed);
+#endif
+}
+
 #else
-#  error "define EMU_BITDO or EMU_GAMEBALL"
+#  error "define EMU_BITDO, EMU_GAMEBALL or EMU_ULTRALINK"
 #endif
 
 /*==============================================================================

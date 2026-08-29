@@ -49,6 +49,9 @@ endfunction()
 emu_device(bitdo-emu "EMU_BITDO"
   d_bitdo_retro_iface2=bitdo)
 
+emu_device(ultralink-emu "EMU_ULTRALINK"
+  d_ultralink_iface1=ultralink)
+
 emu_device(gameball-emu "EMU_GAMEBALL"
   d_gameball_trackball=gameball_trackball
   d_gameball_gesture=gameball_gesture

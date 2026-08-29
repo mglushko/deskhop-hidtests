@@ -2,8 +2,8 @@
  *
  * Every report descriptor here is generated out of ../descriptors.h by
  * gen_desc.py at build time, so the rig and the harness corpus cannot drift.
- * Which device this binary is depends on EMU_BITDO or EMU_GAMEBALL, set by
- * CMake, which builds both.
+ * Which device this binary is depends on EMU_BITDO, EMU_GAMEBALL or
+ * EMU_ULTRALINK, set by CMake, which builds them all.
  *
  * The interface classes are chosen deliberately, not copied from a template.
  * deskhop routes on bInterfaceProtocol before it looks at anything else, so
@@ -49,8 +49,14 @@
 #    define EMU_SERIAL  "GAMEBALL-3IF"
 #    define EMU_BCD     0x0300
 #  endif
+#elif defined(EMU_ULTRALINK)
+#  define EMU_VID 0x3434   /* Keychron */
+#  define EMU_PID 0xD028
+#  define EMU_PRODUCT "Keychron Ultra-Link emulator"
+#  define EMU_SERIAL  "ULTRALINK-1"
+#  define EMU_BCD     0x0100
 #else
-#  error "define EMU_BITDO or EMU_GAMEBALL"
+#  error "define EMU_BITDO, EMU_GAMEBALL or EMU_ULTRALINK"
 #endif
 
 tusb_desc_device_t const desc_device = {
@@ -162,6 +168,32 @@ uint8_t const desc_configuration[] = {
 };
 
 #endif
+
+/*============================================================================*/
+#elif defined(EMU_ULTRALINK)
+
+/* One interface carrying all three of the real device's top-level collections:
+   a 6KRO keyboard on report ID 7, consumer control on 0x0C and an NKRO keyboard
+   on 0x11. bInterfaceProtocol NONE for the same reason as the 8BitDo above, and
+   here it is load-bearing twice over. Declaring a boot keyboard risks the host
+   negotiating boot protocol, and extract_kbd_data returns from _extract_kbd_boot
+   before the descriptor is consulted at all - so the off-by-one usage range this
+   rig exists to exercise would never be reached. The device's own 6KRO report is
+   not boot-shaped either: it is seven bytes, modifier and six keycodes with no
+   reserved byte, because its 5 + 3 LED bits are declared as Output. */
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
+    (void)instance;
+    return ultralink_desc;
+}
+
+enum { ITF_NUM_HID, ITF_NUM_TOTAL };
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
+
+uint8_t const desc_configuration[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, 0, HID_ITF_PROTOCOL_NONE, ULTRALINK_DESC_LEN,
+                       0x81, CFG_TUD_HID_EP_BUFSIZE, 10),
+};
 
 #endif
 /*============================================================================*/
