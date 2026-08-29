@@ -336,12 +336,8 @@ accord.
 ## pointer-bench.html
 
 A page for reading what a host actually receives, rather than guessing from whether
-something moved. Open it locally or at the hosted copy:
-
-  https://claude.ai/code/artifact/ba5ef823-b153-48bd-be51-c51c0cf5912f
-
-Both come from this file, so edit it here and republish rather than keeping a second
-copy.
+something moved. It sits next to this file, [pointer-bench.html](pointer-bench.html).
+GitHub renders it as source, so save a copy and open that in a browser.
 
 It exists because "the pointer moved" and "the pointer moved correctly" are different
 claims:
