@@ -336,8 +336,10 @@ accord.
 ## pointer-bench.html
 
 A page for reading what a host actually receives, rather than guessing from whether
-something moved. It sits next to this file, [pointer-bench.html](pointer-bench.html).
-GitHub renders it as source, so save a copy and open that in a browser.
+something moved. It sits next to this file, [pointer-bench.html](pointer-bench.html),
+and is served from GitHub Pages at
+<https://mglushko.github.io/deskhop-hidtests/emu/pointer-bench.html>. That is the same
+file rather than a second copy, so edit it here and the hosted one follows.
 
 It exists because "the pointer moved" and "the pointer moved correctly" are different
 claims:
