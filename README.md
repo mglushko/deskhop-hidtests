@@ -224,9 +224,10 @@ interface as the firmware receives it, rather than one collection at a time:
   nothing at all, which is the right answer and is now asserted rather than assumed.
 - **Keychron Ultra-Link 8K** (`3434:d028`) contributes five. Interface 1 carries a 6KRO
   keyboard on report ID 7, consumer control on 0x0C, and an NKRO keyboard on 0x11 - and
-  it is the entry behind two of the findings below. Both of them are invisible if you
-  look at the collections one at a time, which is exactly why the interface-level entries
-  exist.
+  it is the entry behind two of the findings below. One of them, the collection collapse,
+  is invisible unless the whole interface is parsed at once, which is exactly why the
+  interface-level entries exist; the other, the off-by-one usage range on the 0x11 bitmap,
+  is why that collection is also here on its own.
 
 These two also cost the corpus something worth recording. Both were dumped first with
 [win-hid-dump][winhiddump], whose HidSharp backend reconstructs descriptors from Windows'
@@ -346,14 +347,14 @@ separate the two.
 |---|---|---|---|
 | `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 45 identical | both fixed; 47 compared, differences confined to keyboards |
 | `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases | 124 of 124, plus **4 of 4** button fallback cases |
-| `kbd` | 49 of 49 cases over 14 devices | same - #361 is a parser change | **55 of 55 over 15** |
+| `kbd` | 52 of 52 cases over 14 devices | same - #361 is a parser change | **58 of 58 over 15** |
 | `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change | 18 of 18; verdict "has the #358 fix" |
 | `dispatch` | 14 of 22 routed correctly, 4 of those only by luck; 8 misrouted | same - `usb.c` is untouched by these PRs | **22 of 22**, lifted rather than modelled |
 | `check-constants` | all 47 agree with TinyUSB | same | same |
 | `check-parse` | 7 dump shapes read and 2 non-dumps refused, 47 descriptors round trip | same - it tests this repo's reader, not the firmware | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 | 0 out of bounds, peak index 127 |
 | `truncate` | 2321 of 4337 prefixes overread | 2202 of 4337 - the 119 fewer are all `gameball_gesture` and `many_usages`, where the usage array aborted the parse first; the descriptor overread is untouched | 2202 of 4337 - still open, see below |
-| `shortreport` | 779 of 1191 truncated reports overread | 779 of 1191, identical - the fix is in the parser, this is the decode path | **0 of 1227** |
+| `shortreport` | 779 of 1233 truncated reports overread | 779 of 1233, identical - the fix is in the parser, this is the decode path | **0 of 1269** |
 | `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there | never fails |
 | `timing` | segfaults | ~17.5 ns/element on x86-64 | ~17.4 ns/element |
 
@@ -401,7 +402,7 @@ The other two open parser PRs, measured the same way:
 | [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. |
 | [#358] media keys without report IDs | identical parse on all 45 that parse at all, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. `gameball_gesture` and `many_usages` crash on both sides, as they do on `main`. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. |
 
-Three caveats on [#359], of which one is fixed and two stand.
+Three caveats on [#359], of which two are fixed and one stands.
 
 **Fixed.** [#359] set `is_nkro` on the strength of any single block matching
 `maps_usage_per_bit`, and `kbd_with_bit_field` is the case that found it. A plain
@@ -414,22 +415,28 @@ of all blocks keeps both: eight bits is padding, the Wooting's four ranges are n
 Holding `a` on that device returns nothing before the fix and keycode 4 after, with
 the rest of the corpus parsing identically.
 
-**Still open, and the reason the count above is three rather than one.**
-`MAX_NKRO_BLOCKS` is 4 and the Wooting declares exactly 4, so there is no headroom: a
-keyboard splitting its bitmap five ways still loses the last section, silently and in
-the same way. Deciding `is_nkro` on the summed width does not change that - the fifth
-block is never recorded, so its bits are not in the sum either.
+**Still open.** `MAX_NKRO_BLOCKS` is 4 and the Wooting declares exactly 4, so there is no
+headroom: a keyboard splitting its bitmap five ways still loses the last section, silently
+and in the same way. Deciding `is_nkro` on the summed width does not change that - the
+fifth block is never recorded, so its bits are not in the sum either. Nor does the range
+rule below, which changes which blocks qualify and not how many fit.
 
-**Also still open**, and sharper, because it is a case where the new rule rejects
-something `main` accepted. [#359] recognises an NKRO block by `maps_usage_per_bit`, requiring
-`usage_max - usage_min + 1 == size`. The Keychron declares `19 00 2A 98 00` with `95 98`
-- usage minimum 0, usage maximum 152, 152 bits, which is 153 usages mapped onto 152 bits
-- so the block is never recorded and `nkro_count` stays 0. `main` does record it, on
+**Also fixed**, and the sharper of the two, because it was a case where the new rule
+rejected something `main` accepted. [#359] recognised an NKRO block by `maps_usage_per_bit`,
+requiring `usage_max - usage_min + 1 == size`. The Keychron declares `19 00 2A 98 00` with
+`95 98` - usage minimum 0, usage maximum 152, over 152 bits, which is 153 usages mapped onto
+152 - so the block was never recorded and `nkro_count` stayed 0. `main` does record it, on
 `size > 32`, and then throws it away at decode time when `_extract_kbd_nkro` applies the
-identical 1:1 test. Both branches end up in `_extract_kbd_other` and lose every key, so
-this is not a regression, but it does mean the stricter rule silently drops a real
-keyboard's bitmap at parse time rather than decode time. Whether a descriptor that is off
-by one should be honoured or rejected is a judgement call worth making deliberately.
+identical 1:1 test. Both ended in `_extract_kbd_other` and lost every key, so it was never a
+regression, but the stricter rule was silently dropping a real keyboard's bitmap at parse
+time. DeskHop Extended now asks the two questions separately: the range must cover the
+block's bits, which is all `extract_bit_variable` needs, and the item must then look like a
+key bitmap - one usage per bit exactly, or a block at least `NKRO_MIN_BITS` wide. The exact
+arm keeps the Wooting's 8-bit range and the Superlight2's 5- and 3-bit ones, which a width
+rule alone would drop; the width arm takes the Keychron. `ultralink_nkro_keyboard` decodes
+`11 00 10` to nothing before and to usage 4 after, and it and `ultralink_iface1` are the only
+two of the 47 whose parse moves. Upstream
+[#324](https://github.com/hrvach/deskhop/issues/324).
 
 [#358] changes two functions, and in practice only one of them matters. Its consumer
 half fixes a real device, the Cherry KC6000. Its system half needs an interface with a
