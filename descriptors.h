@@ -619,12 +619,14 @@ static const uint8_t d_ultralink_mouse[] = {
    The NKRO block declares 19 00 2A 98 00 with 95 98: usage minimum 0, usage
    maximum 152, and 152 bits. That is 153 usages in 152 bits, off by one, and it is
    what the device really ships. Both the 1:1 check in _extract_kbd_nkro on main and
-   the maps_usage_per_bit rule in [#359] reject it, so NKRO decode fails on both.
+   the maps_usage_per_bit rule in [#359] reject it, so NKRO decode fails on both. A
+   tree that asks only that the range cover the block's bits keeps it instead, which
+   is what the keys_wide column in src/cases_kbd.h pins.
 
-   Two keyboard collections on one interface also collapse into one keyboard_t,
-   because get_keyboard() short-circuits on num_keyboards == 1. The 0x11 block then
-   lands in the same slot as the report ID 7 one and clears key_array[1], which is
-   the first of that keyboard's six key slots. */
+   Two keyboard collections on one interface also collapse into one keyboard_t on
+   any tree where get_keyboard() short-circuits on num_keyboards == 1. The 0x11 block
+   then lands in the same slot as the report ID 7 one and clears key_array[1], which
+   is the first of that keyboard's six key slots. */
 static const uint8_t d_ultralink_iface1[] = {
     0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x07, 0x75, 0x01, 0x95, 0x08, 0x15, 0x00, 0x25, 0x01,
     0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x81, 0x02, 0x75, 0x01, 0x95, 0x05, 0x05, 0x08, 0x19, 0x01,
@@ -648,8 +650,9 @@ static const uint8_t d_ultralink_keyboard[] = {
 };
 
 /* Interface 1's NKRO keyboard on its own, so the off-by-one usage range can be
-   seen without the key_array interaction on top of it. Split out of
-   d_ultralink_iface1. */
+   seen without the key_array interaction on top of it. This and d_ultralink_iface1
+   are the only two descriptors here whose parse moves when the range rule is
+   relaxed. Split out of d_ultralink_iface1. */
 static const uint8_t d_ultralink_nkro_keyboard[] = {
     0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x11, 0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00,
     0x25, 0x01, 0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x15, 0x00, 0x25, 0x01, 0x05, 0x07, 0x19, 0x00,

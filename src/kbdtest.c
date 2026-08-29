@@ -23,13 +23,16 @@
  *                           byte - the shape [#216] blames for shifted keys
  *   superlight2_rx_keyboard three blocks, of which main keeps the first
  *   wooting_keyboard        four blocks, of which main keeps the last
+ *   ultralink_nkro_keyboard a usage range one wider than the block it covers,
+ *                           which every tree before this one threw away
  *
- * The last two decode differently depending on the branch under test, so every
- * case carries two expectations: `keys` is what main produces, `keys_fixed` what
- * a parser that keeps every NKRO block produces. MAX_NKRO_BLOCKS exists only on
- * the latter, so the right column is selected at compile time and one unmodified
- * file asserts correctly against both. Rows where the two columns differ are
- * exactly the rows the multi-block fix moves.
+ * Those decode differently depending on the branch under test, so a case carries
+ * up to four expectations, each naming a tree: `keys` is what main produces,
+ * `keys_fixed` what a parser keeping every NKRO block produces, `keys_multi` what
+ * a parser holding one keyboard_t per collection produces, and `keys_wide` what a
+ * parser keeping a usage range wider than its block produces. The right one is
+ * selected at compile time from what the Makefile finds in the target, so one
+ * unmodified file asserts correctly against every one of them.
  *
  * Each report is copied into an exact-size allocation before being decoded, the
  * same trick mousetest.c and truncate.c use, so ASan's redzone catches a read
@@ -146,9 +149,11 @@ static int run_device(const kbd_device_t *dev) {
     for (unsigned i = 0; i < dev->count; i++) {
         const kbd_case_t         *c = &dev->cases[i];
         hid_keyboard_report_t out;
-        const uint8_t        *want = (ONE_KEYBOARD_PER_COLLECTION && c->has_multi)
+        const uint8_t        *want = (ACCEPTS_WIDE_USAGE_RANGE && c->has_wide)
+                                         ? c->keys_wide
+                                     : (ONE_KEYBOARD_PER_COLLECTION && c->has_multi)
                                          ? c->keys_multi
-                                         : KEEPS_EVERY_BLOCK ? c->keys_fixed : c->keys;
+                                     : KEEPS_EVERY_BLOCK ? c->keys_fixed : c->keys;
 
         /* a len past the end of the array would overread the struct below */
         if (c->len < 0 || (size_t)c->len > sizeof(c->report)) {
@@ -177,9 +182,12 @@ static int run_device(const kbd_device_t *dev) {
 
         if (ok) {
             /* flag the rows the multi-block fix is responsible for */
-            printf("ok%s\n", (ONE_KEYBOARD_PER_COLLECTION && c->has_multi)  ? "   <- multi-keyboard"
-                             : memcmp(c->keys, c->keys_fixed, 6)              ? "   <- multi-block"
-                                                                              : "");
+            printf("ok%s\n", (ACCEPTS_WIDE_USAGE_RANGE && c->has_wide)
+                                 ? "   <- wide usage range"
+                             : (ONE_KEYBOARD_PER_COLLECTION && c->has_multi)
+                                 ? "   <- multi-keyboard"
+                             : memcmp(c->keys, c->keys_fixed, 6) ? "   <- multi-block"
+                                                                 : "");
         } else {
             printf("MISMATCH, wanted mod 0x%02X ", c->modifier);
             print_keys(want);
@@ -202,9 +210,12 @@ int main(void) {
     printf("expectations: %s\n", KEEPS_EVERY_BLOCK
                ? "parser keeps every NKRO block (MAX_NKRO_BLOCKS defined)"
                : "parser keeps one NKRO block (main)");
-    printf("              %s\n\n", ONE_KEYBOARD_PER_COLLECTION
+    printf("              %s\n", ONE_KEYBOARD_PER_COLLECTION
                ? "one keyboard_t per collection (get_or_add_keyboard present)"
                : "all collections on one interface share keyboard_t");
+    printf("              %s\n\n", ACCEPTS_WIDE_USAGE_RANGE
+               ? "a usage range wider than its block is kept (is_key_bitmap present)"
+               : "a usage range wider than its block is rejected");
 
     for (unsigned i = 0; i < ARRAY_SIZE(kbd_devices); i++) {
         failures += run_device(&kbd_devices[i]);

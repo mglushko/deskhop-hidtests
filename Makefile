@@ -134,6 +134,17 @@ KBD_MULTI := $(shell grep -q 'get_or_add_keyboard' $(SRC)/src/keyboard.c 2>/dev/
 # case that would fault rather than taking the suite down with it.
 KBD_BOUNDED := $(shell grep -q 'byte_index >= len' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_BOUNDED_BITMAP)
 
+# Does the target keep a bitmap whose usage range is wider than the block has bits for,
+# instead of demanding one usage per bit exactly? Unlike every other probe here there is
+# nothing that IS the compile prerequisite: the change is a predicate inside
+# handle_keyboard_descriptor_values, with no symbol this harness links against, so this is
+# a proxy and cannot be anything else. It greps the identifier the rule introduces rather
+# than the expression, because an identifier survives reformatting and line-wrapping where
+# `range >= size` would not. A tree that renames it reads here as "not fixed", the Keychron
+# rows then assert the old zeros, and it fails as MISMATCH with the report bytes printed -
+# loudly, which is the opposite of the silent skip c6d0264 was written to get rid of.
+KBD_WIDE := $(shell grep -q 'is_key_bitmap' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_WIDE_USAGE_RANGE)
+
 $(GEN)/lifted_kbd.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 	@python3 tools/lift.py $< $@ $(KBD_LIFT)
 
@@ -191,7 +202,7 @@ $(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/dispatch.h descriptors.h
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries
 $(OUT)/kbdtest: src/kbdtest.c src/cases_kbd.h descriptors.h $(HDRS) $(CORE) | $(GEN)
-	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_MULTI) $(KBD_BOUNDED) -o $@ src/kbdtest.c $(CORE)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_MULTI) $(KBD_BOUNDED) $(KBD_WIDE) -o $@ src/kbdtest.c $(CORE)
 
 $(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/exhaust.c $(CORE)

@@ -5,19 +5,21 @@
  * added here is checked for both its decoded values and its behaviour on a short
  * report, without being written twice.
  *
- * Every case carries two expectations: `keys` is what main produces, `keys_fixed`
- * what a parser keeping every NKRO block produces. MAX_NKRO_BLOCKS exists only on
- * the latter, so the right column is selected at compile time and one unmodified
- * file asserts correctly against both.
+ * Every case carries up to four expectations, each naming a tree: `keys` is what main
+ * produces, `keys_fixed` what a parser keeping every NKRO block produces, `keys_multi`
+ * what a parser holding one keyboard_t per collection produces, and `keys_wide` what a
+ * parser keeping a usage range wider than its block produces. The right one is selected
+ * at compile time from what the Makefile finds in the target, so one unmodified file
+ * asserts correctly against every one of them.
  */
 #pragma once
 
 #include "descriptors.h"
 
-/* Most cases have no third answer, so they stop at keys_fixed and leave has_multi and
-   keys_multi off the end. That is the normal shape here, not an oversight: an omitted
-   has_multi is false, which is exactly "this row's answer does not move again". Scoped
-   off for this table only, so the warning keeps working everywhere else. */
+/* Most cases have no third or fourth answer, so they stop at keys_fixed and leave the
+   later columns off the end. That is the normal shape here, not an oversight: an omitted
+   has_multi or has_wide is false, which is exactly "this row's answer does not move
+   again". Scoped off for this table only, so the warning keeps working everywhere else. */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 
@@ -33,6 +35,14 @@
 #define ONE_KEYBOARD_PER_COLLECTION 1
 #else
 #define ONE_KEYBOARD_PER_COLLECTION 0
+#endif
+
+/* Set by the Makefile when the target records an NKRO block whose usage range is wider
+   than the block has bits for, instead of requiring one usage per bit exactly. */
+#ifdef HARNESS_WIDE_USAGE_RANGE
+#define ACCEPTS_WIDE_USAGE_RANGE 1
+#else
+#define ACCEPTS_WIDE_USAGE_RANGE 0
 #endif
 
 #define REPORT_MAX 40
@@ -52,6 +62,13 @@ typedef struct {
        otherwise read as "expects no keys" rather than "no third answer". */
     bool        has_multi;
     uint8_t     keys_multi[6];
+
+    /* A fourth, for the collections whose bitmap is only kept once a usage range wider
+       than its block is accepted. Independent of has_multi: a device can need one, the
+       other, both or neither, and the Keychron's NKRO collection parsed on its own needs
+       only this one, because there is nothing there for a second keyboard_t to hold. */
+    bool        has_wide;
+    uint8_t     keys_wide[6];
 } kbd_case_t;
 
 typedef struct {
@@ -185,7 +202,13 @@ static const kbd_case_t k_ultralink_kbd_cases[] = {
    keys_multi is what a tree with get_or_add_keyboard produces, which is simply the
    right answer - and it matches k_ultralink_kbd_cases above, the same collection parsed
    on its own. The two entries exist side by side precisely so they can be compared, and
-   once the collapse is fixed they agree. */
+   once the collapse is fixed they agree.
+
+   The last row is report 0x11 on the same interface, and it is the only case here that
+   needs both fixes at once. Without the collapse fix it resolves to the report ID 7 slot;
+   with it, to a slot whose bitmap is still rejected for declaring 153 usages over 152
+   bits. Both give nothing, which is why keys, keys_fixed and keys_multi all say so and
+   only keys_wide carries the answer. */
 static const kbd_case_t k_ultralink_iface1_cases[] = {
     {"a",                       {0x07, 0x00, 0x04}, 8,              0x00, {0}, {0},
                                                                     true, {4}},
@@ -194,12 +217,46 @@ static const kbd_case_t k_ultralink_iface1_cases[] = {
     {"six keys at once",        {0x07, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 8,
                                                                     0x00, {5, 6, 7, 8, 9}, {5, 6, 7, 8, 9},
                                                                     true, {4, 5, 6, 7, 8, 9}},
+    {"usage 4 (a), NKRO collection", {0x11, 0x00, 0x10}, 21,        0x00, {0}, {0},
+                                                                    true, {0}, true, {4}},
+    {"rig: ,./ on the NKRO collection", {0x11, 0x00, [8] = 0xC0, [9] = 0x01}, 21,
+                                                                    0x00, {0}, {0},
+                                                                    true, {0}, true, {54, 55, 56}},
+    /* Enter is the one rig report whose bit lands inside the six bytes the collapsed
+       key_array covers, so on a tree that collapses the two collections it comes back as
+       ErrorRollOver rather than as nothing. In the fifth key slot, not the first: the
+       collapse clears key_array[1], so _extract_kbd_other starts packing at byte 2 and
+       byte 6, where this bit is, arrives fifth. Same shape the 8BitDo's boot rows record,
+       reached here in report protocol and by a different route. */
+    {"rig: enter on the NKRO collection", {0x11, 0x00, [7] = 0x01}, 21,
+                                                                    0x00, {0, 0, 0, 0, 1}, {0, 0, 0, 0, 1},
+                                                                    true, {0}, true, {40}},
 };
 
+/* Keychron Ultra-Link 8K, upstream issue 324, the NKRO collection on report ID 0x11
+   alone, so the off-by-one range can be read without the key_array interaction on top
+   of it.
+
+   The bitmap is declared 19 00 2A 98 00 with 95 98: usage minimum 0, usage maximum 152,
+   over 152 bits. That is 153 usages in 152 bits, and it is what the device ships. Three
+   columns are wrong on purpose, because three trees throw the block away. main records
+   it on size > 32 and then discards it in _extract_kbd_nkro, whose 1:1 recheck the range
+   fails; [#359] and everything built on it reject it earlier, in maps_usage_per_bit.
+   Either way nkro_count is 0 at decode time, the report falls to _extract_kbd_other, and
+   both items in this collection are VARIABLE - so key_array is empty and every keycode
+   disappears while the modifier decodes. That is why the second row still wants modifier
+   0x02 and no keys.
+
+   keys_wide is what a tree accepting a range that merely covers its block produces. The
+   last row is the off-by-one itself: usage 151 is the highest bit with a home, and usage
+   152, the one the range declares and the block has no room for, is not expected back. */
 static const kbd_case_t k_ultralink_nkro_cases[] = {
-    {"usage 4 (a), no keys out", {0x11, 0x00, 0x10}, 21,            0x00, {0}, {0}},
-    {"shift + a, modifier only", {0x11, 0x02, 0x10}, 21,            0x02, {0}, {0}},
-    {"highest usage, 151",       {0x11, 0x00, [20] = 0x80}, 21,     0x00, {0}, {0}},
+    {"usage 4 (a)",              {0x11, 0x00, 0x10}, 21,            0x00, {0}, {0},
+                                                                    false, {0}, true, {4}},
+    {"shift + a",                {0x11, 0x02, 0x10}, 21,            0x02, {0}, {0},
+                                                                    false, {0}, true, {4}},
+    {"highest usage, 151",       {0x11, 0x00, [20] = 0x80}, 21,     0x00, {0}, {0},
+                                                                    false, {0}, true, {151}},
 };
 
 /* A 6KRO keyboard carrying a short keyboard-page bit field, [id][mod][F13-F20][6 keys].
