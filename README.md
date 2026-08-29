@@ -179,10 +179,11 @@ What they have bought so far:
   report ID 1 and NKRO bitmaps on 12 and 10. On `main` all three land on `keyboards[0]`,
   which sets `is_nkro` on the entry that also holds the 6KRO key array, so a 6KRO report
   is decoded as though its bytes were bitmap bits. `make kbd` shows `a` coming out as
-  keycode 10 against [#359], which bounds the bitmap walk without separating the
-  collections; on `main` the unbounded walk keeps the device out of everything but its
-  boot-protocol row. It is the sharper version of the Keychron finding below, and the one
-  still open upstream.
+  keycode 10 against the first three commits of [#359], which bound the bitmap walk without
+  separating the collections; on `main` the unbounded walk keeps the device out of
+  everything but its boot-protocol row. [#359] now carries the separation as a fourth
+  commit, so `a` comes out as `a` against its head. It is the sharper version of the
+  Keychron finding below.
 - **Microsoft Wired Keyboard 600** ([#297]) is the cleanest reproduction of the stale
   usage cursor: its system control block comes out as `usage=0xFF02 page=0x0001`, an
   identifier it never declares, carried over from the vendor block in the preceding
@@ -436,7 +437,8 @@ arm keeps the Wooting's 8-bit range and the Superlight2's 5- and 3-bit ones, whi
 rule alone would drop; the width arm takes the Keychron. `ultralink_nkro_keyboard` decodes
 `11 00 10` to nothing before and to usage 4 after, and it and `ultralink_iface1` are the only
 two of the 47 whose parse moves. Upstream
-[#324](https://github.com/hrvach/deskhop/issues/324).
+[#324](https://github.com/hrvach/deskhop/issues/324), sent as
+[#366](https://github.com/hrvach/deskhop/pull/366).
 
 [#358] changes two functions, and in practice only one of them matters. Its consumer
 half fixes a real device, the Cherry KC6000. Its system half needs an interface with a
@@ -844,9 +846,9 @@ tree that bounds the walk, and why `shortreport`, which replays reports rather t
 descriptors, is where the overread
 itself is counted.
 
-**Fixed in DeskHop Extended.** `get_keyboard()` is now lookup only and a parse-time
-`get_or_add_keyboard()` claims a slot per report ID, so an interface holds one
-`keyboard_t` per collection:
+**Fixed in DeskHop Extended, and sent upstream as the fourth commit of [#359].**
+`get_keyboard()` is now lookup only and a parse-time `get_or_add_keyboard()` claims a slot
+per report ID, so an interface holds one `keyboard_t` per collection:
 
 ```sh
 make dump D=ultralink_iface1 DESKHOP=~/deskhop-extended   # keyboards: 2, keys=01111110
