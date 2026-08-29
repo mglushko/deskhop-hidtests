@@ -110,11 +110,11 @@ Dump one interface at a time, and prefer a tool that reads the wire. On Linux th
 sudo usbhid-dump -d 046d:c548
 ```
 
-From WSL, hand the device over with [usbipd-win][usbipd] first - `usbipd bind --busid
-<id>` from an elevated PowerShell, then `usbipd attach --wsl --busid <id>`. The device
-disappears from Windows while attached, so authenticate `sudo` *before* attaching if you
-are dumping the keyboard you are typing on. `--auto-attach` is worth using for devices
-that re-enumerate on handover; some do.
+From WSL, hand the device over with [usbipd-win][usbipd] first:
+`usbipd bind --busid <id>` from an elevated PowerShell, then
+`usbipd attach --wsl --busid <id>`. The device disappears from Windows while attached, so
+authenticate `sudo` *before* attaching if you are dumping the keyboard you are typing on.
+`--auto-attach` is worth using for devices that re-enumerate on handover; some do.
 
 Avoid judging a descriptor from [win-hid-dump][winhiddump] output. It reconstructs from
 Windows' parsed caps rather than reading the device, and the table in [What the corpus is
