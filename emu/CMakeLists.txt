@@ -1,7 +1,9 @@
 # Builds one UF2 per emulated device:
 #
-#   bitdo-emu.uf2     8BitDo Retro Mechanical Keyboard, hrvach/deskhop#57
-#   gameball-emu.uf2  Gameball trackball 0782:001B, hrvach/deskhop#332
+#   bitdo-emu.uf2      8BitDo Retro Mechanical Keyboard, hrvach/deskhop#57
+#   ultralink-emu.uf2  Keychron Ultra-Link 8K 3434:d028, hrvach/deskhop#324
+#   gameball-emu.uf2   Gameball trackball 0782:001B, hrvach/deskhop#332
+#   sculpt-emu.uf2     Microsoft Sculpt receiver 045e:07a5, hrvach/deskhop#367
 #
 #   cmake -B build -G Ninja -DPICO_SDK_PATH=$HOME/deskhop-extended/pico-sdk
 #   cmake --build build
@@ -51,6 +53,14 @@ emu_device(bitdo-emu "EMU_BITDO"
 
 emu_device(ultralink-emu "EMU_ULTRALINK"
   d_ultralink_iface1=ultralink)
+
+# All three interfaces of the receiver, in its order. Only the mouse is the test,
+# but the keyboard carries the positive control and the consumer interface is what
+# makes the endpoint layout the real one.
+emu_device(sculpt-emu "EMU_SCULPT"
+  d_sculpt_rx_keyboard=sculpt_keyboard
+  d_sculpt_rx_mouse=sculpt_mouse
+  d_sculpt_rx_consumer=sculpt_consumer)
 
 emu_device(gameball-emu "EMU_GAMEBALL"
   d_gameball_trackball=gameball_trackball

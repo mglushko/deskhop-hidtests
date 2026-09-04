@@ -530,7 +530,8 @@ alike, none of which touch the table. `make dispatch` shows both `sculpt rx mous
 DeskHop Extended routes boot protocol by interface while `main` reads the button byte as an
 ID. The Apple keyboard in [#157] has the same shape, media keys on report 0x52, and would
 lose them the same way. Keying the table by value, as `report_offsets` already is, is the
-fix; the `fix-report-id-lookup` branch does that and is measured in the table above.
+fix; the `fix-report-id-lookup` branch does that and is measured in the table above, and
+`emu/sculpt-emu.uf2` puts the receiver on a desk for an A/B against a board.
 
 **A collection nested inside another Application collection is lost.** The Cherry MW 8C's
 interface 2, the third of its three, wraps its whole descriptor in one Application

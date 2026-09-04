@@ -3,7 +3,7 @@
  * The harness compiles the firmware's own parser and feeds it real bytes, which
  * is enough to say what the code does with a report but never enumerates
  * anything. These builds close that gap for two devices whose bugs were found
- * on the host and had no way to be seen on a desk. CMake builds both.
+ * on the host and had no way to be seen on a desk. CMake builds them all.
  *
  *============================================================================
  * EMU_BITDO - 8BitDo Retro Mechanical Keyboard, hrvach/deskhop#57
@@ -66,6 +66,32 @@
  *
  *============================================================================
  *
+ *============================================================================
+ * EMU_SCULPT - Microsoft Sculpt receiver 045e:07a5, hrvach/deskhop#367
+ *============================================================================
+ *
+ * Three interfaces as the real receiver presents them. The mouse, on interface 1,
+ * sits on report ID 0x1A, which is 26: on a tree whose handler table has
+ * MAX_REPORTS (24) slots indexed by the ID, nothing is ever bound to it and every
+ * report is dropped before decode. The parser has the layout right all along.
+ *
+ * The rig traces the same 120 pixel circle as the Gameball, then presses buttons
+ * 1 to 5 one at a time, then works the wheel and the tilt, then taps F13 on the
+ * keyboard interface. The key is the positive control: a boot keyboard with no
+ * report ID, routed correctly on every tree, so it arrives whether or not the
+ * mouse half does.
+ *
+ *     circle, five clicks, scroll, F13       fix present
+ *     F13 alone, LED solid, pointer still    the mouse report is being dropped
+ *     circle and clicks, no scroll           boot protocol: proves nothing here
+ *
+ * The last row is force_mouse_boot_mode. The rig follows the host into boot
+ * protocol and sends the three-byte layout, which carries no ID and so takes a
+ * different path through usb.c; on DeskHop Extended that path works with or
+ * without the fix. No scroll phase is the tell.
+ *
+ *============================================================================
+ *
  * The onboard LED reports which region a failure is in, so "nothing happened"
  * does not have to cover everything from an unpowered board to a working rig
  * pointed at the wrong PC. See emu/README.md. Hold BOOTSEL while plugging the
@@ -92,6 +118,48 @@ static uint32_t now_ms(void) {
 }
 
 static uint32_t reports_sent = 0;
+
+/*==============================================================================
+ *  Shared by the pointing rigs: the circle and the scroll bursts
+ *============================================================================*/
+#if defined(EMU_GAMEBALL) || defined(EMU_SCULPT)
+
+/* A 120 pixel circle, as 48 relative steps.
+ *
+ * Small on purpose. A big circle needs clearance on all four sides, and a corner
+ * is the worst place to start one because two directions clamp at once, which
+ * turns the loop into a staircase and loses the movement that would have closed
+ * it. 120 pixels needs little enough room that where the pointer starts stops
+ * mattering.
+ *
+ * Step count and rounding pull against each other: too few steps looks like a
+ * polygon, too many makes each step's rounding a larger share of it and the speed
+ * vary around the loop, which pointer acceleration turns into shape distortion.
+ * 48 steps at radius 60 gives 8 pixel sides and 6 percent variation.
+ *
+ * The deltas are differences between rounded points on the true circle, so the
+ * path never leaves it by more than half a pixel, and they sum to zero on both
+ * axes, so the pointer returns to where it started every revolution.
+ */
+#define CIRCLE_STEPS 48
+static const int8_t circle[CIRCLE_STEPS][2] = {
+    { -1,  8}, { -1,  8}, { -3,  7}, { -3,  7}, { -4,  7}, { -6,  5}, { -5,  6}, { -7,  4},
+    { -7,  3}, { -7,  3}, { -8,  1}, { -8,  1}, { -8, -1}, { -8, -1}, { -7, -3}, { -7, -3},
+    { -7, -4}, { -5, -6}, { -6, -5}, { -4, -7}, { -3, -7}, { -3, -7}, { -1, -8}, { -1, -8},
+    {  1, -8}, {  1, -8}, {  3, -7}, {  3, -7}, {  4, -7}, {  6, -5}, {  5, -6}, {  7, -4},
+    {  7, -3}, {  7, -3}, {  8, -1}, {  8, -1}, {  8,  1}, {  8,  1}, {  7,  3}, {  7,  3},
+    {  7,  4}, {  5,  6}, {  6,  5}, {  4,  7}, {  3,  7}, {  3,  7}, {  1,  8}, {  1,  8},
+};
+
+/* The two scroll axes: the Gameball's side pads, which #332's reporter asked about,
+   and the Sculpt's wheel and tilt. Same deltas on both rigs, so the bench reads the same
+   numbers for both. */
+static const int8_t scroll[][2] = {   /* {wheel, pan} */
+    { 3,  0}, {-3,  0}, { 0,  3}, { 0, -3},
+};
+#define SCROLL_STEPS (sizeof(scroll) / sizeof(scroll[0]))
+
+#endif
 
 /*==============================================================================
  *  8BitDo: type a line through two of the three keyboard collections
@@ -189,39 +257,6 @@ static void device_task(void) {
 #define REVOLUTIONS   3      /* circles between scroll bursts */
 #define SCROLL_MS     150
 #define PAUSE_MS      700
-
-/* A 120 pixel circle, as 48 relative steps.
- *
- * Small on purpose. A big circle needs clearance on all four sides, and a corner
- * is the worst place to start one because two directions clamp at once, which
- * turns the loop into a staircase and loses the movement that would have closed
- * it. 120 pixels needs little enough room that where the pointer starts stops
- * mattering.
- *
- * Step count and rounding pull against each other: too few steps looks like a
- * polygon, too many makes each step's rounding a larger share of it and the speed
- * vary around the loop, which pointer acceleration turns into shape distortion.
- * 48 steps at radius 60 gives 8 pixel sides and 6 percent variation.
- *
- * The deltas are differences between rounded points on the true circle, so the
- * path never leaves it by more than half a pixel, and they sum to zero on both
- * axes, so the pointer returns to where it started every revolution.
- */
-#define CIRCLE_STEPS 48
-static const int8_t circle[CIRCLE_STEPS][2] = {
-    { -1,  8}, { -1,  8}, { -3,  7}, { -3,  7}, { -4,  7}, { -6,  5}, { -5,  6}, { -7,  4},
-    { -7,  3}, { -7,  3}, { -8,  1}, { -8,  1}, { -8, -1}, { -8, -1}, { -7, -3}, { -7, -3},
-    { -7, -4}, { -5, -6}, { -6, -5}, { -4, -7}, { -3, -7}, { -3, -7}, { -1, -8}, { -1, -8},
-    {  1, -8}, {  1, -8}, {  3, -7}, {  3, -7}, {  4, -7}, {  6, -5}, {  5, -6}, {  7, -4},
-    {  7, -3}, {  7, -3}, {  8, -1}, {  8, -1}, {  8,  1}, {  8,  1}, {  7,  3}, {  7,  3},
-    {  7,  4}, {  5,  6}, {  6,  5}, {  4,  7}, {  3,  7}, {  3,  7}, {  1,  8}, {  1,  8},
-};
-
-/* The two side pads, which is the feature #332's reporter asked about. */
-static const int8_t scroll[][2] = {   /* {wheel, pan} */
-    { 3,  0}, {-3,  0}, { 0,  3}, { 0, -3},
-};
-#define SCROLL_STEPS (sizeof(scroll) / sizeof(scroll[0]))
 
 static void device_task(void) {
     static uint32_t next_ms   = GRACE_MS;
@@ -366,8 +401,155 @@ static void device_task(void) {
 #endif
 }
 
+/*==============================================================================
+ *  Microsoft Sculpt receiver: circle, five clicks, scroll and tilt, one key
+ *============================================================================*/
+#elif defined(EMU_SCULPT)
+
+#define ITF_KEYBOARD  0
+#define ITF_MOUSE     1
+#define ITF_CONSUMER  2
+
+#define RID_MOUSE     0x1A   /* 26: the report ID main's table cannot hold */
+#define LEN_MOUSE     9      /* after the ID: [buttons][X lo hi][Y lo hi][wheel lo hi][pan lo hi] */
+#define LEN_BOOT      3      /* boot protocol: [buttons][X][Y], no ID */
+#define LEN_KBD       8      /* [modifiers][reserved][six keycodes], no ID */
+#define KEY_F13       0x68   /* a key with no default action on any desktop */
+
+#define STEP_MS       25     /* 48 steps at 25 ms is a revolution every 1.2 s */
+#define REVOLUTIONS   3
+#define HOLD_MS       40
+#define GAP_MS        160
+#define SCROLL_MS     150
+#define PAUSE_MS      700
+
+typedef enum { PH_CIRCLE, PH_CLICK, PH_SCROLL, PH_KEY, PH_PAUSE } phase_t;
+
+/* One mouse report, in whichever protocol the host has put the interface. In report
+   protocol it is the ten-byte report 0x1A the real receiver sends, 16-bit fields and all.
+   After deskhop's force_mouse_boot_mode has sent SET_PROTOCOL(boot), it is the fixed boot
+   layout with no ID, which is where wheel and pan have nowhere to go: the spec minimum,
+   since what the real unit appends in boot protocol was never captured. */
+static bool send_mouse(uint8_t buttons, int16_t x, int16_t y, int16_t wheel, int16_t pan) {
+    if (tud_hid_n_get_protocol(ITF_MOUSE) == HID_PROTOCOL_BOOT) {
+        uint8_t b[LEN_BOOT] = {buttons, (uint8_t)(int8_t)x, (uint8_t)(int8_t)y};
+        return tud_hid_n_report(ITF_MOUSE, 0, b, LEN_BOOT);
+    }
+
+    uint8_t p[LEN_MOUSE] = {
+        buttons,
+        (uint8_t)(x & 0xFF),     (uint8_t)((uint16_t)x >> 8),
+        (uint8_t)(y & 0xFF),     (uint8_t)((uint16_t)y >> 8),
+        (uint8_t)(wheel & 0xFF), (uint8_t)((uint16_t)wheel >> 8),
+        (uint8_t)(pan & 0xFF),   (uint8_t)((uint16_t)pan >> 8),
+    };
+    return tud_hid_n_report(ITF_MOUSE, RID_MOUSE, p, LEN_MOUSE);
+}
+
+/* The keyboard interface is the positive control: one F13 per cycle, through a boot
+   keyboard with no report ID, which every tree routes correctly. It says the rig is
+   reaching the PC through deskhop whether or not the mouse half is. */
+static bool send_key(bool pressed) {
+    uint8_t p[LEN_KBD] = {0};
+    if (pressed)
+        p[2] = KEY_F13;
+    return tud_hid_n_report(ITF_KEYBOARD, 0, p, LEN_KBD);
+}
+
+static void device_task(void) {
+    static uint32_t next_ms = GRACE_MS;
+    static phase_t  phase   = PH_CIRCLE;
+    static uint8_t  tick    = 0;
+    static uint8_t  revs    = 0;
+    static uint8_t  i       = 0;
+    static bool     down    = false;
+    static bool     flicker = false;
+
+    if (now_ms() < next_ms)
+        return;
+
+    /* Every send below leaves the state alone when the endpoint refuses the report, so
+       the same step is retried rather than skipped: a skipped delta deforms the circle. */
+    switch (phase) {
+    case PH_CIRCLE:
+        if (!tud_hid_n_ready(ITF_MOUSE) || !send_mouse(0, circle[tick][0], circle[tick][1], 0, 0))
+            return;
+        next_ms = now_ms() + STEP_MS;
+        if (++tick >= CIRCLE_STEPS) {
+            tick = 0;
+            if (++revs >= REVOLUTIONS) {
+                revs    = 0;
+                phase   = PH_CLICK;
+                i       = 0;
+                down    = false;
+                next_ms = now_ms() + PAUSE_MS;
+            }
+        }
+        break;
+
+    case PH_CLICK:
+        /* Buttons 1 to 5 in turn, each pressed and released on its own. Button 5 is the one
+           the reporter's own patch masks off. */
+        if (!tud_hid_n_ready(ITF_MOUSE) || !send_mouse(down ? 0 : (uint8_t)(1u << i), 0, 0, 0, 0))
+            return;
+        down = !down;
+        if (down) {
+            next_ms = now_ms() + HOLD_MS;
+        } else {
+            next_ms = now_ms() + GAP_MS;
+            if (++i >= 5) {
+                i     = 0;
+                phase = PH_SCROLL;
+            }
+        }
+        break;
+
+    case PH_SCROLL:
+        if (tud_hid_n_get_protocol(ITF_MOUSE) == HID_PROTOCOL_BOOT) {
+            /* nothing to put them in; the missing scroll phase is the boot-protocol tell */
+            phase = PH_KEY;
+            down  = false;
+            return;
+        }
+        if (!tud_hid_n_ready(ITF_MOUSE) || !send_mouse(0, 0, 0, scroll[i][0], scroll[i][1]))
+            return;
+        next_ms = now_ms() + SCROLL_MS;
+        if (++i >= SCROLL_STEPS) {
+            i     = 0;
+            phase = PH_KEY;
+            down  = false;
+        }
+        break;
+
+    case PH_KEY:
+        if (!tud_hid_n_ready(ITF_KEYBOARD) || !send_key(!down))
+            return;
+        down = !down;
+        if (down) {
+            next_ms = now_ms() + HOLD_MS;
+        } else {
+            phase   = PH_PAUSE;
+            next_ms = now_ms() + PAUSE_MS;
+        }
+        break;
+
+    case PH_PAUSE:
+        phase = PH_CIRCLE;
+        return;
+    }
+
+    reports_sent++;
+
+#ifdef PICO_DEFAULT_LED_PIN
+    /* Solid while the pointer should be moving, flickering through the clicks, the
+       scrolling and the key, as on the Gameball rig. */
+    flicker = !flicker;
+    gpio_put(PICO_DEFAULT_LED_PIN, phase == PH_CIRCLE ? 1 : flicker);
+#endif
+}
+
 #else
-#  error "define EMU_BITDO, EMU_GAMEBALL or EMU_ULTRALINK"
+#  error "define EMU_BITDO, EMU_GAMEBALL, EMU_ULTRALINK or EMU_SCULPT"
 #endif
 
 /*==============================================================================
@@ -457,6 +639,9 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
 
 #if defined(EMU_GAMEBALL)
     uint16_t len = LEN_TRACKBALL;
+#elif defined(EMU_SCULPT)
+    /* the mouse report carries its ID in front; the other two interfaces do not */
+    uint16_t len = instance == ITF_MOUSE ? LEN_MOUSE + 1 : LEN_KBD;
 #else
     uint16_t len = LEN_6KRO;
 #endif
@@ -464,6 +649,10 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
         len = reqlen;
 
     memset(buffer, 0, len);
+#if defined(EMU_SCULPT)
+    if (instance == ITF_MOUSE && len > 0)
+        buffer[0] = RID_MOUSE;
+#endif
     return len;
 }
 

@@ -2,8 +2,8 @@
  *
  * Every report descriptor here is generated out of ../descriptors.h by
  * gen_desc.py at build time, so the rig and the harness corpus cannot drift.
- * Which device this binary is depends on EMU_BITDO, EMU_GAMEBALL or
- * EMU_ULTRALINK, set by CMake, which builds them all.
+ * Which device this binary is depends on EMU_BITDO, EMU_GAMEBALL, EMU_ULTRALINK
+ * or EMU_SCULPT, set by CMake, which builds them all.
  *
  * The interface classes are chosen deliberately, not copied from a template.
  * deskhop routes on bInterfaceProtocol before it looks at anything else, so
@@ -55,8 +55,16 @@
 #  define EMU_PRODUCT "Keychron Ultra-Link emulator"
 #  define EMU_SERIAL  "ULTRALINK-1"
 #  define EMU_BCD     0x0100
+#elif defined(EMU_SCULPT)
+#  define EMU_VID 0x045E   /* Microsoft */
+#  define EMU_PID 0x07A5
+#  define EMU_PRODUCT "Microsoft Sculpt receiver emulator"
+#  define EMU_SERIAL  "SCULPT-1A"
+   /* The real units report 7.87 to 7.97. Distinct on purpose, for the Windows
+      descriptor cache described under the Gameball above. */
+#  define EMU_BCD     0x0100
 #else
-#  error "define EMU_BITDO, EMU_GAMEBALL or EMU_ULTRALINK"
+#  error "define EMU_BITDO, EMU_GAMEBALL, EMU_ULTRALINK or EMU_SCULPT"
 #endif
 
 tusb_desc_device_t const desc_device = {
@@ -193,6 +201,48 @@ uint8_t const desc_configuration[] = {
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
     TUD_HID_DESCRIPTOR(ITF_NUM_HID, 0, HID_ITF_PROTOCOL_NONE, ULTRALINK_DESC_LEN,
                        0x81, CFG_TUD_HID_EP_BUFSIZE, 10),
+};
+
+/*============================================================================*/
+#elif defined(EMU_SCULPT)
+
+/* Three interfaces, in the order the real receiver presents them and with the
+ * classes the public probes of 045e:07a5 show for it.
+ *
+ *   0  keyboard  Boot keyboard, subclass 1 protocol 1, no report ID. Nothing is
+ *                wrong with it; it carries the positive control, one F13 per
+ *                cycle, through a path every tree routes correctly.
+ *   1  mouse     Boot mouse, subclass 1 protocol 2, the mouse on report ID 0x1A.
+ *                This is the whole test. MOUSE rather than NONE because that is
+ *                what the real unit declares, and because it is what lets
+ *                force_mouse_boot_mode reach the rig: TinyUSB's host refuses
+ *                SET_PROTOCOL on a NONE interface. In report protocol the two
+ *                classes take the same path through usb.c anyway, since the
+ *                descriptor declares report IDs.
+ *   2  consumer  A vendor block, consumer control on report 7 and system control
+ *                on 3, subclass 0. Presented and never used, so the interface
+ *                count and endpoint layout match the real receiver's.
+ */
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
+    switch (instance) {
+        case 0:  return sculpt_keyboard_desc;
+        case 1:  return sculpt_mouse_desc;
+        default: return sculpt_consumer_desc;
+    }
+}
+
+enum { ITF_NUM_KEYBOARD, ITF_NUM_MOUSE, ITF_NUM_CONSUMER, ITF_NUM_TOTAL };
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + 3 * TUD_HID_DESC_LEN)
+
+uint8_t const desc_configuration[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
+
+    TUD_HID_DESCRIPTOR(ITF_NUM_KEYBOARD, 0, HID_ITF_PROTOCOL_KEYBOARD,
+                       SCULPT_KEYBOARD_DESC_LEN, 0x81, CFG_TUD_HID_EP_BUFSIZE, 10),
+    TUD_HID_DESCRIPTOR(ITF_NUM_MOUSE, 0, HID_ITF_PROTOCOL_MOUSE,
+                       SCULPT_MOUSE_DESC_LEN, 0x82, CFG_TUD_HID_EP_BUFSIZE, 10),
+    TUD_HID_DESCRIPTOR(ITF_NUM_CONSUMER, 0, HID_ITF_PROTOCOL_NONE,
+                       SCULPT_CONSUMER_DESC_LEN, 0x83, CFG_TUD_HID_EP_BUFSIZE, 10),
 };
 
 #endif

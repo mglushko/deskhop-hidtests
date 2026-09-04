@@ -8,6 +8,7 @@ confirmed on real hardware rather than only on the host. One per UF2:
 | `bitdo-emu.uf2` | 8BitDo Retro Mechanical Keyboard `2dc8:5201` | [#57] | three keyboard collections on one interface |
 | `ultralink-emu.uf2` | Keychron Ultra-Link 8K `3434:d028` | [#324] | an NKRO usage range one wider than its block |
 | `gameball-emu.uf2` | Gameball trackball `0782:001B` | [#332] | Report Count 16328 against a 128 entry array |
+| `sculpt-emu.uf2` | Microsoft Sculpt receiver `045e:07a5` | [#367] | a mouse on report ID 26, above the handler table |
 
 Every report descriptor is pulled out of `../descriptors.h` by `gen_desc.py` at build
 time rather than checked in twice, so an emulator and the corpus cannot drift apart.
@@ -331,7 +332,67 @@ enough that this stops mattering much, but turn acceleration off if you want the
 shape to mean anything. deskhop also switches outputs on screen edges of its own
 accord.
 
-# Both rigs
+# Microsoft Sculpt receiver, report ID 26
+
+[#367] is a Sculpt Ergonomic Mouse that neither moves the pointer nor clicks. Its
+receiver puts the mouse on report ID 0x1A, which is 26, and `main` binds receivers in a
+table of `MAX_REPORTS` (24) slots indexed by the ID, so nothing is ever bound and every
+report is dropped before decode. The parser has the layout right all along, which the
+host harness shows; this rig shows the drop, and the fix, on a board.
+
+## What it presents
+
+All three interfaces, in the order the real receiver does, with the classes the public
+probes of `045e:07a5` show:
+
+| # | interface | bytes | class | sends |
+|---|---|---|---|---|
+| 0 | keyboard | 57 | boot keyboard | one F13 per cycle, the positive control |
+| 1 | mouse | 223 | boot mouse | the circle, five clicks, wheel and tilt, on report 0x1A |
+| 2 | consumer | 296 | vendor, subclass 0 | nothing |
+
+Interface 1 is deliberately `MOUSE` rather than `NONE`. That is what the real unit
+declares, and in report protocol the two take the same path through `usb.c` anyway,
+since the descriptor uses report IDs. What `MOUSE` adds is reachability for
+`force_mouse_boot_mode`: TinyUSB's host will not send `SET_PROTOCOL` to a `NONE`
+interface, and the rig follows that request, switching to the three-byte boot layout
+with no ID. What the real receiver appends in boot protocol was never captured, so the
+rig sends the spec minimum and nothing for wheel or tilt.
+
+## What it does
+
+Every cycle: the same 120 pixel circle as the Gameball, three revolutions; then
+buttons 1 to 5 pressed and released one at a time, button 5 being the one the
+reporter's own patch masks off; then wheel up three, down three, tilt right three,
+left three, the same deltas as the Gameball so the bench reads the same numbers for
+both; then F13 on the keyboard interface. The LED is solid while it circles and
+flickers through the rest.
+
+The button and key readouts on the bench exist for this rig: keep the pointer over the
+page and the five lamps light in turn, the held mask shows the HID button byte deskhop
+put on the wire, and the key panel shows `F13`. Open the bench in a fresh tab with no
+history, because Chrome navigates on buttons 4 and 5 whatever the page asks.
+
+## Reading the result
+
+| what you see | meaning |
+|---|---|
+| circle, five lamps, scroll on both axes, `F13` | report 0x1A is being delivered, fix confirmed |
+| `F13` and nothing else, LED solid, pointer still | the mouse report is being dropped, the [#367] state |
+| circle and lamps, no scroll | boot protocol, `force_mouse_boot_mode` is on: proves nothing about the fix |
+| nothing, LED dipping | the rig is not reaching the PC, check the port, cable and active output |
+
+The third row is why the scroll phase is skipped in boot protocol rather than sent
+some other way. DeskHop Extended routes boot protocol by interface, so that path works
+there with or without the fix, and a run that cannot tell the two apart should say so
+by losing its scroll rather than by looking complete.
+
+As an A/B: flash a stock image and confirm the second row, then the fixed one and
+confirm the first, with nothing else changed. Every report this rig sends decodes
+through the host harness as `m_sculpt_cases` in `../src/cases_mouse.h`, and the dispatch
+rows for it in `../src/dispatchtest.c` go from dropped to `mouse` on the fixed tree.
+
+# All rigs
 
 ## pointer-bench.html
 
@@ -360,6 +421,10 @@ claims:
   a readable amount instead of sliding labels over a stationary grid.
 - **A wheel event log** carrying `deltaMode`, because pixel, line and page modes differ
   between hosts and change how the numbers should be read.
+- **Buttons and keys.** One lamp per HID button, lit while held, with a press count, the
+  held mask as the raw button byte, and the last key received. The page keeps every
+  button to itself, so a right click does not open a menu over the readout and a middle
+  click does not start autoscroll.
 
 One thing it cannot separate: the browser sees coordinates after the OS pointer curve
 has been applied, so with pointer acceleration on a low roundness figure is not
@@ -378,8 +443,8 @@ wrong PC.
 | one flash a second | powered, never enumerated | the host port, the cable, try it straight into a PC |
 | two flashes a second | enumerated and armed, counting out the grace period | nothing, wait for it |
 | rapid blinking | enumerated, endpoint never goes ready | the host stack, not the rig |
-| **solid** (Gameball) | **sending motion, the pointer should be moving right now** | downstream of the rig, see below |
-| flickering (Gameball) | working the two scroll pads | downstream of the rig |
+| **solid** (Gameball, Sculpt) | **sending motion, the pointer should be moving right now** | downstream of the rig, see below |
+| flickering (Gameball, Sculpt) | working the scroll axes, or on the Sculpt the buttons and the key | downstream of the rig |
 | on, dipping three times a line (8BitDo) | typing | downstream of the rig |
 
 The first four are shared. The last three mean the rig is doing its job and the
@@ -430,3 +495,4 @@ emulator`, so a bus scan distinguishes it from the real hardware.
 [#324]: https://github.com/hrvach/deskhop/issues/324
 
 [#332]: https://github.com/hrvach/deskhop/issues/332
+[#367]: https://github.com/hrvach/deskhop/issues/367
