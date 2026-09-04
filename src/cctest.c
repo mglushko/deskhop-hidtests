@@ -28,6 +28,7 @@
  */
 #include "main.h"
 #include "cases_cc.h"
+#include "handlers.h"
 
 typedef enum { R_MAIN, R_FIXED, R_AGREED, R_NEITHER } verdict_e;
 
@@ -115,14 +116,13 @@ static int run_device(const cc_device_t *dev, verdict_e *seen) {
     process_report_f want_handler =
         dev->path == CC_SYSTEM ? process_system_report : process_consumer_report;
 
-    if (dev->expect_report_id >= MAX_REPORTS ||
-        iface.report_handler[dev->expect_report_id] != want_handler) {
-        printf("  ROUTING: report_handler[%u] is not %s - reports would never arrive\n",
+    if (hid_handler(&iface, dev->expect_report_id) != want_handler) {
+        printf("  ROUTING: report %u is not bound to %s - reports would never arrive\n",
                dev->expect_report_id, dev->path == CC_SYSTEM ? "process_system_report"
                                                              : "process_consumer_report");
         failures++;
     } else {
-        printf("  routing: report_handler[%u] -> %s\n", dev->expect_report_id,
+        printf("  routing: report %u -> %s\n", dev->expect_report_id,
                dev->path == CC_SYSTEM ? "process_system_report" : "process_consumer_report");
     }
 

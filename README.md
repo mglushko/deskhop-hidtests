@@ -286,7 +286,9 @@ matter; see [Adding a device](#adding-a-device).
   everything built on top, including trees without the multi-keyboard fix. So
   `HARNESS_MULTI_KEYBOARD` is set when the target has `get_or_add_keyboard`, and
   `HARNESS_BOUNDED_BITMAP` when its `extract_bit_variable` is bounded against the report
-  length. The second gates one device out rather than changing an answer: without the
+  length, and `HARNESS_HANDLER_LOOKUP` when its handler table is keyed by value and read
+  through `get_report_handler`; `src/handlers.h` hides that last difference behind
+  `hid_handler()`, which `dump`, `cctest`, `kbdtest` and the dispatch model all use. The second gates one device out rather than changing an answer: without the
   bound, `bitdo_retro_iface2` reads off the end and takes the whole run down with it.
 - `src/dispatch.h` models the routing half of `usb.c:tuh_hid_report_received_cb` -
   which receiver a report reaches, given the interface and the bytes. It cannot be
@@ -403,12 +405,13 @@ left the object and its landing site is decided by the process memory map.
 Removing one unrelated descriptor was once enough to change this from "usually prints
 garbage" to "usually segfaults". It now only changes which sanitiser reports it.
 
-The other two open parser PRs, measured the same way:
+The other two open parser PRs, and the branch drafted for [#367], measured the same way:
 
 | PR | what `compare REF=main` shows |
 |---|---|
 | [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. |
-| [#358] media keys without report IDs | identical parse on all 45 that parse at all, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. `gameball_gesture` and `many_usages` crash on both sides, as they do on `main`. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. |
+| [#358] media keys without report IDs | identical parse on all 48 that parse at all, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. `gameball_gesture` and `many_usages` crash on both sides, as they do on `main`. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. |
+| `fix-report-id-lookup`, receivers looked up by report ID value | identical parse on the 47 that parse at all; only `sculpt_rx_mouse` moves, its handlers line going from `none` to `26:M 31:C`. `make dispatch` carries it the rest of the way: both `sculpt rx mouse on ID 0x1A` rows go from dropped to `mouse`, 19 of 29 with `main`'s routing and 29 of 29 with DeskHop Extended's. Compiled for the RP2040 it costs 22 bytes per interface, about 1 KB across `global_state`. |
 
 Three caveats on [#359], of which two are fixed and one stands.
 
@@ -527,7 +530,7 @@ alike, none of which touch the table. `make dispatch` shows both `sculpt rx mous
 DeskHop Extended routes boot protocol by interface while `main` reads the button byte as an
 ID. The Apple keyboard in [#157] has the same shape, media keys on report 0x52, and would
 lose them the same way. Keying the table by value, as `report_offsets` already is, is the
-fix.
+fix; the `fix-report-id-lookup` branch does that and is measured in the table above.
 
 **A collection nested inside another Application collection is lost.** The Cherry MW 8C's
 interface 2, the third of its three, wraps its whole descriptor in one Application
@@ -540,7 +543,7 @@ depth 1 and never becomes the global usage. It stays Consumer Control for the re
 descriptor. The system elements then reach `extract_data()` carrying `global_usage` 0x01
 where the map row wants 0x80, nothing matches, and no ID, handler or receiver is recorded.
 `make dump D=cherry_mw8c_consumer` finds the consumer block and no system block at all:
-`handlers:.C`, `system: rid=0`. Sleep and wake up from that mouse can never arrive,
+`handlers: 1:C`, `system: rid=0`. Sleep and wake up from that mouse can never arrive,
 whatever the consumer fix does.
 
 All three collections do share report ID 1, because the ID is declared once in the outer

@@ -9,6 +9,7 @@
  */
 #include "main.h"
 #include "descriptors.h"
+#include "handlers.h"
 
 static void dump_val(const char *label, report_val_t *v) {
     printf("    %-10s off=%-5u idx=%-4u size=%-3u usage=0x%04X page=0x%04X gusage=0x%04X "
@@ -83,16 +84,26 @@ static void dump_iface(hid_interface_t *iface) {
         printf(" %04X", cckb->sys_array[j]);
     printf("\n");
 
+    /* Every report ID bound to a receiver, in ID order. Read through hid_handler() so the
+       line means the same on a table indexed by ID and on one keyed by value, and so an
+       ID a table cannot hold shows up as missing rather than as a column that never
+       existed. */
     printf("  handlers:");
-    for (int i = 0; i < MAX_REPORTS; i++) {
-        const char *n = ".";
-        if (iface->report_handler[i] == process_mouse_report)      n = "M";
-        else if (iface->report_handler[i] == process_keyboard_report) n = "K";
-        else if (iface->report_handler[i] == process_consumer_report) n = "C";
-        else if (iface->report_handler[i] == process_system_report)   n = "S";
-        printf("%s", n);
+    int bound = 0;
+    for (int i = 0; i < 256; i++) {
+        process_report_f h = hid_handler(iface, i);
+        const char *n = NULL;
+        if (h == process_mouse_report)         n = "M";
+        else if (h == process_keyboard_report) n = "K";
+        else if (h == process_consumer_report) n = "C";
+        else if (h == process_system_report)   n = "S";
+        else if (h != NULL)                    n = "?";
+        if (n) {
+            printf(" %d:%s", i, n);
+            bound++;
+        }
     }
-    printf("\n");
+    printf("%s\n", bound ? "" : " none");
 }
 
 int main(int argc, char **argv) {

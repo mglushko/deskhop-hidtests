@@ -40,6 +40,7 @@
  */
 #include "main.h"
 #include "cases_kbd.h"
+#include "handlers.h"
 
 static void print_keys(const uint8_t *k) {
     int printed = 0;
@@ -94,8 +95,8 @@ static int check_keyboard_slots(void) {
         iface.protocol = HID_PROTOCOL_REPORT;
         parse_report_descriptor(&iface, d->bytes, d->len);
 
-        for (int rid = 0; rid < MAX_REPORTS; rid++) {
-            if (iface.report_handler[rid] != process_keyboard_report)
+        for (int rid = 0; rid < 256; rid++) {
+            if (hid_handler(&iface, rid) != process_keyboard_report)
                 continue;
 
             const keyboard_t *kb = get_keyboard(&iface, (uint8_t)rid);

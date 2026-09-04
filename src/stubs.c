@@ -2,9 +2,9 @@
    usage map in hid_report.c. They play no part in parsing a descriptor, so empty
    bodies are enough to link.
 
-   What the tests actually use is their addresses. extract_data() stores one of
-   these into iface->report_handler[report_id], and dump.c reads that array back to
-   print which receiver each report ID got wired to - the handlers:MMK... line. So
+   What the tests actually use is their addresses. extract_data() binds one of these
+   to each report ID, and dump.c reads the table back to print which receiver each ID
+   got wired to, the handlers: line. So
    these have to stay four distinguishable functions: aliasing them, or routing them
    through one shared implementation, would make those addresses compare equal and
    the handler column would quietly become meaningless.

@@ -32,8 +32,10 @@
  *     else if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD) process_keyboard_report(...);
  *     else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE)    process_mouse_report(...);
  *
- * DeskHop Extended carries this verbatim too - `git diff 59577cc..HEAD -- src/usb.c`
- * is empty there.
+ * The `report_id < MAX_REPORTS` guard is what drops sculpt_rx_mouse. A target keyed by
+ * value has no guard and reads the table through get_report_handler(); hid_handler()
+ * in src/handlers.h does the same on either shape, so the model above needs no second
+ * copy for the fix.
  *
  * Note what this does NOT depend on: iface->protocol. Boot protocol changes what
  * the device puts on the wire, not which branch runs. That is the whole of the
@@ -42,6 +44,7 @@
 #pragma once
 
 #include "main.h"
+#include "handlers.h"
 
 #ifdef HARNESS_LIFT_DISPATCH
 
@@ -77,10 +80,7 @@ static inline process_report_f hid_route(const hid_interface_t *iface, uint8_t i
         if (iface->uses_report_id)
             report_id = report[0];
 
-        if (report_id < MAX_REPORTS)
-            return iface->report_handler[report_id];
-
-        return NULL;
+        return hid_handler(iface, report_id);
     }
 
     if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD)

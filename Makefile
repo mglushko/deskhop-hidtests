@@ -175,6 +175,12 @@ $(GEN)/lifted_cc.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 # Everywhere else src/dispatch.h's model stands in and dispatchtest says so, because a
 # model reports what it was written to say rather than what the firmware does. One
 # grep, and only to decide how dispatchtest links.
+# A target whose handler table is keyed by value reads it through get_report_handler();
+# src/handlers.h picks the matching accessor so dump, cctest, kbdtest and the dispatch
+# model measure either shape.
+HANDLER_LOOKUP := $(shell grep -q 'get_report_handler' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_HANDLER_LOOKUP)
+CFLAGS += $(HANDLER_LOOKUP)
+
 LIFTABLE_DISPATCH := $(shell grep -l 'process_report_f pick_receiver' $(SRC)/src/usb.c 2>/dev/null)
 
 ifneq ($(LIFTABLE_DISPATCH),)
@@ -193,15 +199,15 @@ $(GEN)/hid_parser_instr.c: $(PARSER) tools/instrument.py | $(GEN)
 
 # ---- binaries ----------------------------------------------------------------
 
-$(OUT)/dump: src/dump.c descriptors.h $(HDRS) $(CORE) | $(GEN)
+$(OUT)/dump: src/dump.c src/handlers.h descriptors.h $(HDRS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/dump.c $(CORE)
 
-$(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/dispatch.h descriptors.h $(HDRS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
+$(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
 
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries
-$(OUT)/kbdtest: src/kbdtest.c src/cases_kbd.h descriptors.h $(HDRS) $(CORE) | $(GEN)
+$(OUT)/kbdtest: src/kbdtest.c src/cases_kbd.h src/handlers.h descriptors.h $(HDRS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_MULTI) $(KBD_BOUNDED) $(KBD_WIDE) -o $@ src/kbdtest.c $(CORE)
 
 $(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(CORE) | $(GEN)
@@ -213,7 +219,7 @@ $(OUT)/truncate: src/truncate.c descriptors.h $(HDRS) $(CORE) | $(GEN)
 # The one target that does NOT link src/stubs.c's consumer and system stubs:
 # -DHARNESS_LIFT_CC keeps them out, and $(GEN)/lifted_cc.c supplies the real bodies
 # from the branch under test. src/recorders.c supplies what those bodies reach for.
-$(OUT)/cctest: src/cctest.c src/cases_cc.h descriptors.h $(HDRS) $(CORE) \
+$(OUT)/cctest: src/cctest.c src/cases_cc.h src/handlers.h descriptors.h $(HDRS) $(CORE) \
                $(GEN)/lifted_cc.c src/recorders.c | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -DHARNESS_LIFT_CC -o $@ src/cctest.c \
 	    $(GEN)/lifted_cc.c src/recorders.c $(CORE)
@@ -221,7 +227,7 @@ $(OUT)/cctest: src/cctest.c src/cases_cc.h descriptors.h $(HDRS) $(CORE) \
 # Routing, not decode, so the only thing it needs out of $(CORE) is the four
 # distinguishable receiver addresses in src/stubs.c. $(DISPATCH_SRC) is the target's
 # own pick_receiver() where the target has one, and empty otherwise.
-$(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h descriptors.h $(HDRS) $(CORE) \
+$(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(CORE) \
                      $(DISPATCH_SRC) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(DISPATCH_FLAG) -o $@ src/dispatchtest.c \
 	    $(DISPATCH_SRC) $(CORE)

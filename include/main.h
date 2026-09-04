@@ -41,6 +41,13 @@ keyboard_t *get_or_add_keyboard(hid_interface_t *iface, uint8_t report_id);
 
 void parse_report_descriptor(hid_interface_t *iface, uint8_t const *report, int desc_len);
 void extract_data(hid_interface_t *iface, report_val_t *val);
+
+/* Only on a target whose handler table is keyed by value, where the target declares it
+   in mouse.h, which is not copied here. The Makefile sets the macro when it finds the
+   function in hid_report.c; src/handlers.h reads the table the same way on both shapes. */
+#ifdef HARNESS_HANDLER_LOOKUP
+process_report_f get_report_handler(const hid_interface_t *iface, uint8_t report_id);
+#endif
 int32_t get_report_value(uint8_t *report, int len, report_val_t *val);
 
 /* Also in hid_report.c, though the target declares it over in keyboard.h, which
