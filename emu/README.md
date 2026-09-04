@@ -396,6 +396,24 @@ some other way. DeskHop Extended routes boot protocol by interface, so that path
 there with or without the fix, and a run that cannot tell the two apart should say so
 by losing its scroll rather than by looking complete.
 
+## Through DeskHop Extended v1.12, 2026-09-04
+
+The fixed half of the A/B, on the bench, with the pointer placed over the field first:
+
+| what the rig sends | what the browser reported |
+|---|---|
+| 48 step circle, radius 60 | radius 59 px, roundness 92%, aspect 1.054 wide |
+| buttons 1 to 5, one press each per cycle | 13 presses on each of the five lamps, over 13 cycles |
+| wheel `+3` / `-3` | deltaY `-500` / `+500`, 26 events summing to zero |
+| pan `+3` / `-3` | deltaX `+300` / `-300`, 26 events summing to zero |
+| F13 on the keyboard interface | `F13` in the key panel |
+
+Every number the Gameball rig gave on that PC, the same signs and the same magnitudes,
+on the report that v1.11 drops. The 1.054 is the speed ratio rather than the fix: that
+board runs `speed_x` 13 against `speed_y` 22, which the Gameball section predicts as 5.1%
+wide and 92% round. Before the pointer was placed the rig circled in the top-left corner,
+which is where deskhop's position starts, and its clicks and scrolling went there too.
+
 As an A/B: flash a stock image and confirm the second row, then the fixed one and
 confirm the first, with nothing else changed. Every report this rig sends decodes
 through the host harness as `m_sculpt_cases` in `../src/cases_mouse.h`, and the dispatch
