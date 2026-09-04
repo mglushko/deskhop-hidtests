@@ -147,7 +147,7 @@ the fix there, and the reporter did not choose the tool.
 
 ### What the corpus is already worth
 
-The corpus is 47 descriptors, 36 of them captured from real devices: 19 from upstream
+The corpus is 50 descriptors, 39 of them captured from real devices: 22 from upstream
 issues, 4 from dumps published elsewhere, and 13 dumped here from two devices on hand.
 What they have bought so far:
 
@@ -188,6 +188,13 @@ What they have bought so far:
   usage cursor: its system control block comes out as `usage=0xFF02 page=0x0001`, an
   identifier it never declares, carried over from the vendor block in the preceding
   top-level collection.
+- **Microsoft Sculpt Ergonomic Mouse receiver** (`045e:07a5`, [#367], "unable to move
+  cursor, keys not working"), all three interfaces from the reporter's `usbhid-dump`. Its
+  mouse sits on report ID 0x1A, which is 26, and `main` binds receivers in a table of
+  `MAX_REPORTS` (24) slots indexed by the ID, so nothing is ever bound and every report is
+  dropped before decode. `make dump D=sculpt_rx_mouse` shows the parse is right and the
+  handlers line empty, `make mouse` decodes all twelve reports the reporter captured, and
+  `make dispatch` shows them reaching nobody. The finding below has the rest.
 
 The four that did not come from an issue were added to break that selection bias -
 every real device above is one that already misbehaved, which is a biased sample.
@@ -322,7 +329,7 @@ matter; see [Adding a device](#adding-a-device).
 
 Reference results, so a broken harness is distinguishable from a broken firmware.
 Taken against `main` at `59577cc`, the [#332] fix (now PR [#361]) at `ea680e4`, and
-[DeskHop Extended][deskhop-extended], over the current 47-descriptor corpus.
+[DeskHop Extended][deskhop-extended], over the current 50-descriptor corpus.
 
 The third column is the one that matters day to day. `main` and [#361] are references;
 DeskHop Extended carries all three upstream PRs plus the short-report, boot-routing and
@@ -346,16 +353,16 @@ separate the two.
 
 | check | main | [#361] | [DeskHop Extended][deskhop-extended] |
 |---|---|---|---|
-| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 45 identical | both fixed; 47 compared, differences confined to keyboards |
-| `mouse` | 124 of 124 cases over 10 devices | 124 of 124 cases | 124 of 124, plus **4 of 4** button fallback cases |
-| `kbd` | 52 of 52 cases over 14 devices | same - #361 is a parser change | **58 of 58 over 15** |
-| `consumer` | 18 of 18 over 5 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change | 18 of 18; verdict "has the #358 fix" |
-| `dispatch` | 14 of 22 routed correctly, 4 of those only by luck; 8 misrouted | same - `usb.c` is untouched by these PRs | **22 of 22**, lifted rather than modelled |
+| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 48 identical | both fixed; 50 compared, differences confined to keyboards |
+| `mouse` | 137 of 137 cases over 11 devices | 137 of 137 cases | 137 of 137, plus **4 of 4** button fallback cases |
+| `kbd` | 55 of 55 cases over 15 devices | same - #361 is a parser change | **61 of 61 over 16** |
+| `consumer` | 23 of 23 over 7 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change | 23 of 23; verdict "has the #358 fix" |
+| `dispatch` | 17 of 29 routed correctly, 4 of those only by luck; 12 misrouted | same - `usb.c` is untouched by these PRs | **27 of 29**, lifted rather than modelled; the two misrouted are the Sculpt's report 0x1A, see below |
 | `check-constants` | all 47 agree with TinyUSB | same | same |
-| `check-parse` | 7 dump shapes read and 2 non-dumps refused, 47 descriptors round trip | same - it tests this repo's reader, not the firmware | same |
+| `check-parse` | 7 dump shapes read and 2 non-dumps refused, 50 descriptors round trip | same - it tests this repo's reader, not the firmware | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 | 0 out of bounds, peak index 127 |
-| `truncate` | 2321 of 4337 prefixes overread | 2202 of 4337 - the 119 fewer are all `gameball_gesture` and `many_usages`, where the usage array aborted the parse first; the descriptor overread is untouched | 2202 of 4337 - still open, see below |
-| `shortreport` | 779 of 1233 truncated reports overread | 779 of 1233, identical - the fix is in the parser, this is the decode path | **0 of 1269** |
+| `truncate` | 2634 of 4913 prefixes overread | 2515 of 4913 - the 119 fewer are all `gameball_gesture` and `many_usages`, where the usage array aborted the parse first; the descriptor overread is untouched | 2515 of 4913 - still open, see below |
+| `shortreport` | 896 of 1366 truncated reports overread | 896 of 1366, identical - the fix is in the parser, this is the decode path | **0 of 1402** |
 | `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there | never fails |
 | `timing` | segfaults | ~17.5 ns/element on x86-64 | ~17.4 ns/element |
 
@@ -506,7 +513,21 @@ fix, but a large enough count still outruns the 500 ms watchdog.
 
 ### Functionality lost on a real device
 
-One device, one capability, no workaround.
+Two devices, one capability each.
+
+**A report ID of 24 or above is never dispatched.** The Microsoft Sculpt receiver ([#367])
+puts its mouse on report ID 0x1A, which is 26. `main` binds receivers in
+`report_handler[MAX_REPORTS]`, indexed by the ID, and both the binding in `extract_data()`
+and the lookup in `usb.c` are guarded by `report_id < MAX_REPORTS`, so nothing is ever bound
+and every report is dropped before decode. The parser is not at fault: `make dump
+D=sculpt_rx_mouse` derives every field at the right offset and `make mouse` decodes all
+twelve reports the reporter captured, on `main`, on every open PR and on DeskHop Extended
+alike, none of which touch the table. `make dispatch` shows both `sculpt rx mouse on ID
+0x1A` rows dropped everywhere. Only its boot-protocol rows differ between trees, because
+DeskHop Extended routes boot protocol by interface while `main` reads the button byte as an
+ID. The Apple keyboard in [#157] has the same shape, media keys on report 0x52, and would
+lose them the same way. Keying the table by value, as `report_offsets` already is, is the
+fix.
 
 **A collection nested inside another Application collection is lost.** The Cherry MW 8C's
 interface 2, the third of its three, wraps its whole descriptor in one Application
@@ -1004,11 +1025,13 @@ of the build directory still says where it came from.
 [#297]: https://github.com/hrvach/deskhop/issues/297
 [#287]: https://github.com/hrvach/deskhop/issues/287
 [deskhop-extended]: https://github.com/mglushko/deskhop-extended
+[#157]: https://github.com/hrvach/deskhop/issues/157
 [#332]: https://github.com/hrvach/deskhop/issues/332
 [#335]: https://github.com/hrvach/deskhop/issues/335
 [#358]: https://github.com/hrvach/deskhop/pull/358
 [#359]: https://github.com/hrvach/deskhop/pull/359
 [#361]: https://github.com/hrvach/deskhop/pull/361
+[#367]: https://github.com/hrvach/deskhop/issues/367
 [hidintro]: https://docs.kernel.org/hid/hidintro.html
 [tmk]: https://github.com/tmk/tmk_keyboard/wiki/USB:-HID-Report-Descriptor
 [rpigist]: https://gist.github.com/probonopd/9646c69f876ff2b4b879aeb1c1cbc532

@@ -22,8 +22,12 @@
  * dropped to it being handed to the consumer or system receiver. The rows below
  * measure that on the real devices in the corpus rather than arguing it.
  *
- * This target FAILS on firmware that has the bug, which is every branch measured
- * so far including DeskHop Extended - usb.c is byte-identical to upstream there.
+ * A second cause, found later: on main the table is indexed by the report ID and has
+ * MAX_REPORTS slots, so an ID of 24 or more is never bound and its reports are
+ * dropped in report protocol too. The sculpt rows measure that one.
+ *
+ * This target FAILS on firmware that has either bug, which is every tree measured
+ * so far; DeskHop Extended fixed the routing and not the table.
  * It belongs in `make findings`, not `make test`, for the same reason truncate and
  * shortreport do: its exit status is the finding.
  */
@@ -113,6 +117,32 @@ static const route_case_t cases[] = {
 {"ultralink mouse, boot, left held",   D(ultralink_mouse),      MSE, B, {0x01,0x14,0x00}, 4,
                                        process_mouse_report,
                                        "arrives only because the left button sets bit 0, matching report ID 1"},
+
+/* ---- report IDs above MAX_REPORTS: report protocol, nothing exotic on the wire -- */
+/* Microsoft Sculpt receiver 045e:07a5 (issue #367). Its mouse lives on report ID
+   0x1A, which is 26; on main the handler table has MAX_REPORTS (24) slots indexed by
+   the ID itself, so no receiver is ever bound and the report is dropped whichever
+   bInterfaceProtocol the interface carries. The keyboard and the consumer/system
+   interfaces of the same receiver use IDs 0, 7 and 3 and route normally. */
+{"sculpt rx mouse on ID 0x1A, itf mouse", D(sculpt_rx_mouse),   MSE, R, {0x1A,0x00,0x01,0x00}, 10,
+                                       process_mouse_report, NULL},
+{"sculpt rx mouse on ID 0x1A, itf none",  D(sculpt_rx_mouse),   NON, R, {0x1A,0x00,0x01,0x00}, 10,
+                                       process_mouse_report, NULL},
+{"sculpt rx keyboard, no report ID",   D(sculpt_rx_keyboard),   KBD, R, {0x00,0x00,0x04}, 8,
+                                       process_keyboard_report, NULL},
+{"sculpt rx consumer on ID 7",         D(sculpt_rx_consumer),   NON, R, {0x07,0xE9,0x00}, 8,
+                                       process_consumer_report, NULL},
+{"sculpt rx system on ID 3",           D(sculpt_rx_consumer),   NON, R, {0x03,0x82}, 2,
+                                       process_system_report, NULL},
+
+/* The same receiver after force_mouse_boot_mode: the wire now carries [buttons][x][y]
+   with no ID, so report[0] is the button byte. On a tree that reads it as a report
+   ID anyway, no button means slot 0 and the left button means slot 1, neither bound;
+   on a tree that routes boot protocol by the interface the pointer arrives. */
+{"sculpt rx mouse, boot, no button",   D(sculpt_rx_mouse),      MSE, B, {0x00,0x01,0x00}, 3,
+                                       process_mouse_report, NULL},
+{"sculpt rx mouse, boot, left held",   D(sculpt_rx_mouse),      MSE, B, {0x01,0x01,0x00}, 3,
+                                       process_mouse_report, NULL},
 };
 
 #undef D
@@ -197,12 +227,13 @@ int main(void) {
                "  change the modifier or the button held and they stop arriving\n", accidents);
 
     if (failures) {
-        printf("\n  %d MISROUTED. A keyboard in boot protocol sends no report ID, but usb.c still\n",
+        printf("\n  %d MISROUTED. Two causes are known. A device in boot protocol sends no report\n",
                failures);
-        printf("  reads report[0] as one, because iface->uses_report_id comes from the descriptor\n");
-        printf("  and is never revised. extract_kbd_data's HID_PROTOCOL_BOOT branch is therefore\n");
-        printf("  unreachable for every keyboard that declares a report ID, and a boot-mode mouse\n");
-        printf("  is routed by its button byte the same way.\n");
+        printf("  ID, but usb.c still reads report[0] as one, because iface->uses_report_id comes\n");
+        printf("  from the descriptor and is never revised; a keyboard's modifier byte and a\n");
+        printf("  mouse's button byte are looked up as report IDs. And a table indexed by the\n");
+        printf("  report ID never binds an ID of MAX_REPORTS or more, so those reports are\n");
+        printf("  dropped in report protocol as well.\n");
         return 1;
     }
 

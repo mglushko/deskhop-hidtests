@@ -43,7 +43,7 @@ typedef struct {
     const uint8_t  *desc;
     int             desc_len;
     cc_path_e       path;
-    uint8_t         expect_report_id; /* which report_handler slot must be bound */
+    uint8_t         expect_report_id; /* which report ID must be bound to the receiver */
     const cc_case_t *cases;
     unsigned        count;
 } cc_device_t;
@@ -128,6 +128,27 @@ static const cc_case_t system_no_rid_cases[] = {
     {"nothing held",         {0x00}, 1, false, {0},                     true,  {0x00}},
 };
 
+
+/* Microsoft Sculpt receiver, interface 2 (issue #367). Consumer control on report ID
+   7 as one 16-bit array slot followed by a keyboard-page array byte, padding and
+   vendor bits - eight bytes on the wire. is_variable is false, so this is the copy
+   through branch, as on the Bolt. System control on report ID 3, one byte. Both
+   declare their own IDs, so main and #358 must agree on every row; the entries are
+   here so the receiver's third interface is measured next to the mouse half that
+   is not delivered at all. */
+static const cc_case_t sculpt_consumer_cases[] = {
+    {"volume up",            {0x07, 0xE9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8, true, {0xE9, 0x00, 0x00, 0x00},
+                                                                                  true, {0xE9, 0x00, 0x00, 0x00}},
+    {"AC home",              {0x07, 0x23, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00}, 8, true, {0x23, 0x02, 0x00, 0x00},
+                                                                                  true, {0x23, 0x02, 0x00, 0x00}},
+    {"nothing held",         {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8, true, {0}, true, {0}},
+};
+
+static const cc_case_t sculpt_system_cases[] = {
+    {"sleep",                {0x03, 0x82}, 2, true, {0x82},             true,  {0x82}},
+    {"nothing held",         {0x03, 0x00}, 2, true, {0x00},             true,  {0x00}},
+};
+
 #define CCDEV(d, path, rid, c) \
     {#d, d_##d, (int)sizeof(d_##d), path, rid, c, (unsigned)ARRAY_SIZE(c)}
 
@@ -137,6 +158,8 @@ static const cc_device_t cc_devices[] = {
     CCDEV(bolt_rx_consumer,       CC_CONSUMER, 3, bolt_consumer_cases),
     CCDEV(ms600_consumer,         CC_SYSTEM,   3, ms600_system_cases),
     CCDEV(system_no_report_id,    CC_SYSTEM,   0, system_no_rid_cases),
+    CCDEV(sculpt_rx_consumer,     CC_CONSUMER, 7, sculpt_consumer_cases),
+    CCDEV(sculpt_rx_consumer,     CC_SYSTEM,   3, sculpt_system_cases),
 };
 
 #undef CCDEV

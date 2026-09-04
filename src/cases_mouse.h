@@ -232,6 +232,31 @@ static const mouse_case_t m_boot_protocol_cases[] = {
     {"boot: all three buttons",  {0x07, 0x00, 0x00, 0x00, 0x00}, 5,    0,   0,  0,  0,  7},
 };
 
+
+/* Microsoft Sculpt Ergonomic Mouse receiver, interface 1 (issue #367). Every report
+   below is one the reporter captured with usbhid-dump, so the expected values are
+   read off the wire rather than derived. Layout is [0x1A][5 buttons + 3 pad][X 16]
+   [Y 16][wheel 16][pan 16], ten bytes. The wheel reads 12 per notch in the capture
+   because the Linux host had set the Resolution Multiplier feature; a host that never
+   touches that feature gets the device default instead. Decoding the bytes is one
+   question and routing the report is another: 0x1A is 26, above MAX_REPORTS, so see
+   dispatchtest for what happens to the report before any of this runs. */
+static const mouse_case_t m_sculpt_cases[] = {
+    {"move left  (X -1)",       {0x1A, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 10,  -1,  0,   0,  0, 0},
+    {"move right (X +1)",       {0x1A, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 10,   1,  0,   0,  0, 0},
+    {"move up    (Y -1)",       {0x1A, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00}, 10,   0, -1,   0,  0, 0},
+    {"move down  (Y +1)",       {0x1A, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}, 10,   0,  1,   0,  0, 0},
+    {"left button",             {0x1A, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 10,   0,  0,   0,  0, 1},
+    {"right button",            {0x1A, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 10,   0,  0,   0,  0, 2},
+    {"middle button",           {0x1A, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 10,   0,  0,   0,  0, 4},
+    {"side button (back)",      {0x1A, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 10,   0,  0,   0,  0, 8},
+    {"wheel up   (+12)",        {0x1A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00}, 10,   0,  0,  12,  0, 0},
+    {"wheel down (-12)",        {0x1A, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF4, 0xFF, 0x00, 0x00}, 10,   0,  0, -12,  0, 0},
+    {"tilt left  (pan -3)",     {0x1A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFD, 0xFF}, 10,   0,  0,   0, -3, 0},
+    {"tilt right (pan +3)",     {0x1A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00}, 10,   0,  0,   0,  3, 0},
+    {"synthetic: extremes",     {0x1A, 0x1F, 0xFF, 0x7F, 0x01, 0x80, 0x7F, 0x81, 0x01, 0x80}, 10, 32767, -32767, -32385, -32767, 31},
+};
+
 #define DEV(d, p, c) {#d, d_##d, (int)sizeof(d_##d), p, c, (unsigned)ARRAY_SIZE(c)}
 
 static const mouse_device_t mouse_devices[] = {
@@ -245,6 +270,7 @@ static const mouse_device_t mouse_devices[] = {
     DEV(ultralink_mouse, HID_PROTOCOL_REPORT, m_ultralink_cases),
     DEV(bolt_rx_touchpad, HID_PROTOCOL_REPORT, m_bolt_touchpad_cases),
     DEV(boot_mouse, HID_PROTOCOL_BOOT, m_boot_protocol_cases),
+    DEV(sculpt_rx_mouse, HID_PROTOCOL_REPORT, m_sculpt_cases),
 };
 
 #undef DEV

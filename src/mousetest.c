@@ -16,6 +16,8 @@
  *                           axes, and the wheel declared before X/Y
  *   kernel_multi_collection two mouse collections in one descriptor, so the
  *                           decode runs against whichever one won
+ *   sculpt_rx_mouse         16-bit axes, wheel and pan on report ID 0x1A, which is 26:
+ *                           decodes here, and on main is dropped before it gets here
  *
  * cherry_mw8c_mouse runs the Kensington's cases because its pointer section is
  * byte for byte the same; if that ever stops being true, this notices.

@@ -351,6 +351,17 @@ static const kbd_case_t k_bitdo_boot_cases[] = {
                                                                     0x0C, {[5] = 1}, {[5] = 1}},
 };
 
+
+/* Microsoft Sculpt receiver, interface 0 (issue #367): a boot keyboard with no report
+   ID, LED output block declared ahead of the input. Same len == 8 shortcut as
+   d_boot_keyboard; the entry is here so the receiver's keyboard half is measured
+   alongside its mouse half rather than assumed from the shape. */
+static const kbd_case_t k_sculpt_cases[] = {
+    {"a",                  {0x00, 0x00, 0x04}, 8,                   0x00, {4}, {4}},
+    {"left GUI alone",     {0x08, 0x00, 0x00}, 8,                   0x08, {0}, {0}},
+    {"ctrl + alt + delete",{0x05, 0x00, 0x4C}, 8,                   0x05, {0x4C}, {0x4C}},
+};
+
 #define DEV(d, p, c) {#d, d_##d, (int)sizeof(d_##d), p, c, (unsigned)ARRAY_SIZE(c)}
 
 static const kbd_device_t kbd_devices[] = {
@@ -376,6 +387,7 @@ static const kbd_device_t kbd_devices[] = {
        that keeps the entry above behind HARNESS_BOUNDED_BITMAP cannot happen here. */
     DEV(bitdo_retro_iface2, HID_PROTOCOL_BOOT, k_bitdo_boot_cases),
     DEV(kbd_with_bit_field, HID_PROTOCOL_REPORT, k_bit_field_cases),
+    DEV(sculpt_rx_keyboard, HID_PROTOCOL_REPORT, k_sculpt_cases),
 };
 
 #undef DEV
