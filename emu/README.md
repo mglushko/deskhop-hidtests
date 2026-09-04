@@ -368,6 +368,15 @@ left three, the same deltas as the Gameball so the bench reads the same numbers 
 both; then F13 on the keyboard interface. The LED is solid while it circles and
 flickers through the rest.
 
+Where the circle lands is deskhop's choice, not the rig's. deskhop sends absolute
+coordinates and its position starts at the top-left corner at power-up; only a device
+attached through deskhop moves it, and a mouse plugged straight into the PC does not. The
+rig's deltas sum to zero, so it circles wherever deskhop's pointer was when it began, and
+from a corner the first revolution clamps on two sides and leaves the circle tangent to
+both edges, clicking and scrolling into whatever sits there. Before the run, put the
+pointer over the bench's field with a mouse on the deskhop's other port, then leave that
+mouse alone; the rig picks up from there on its next revolution, no replug needed.
+
 The button and key readouts on the bench exist for this rig: keep the pointer over the
 page and the five lamps light in turn, the held mask shows the HID button byte deskhop
 put on the wire, and the key panel shows `F13`. Open the bench in a fresh tab with no
