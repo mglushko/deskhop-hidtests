@@ -340,6 +340,35 @@
   .cell.rw { color: var(--ch-v); font-weight: 600; }
   .cell.mk { color: var(--ink-2); }
 
+  /* ---------- buttons and keys ---------- */
+
+  /* One cell per HID button, lit while it is held. The held mask is e.buttons, whose
+     bit order is the HID button byte's, so it reads as the byte deskhop put on the wire. */
+  .btns {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+  @media (max-width: 720px) { .btns { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+  .btn {
+    position: relative;
+    padding: 11px 14px;
+    border-right: 1px solid var(--line-soft);
+    min-width: 0;
+  }
+  .btn:last-child { border-right: 0; }
+  .btn .sub { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+
+  .lamp {
+    position: absolute; top: 12px; right: 12px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--idle);
+    transition: background .08s;
+  }
+  .btn.held .lamp { background: var(--live); box-shadow: 0 0 0 3px color-mix(in srgb, var(--live) 25%, transparent); }
+  .btn.held .stat-v { color: var(--live); }
+
   /* ---------- log ---------- */
 
   .log {
@@ -421,8 +450,8 @@
       <h1>Pointer Bench</h1>
       <p class="sub">
         Reads what the browser actually receives from a pointing device: the path it traces,
-        and the two scroll axes separately. Built to check an emulated trackball, so it
-        measures rather than just reacts.
+        the two scroll axes separately, and which buttons it presses. Built to check emulated
+        devices, so it measures rather than just reacts.
       </p>
     </div>
     <div class="status" id="status" data-live="0"><span class="dot"></span><span id="statusText">idle</span></div>
@@ -500,6 +529,22 @@
         </div>
       </section>
   </div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2 class="panel-title">Buttons and keys</h2>
+      <span class="panel-note">held is e.buttons, bit 0 is button 1: the HID button byte</span>
+    </div>
+    <div class="btns">
+      <div class="btn" id="btn1"><i class="lamp"></i><div class="stat-k">1 left</div><div class="stat-v" id="btn1n">0</div></div>
+      <div class="btn" id="btn2"><i class="lamp"></i><div class="stat-k">2 right</div><div class="stat-v" id="btn2n">0</div></div>
+      <div class="btn" id="btn3"><i class="lamp"></i><div class="stat-k">3 middle</div><div class="stat-v" id="btn3n">0</div></div>
+      <div class="btn" id="btn4"><i class="lamp"></i><div class="stat-k">4 back</div><div class="stat-v" id="btn4n">0</div></div>
+      <div class="btn" id="btn5"><i class="lamp"></i><div class="stat-k">5 forward</div><div class="stat-v" id="btn5n">0</div></div>
+      <div class="btn"><div class="stat-k">Held</div><div class="stat-v" id="held">0x00</div></div>
+      <div class="btn"><div class="stat-k">Last key</div><div class="stat-v" id="keyLast">&mdash;</div><div class="sub" id="keyCount">0 keys</div></div>
+    </div>
+  </section>
 
   <section class="panel">
     <div class="panel-head">
@@ -591,6 +636,55 @@
     if (logRows.length > 60) logRows.pop();
     dirtyLog = true;
   }, { passive: true });
+
+  /* ---- buttons and keys ---- */
+
+  /* e.button numbers the buttons 0 left, 1 middle, 2 right, 3 back, 4 forward; HID
+     numbers them 1 left, 2 right, 3 middle, 4 back, 5 forward. e.buttons uses the HID
+     order for its bits, which is why the held mask is shown as the raw byte. */
+  var HID_BUTTON = [1, 3, 2, 4, 5];
+  var btnCount = [0, 0, 0, 0, 0];
+  var keyCount = 0;
+  var btnCell = [], btnNum = [];
+  for (var bi = 1; bi <= 5; bi++) {
+    btnCell.push(document.getElementById("btn" + bi));
+    btnNum.push(document.getElementById("btn" + bi + "n"));
+  }
+  var heldEl = document.getElementById("held");
+  var keyLastEl = document.getElementById("keyLast");
+  var keyCountEl = document.getElementById("keyCount");
+
+  function showHeld(mask) {
+    for (var i = 0; i < 5; i++) btnCell[i].classList.toggle("held", !!(mask & (1 << i)));
+    heldEl.textContent = "0x" + (mask & 0xFF).toString(16).toUpperCase().padStart(2, "0");
+  }
+
+  /* Not passive: the page keeps every button to itself, so a right click does not open
+     a menu over the readout, a middle click does not start autoscroll, and the two side
+     buttons do not navigate where the browser allows that to be refused. Chrome ignores
+     the refusal for back and forward, so open the bench in a fresh tab with no history. */
+  window.addEventListener("mousedown", function (e) {
+    var b = HID_BUTTON[e.button];
+    if (b) { btnCount[b - 1]++; btnNum[b - 1].textContent = btnCount[b - 1]; }
+    if (e.button !== 0) e.preventDefault();
+    showHeld(e.buttons);
+    lastActivity = performance.now();
+  });
+  window.addEventListener("mouseup", function (e) {
+    if (e.button !== 0) e.preventDefault();
+    showHeld(e.buttons);
+    lastActivity = performance.now();
+  });
+  window.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  window.addEventListener("auxclick", function (e) { e.preventDefault(); });
+
+  window.addEventListener("keydown", function (e) {
+    if (e.repeat) return;
+    keyCount++;
+    keyLastEl.textContent = e.code || e.key;
+    keyCountEl.textContent = keyCount + (keyCount === 1 ? " key" : " keys");
+    lastActivity = performance.now();
+  });
 
   function bump(c, d) {
     c.count++;
@@ -805,6 +899,11 @@
     moveTimes.length = 0;
     ch.h = { count: 0, sum: 0, min: null, max: null, now: 0 };
     ch.v = { count: 0, sum: 0, min: null, max: null, now: 0 };
+    for (var i = 0; i < 5; i++) { btnCount[i] = 0; btnNum[i].textContent = "0"; }
+    keyCount = 0;
+    keyLastEl.innerHTML = "&mdash;";
+    keyCountEl.textContent = "0 keys";
+    showHeld(0);
     t0 = performance.now();
     els.log.innerHTML = '<div class="log-row head"><span>t +ms</span><span>deltaX</span><span>deltaY</span><span>mode</span></div>';
     els.log.appendChild(els.logEmpty);
