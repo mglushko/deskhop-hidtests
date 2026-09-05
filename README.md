@@ -4,7 +4,7 @@ Runs deskhop's `hid_parser.c` and `hid_report.c` on the host, along with the dec
 routing functions `tools/lift.py` copies verbatim out of `mouse.c`, `keyboard.c` and
 `usb.c`, against any checkout,
 branch or worktree. Built while chasing [issue #332][#332] (Gameball trackball taking
-down a board) and kept because the next HID device issue will want the same tools.
+down a board, and as it turned out the Apple keyboard in [#157] too) and kept because the next HID device issue will want the same tools.
 
 Nothing here modifies deskhop. It compiles the firmware's own sources and reads its
 headers, so results reflect the real code rather than a reimplementation of it.
@@ -147,7 +147,7 @@ the fix there, and the reporter did not choose the tool.
 
 ### What the corpus is already worth
 
-The corpus is 50 descriptors, 39 of them captured from real devices: 22 from upstream
+The corpus is 53 descriptors, 42 of them captured from real devices: 25 from upstream
 issues, 4 from dumps published elsewhere, and 13 dumped here from two devices on hand.
 What they have bought so far:
 
@@ -195,6 +195,16 @@ What they have bought so far:
   dropped before decode. `make dump D=sculpt_rx_mouse` shows the parse is right and the
   handlers line empty, `make mouse` decodes all twelve reports the reporter captured, and
   `make dispatch` shows them reaching nobody. The finding below has the rest.
+- **Apple Magic Keyboard with Touch ID** (`05ac:029f`, [#157], "will not work", and a board
+  that reboots over and over). Three interfaces. The keyboard and the device-management
+  interface come from the reporter's `usbhid-dump`; the third, Touch ID, sits on a bulk
+  endpoint that Linux's HID driver never binds, so that tool never showed it and the
+  emulation built from the dump could not reproduce the loop. Its 49 bytes were transcribed
+  from the `lsusb -v` decode in the same thread: three vendor reports, one with a Report
+  Count of 649. That is [#332] again. `make dump D=apple_a2520_touchid` aborts under ASan on
+  `main` and on every open PR except [#361], where it parses and binds nothing. The
+  keystrokes in the stream capture decode everywhere, and the media keys on report 0x52,
+  which is 82, need [#368] the same way the Sculpt does.
 
 The four that did not come from an issue were added to break that selection bias -
 every real device above is one that already misbehaved, which is a biased sample.
@@ -331,7 +341,7 @@ matter; see [Adding a device](#adding-a-device).
 
 Reference results, so a broken harness is distinguishable from a broken firmware.
 Taken against `main` at `59577cc`, the [#332] fix (now PR [#361]) at `ea680e4`, and
-[DeskHop Extended][deskhop-extended], over the current 50-descriptor corpus.
+[DeskHop Extended][deskhop-extended], over the current 53-descriptor corpus.
 
 The third column is the one that matters day to day. `main` and [#361] are references;
 DeskHop Extended carries all three upstream PRs plus the short-report, boot-routing and
@@ -355,16 +365,16 @@ separate the two.
 
 | check | main | [#361] | [DeskHop Extended][deskhop-extended] |
 |---|---|---|---|
-| `compare` | crashes on `gameball_gesture` and `many_usages` under ASan | both crashes fixed, other 48 identical | both fixed; 50 compared, differences confined to keyboards |
+| `compare` | crashes on `gameball_gesture`, `many_usages` and `apple_a2520_touchid` under ASan | all three crashes fixed, other 50 identical | all three fixed; 53 compared, differences confined to keyboards and the two report-ID devices |
 | `mouse` | 137 of 137 cases over 11 devices | 137 of 137 cases | 137 of 137, plus **4 of 4** button fallback cases |
-| `kbd` | 55 of 55 cases over 15 devices | same - #361 is a parser change | **61 of 61 over 16** |
-| `consumer` | 23 of 23 over 7 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change | 23 of 23; verdict "has the #358 fix" |
-| `dispatch` | 17 of 29 routed correctly, 4 of those only by luck; 12 misrouted | same - `usb.c` is untouched by these PRs | **27 of 29**, lifted rather than modelled; the two misrouted are the Sculpt's report 0x1A, see below |
+| `kbd` | 59 of 59 cases over 16 devices | same - #361 is a parser change | **65 of 65 over 17** |
+| `consumer` | 23 of 23 over 7 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change | **26 of 26 over 8**; verdict "has the #358 fix" |
+| `dispatch` | 20 of 33 routed correctly, 4 of those only by luck; 13 misrouted | same - `usb.c` is untouched by these PRs | **33 of 33**, lifted rather than modelled |
 | `check-constants` | all 47 agree with TinyUSB | same | same |
-| `check-parse` | 7 dump shapes read and 2 non-dumps refused, 50 descriptors round trip | same - it tests this repo's reader, not the firmware | same |
+| `check-parse` | 7 dump shapes read and 2 non-dumps refused, 53 descriptors round trip | same - it tests this repo's reader, not the firmware | same |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 | 0 out of bounds, peak index 127 |
-| `truncate` | 2634 of 4913 prefixes overread | 2515 of 4913 - the 119 fewer are all `gameball_gesture` and `many_usages`, where the usage array aborted the parse first; the descriptor overread is untouched | 2515 of 4913 - still open, see below |
-| `shortreport` | 896 of 1366 truncated reports overread | 896 of 1366, identical - the fix is in the parser, this is the decode path | **0 of 1402** |
+| `truncate` | 2817 of 5252 prefixes overread | 2691 of 5252 - the 126 fewer are all `gameball_gesture`, `many_usages` and `apple_a2520_touchid`, where the usage array aborted the parse first; the descriptor overread is untouched | 2691 of 5252 - still open, see below |
+| `shortreport` | 900 of 1378 truncated reports overread | 900 of 1378, identical - the fix is in the parser, this is the decode path | **0 of 1414** |
 | `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there | never fails |
 | `timing` | segfaults | ~17.5 ns/element on x86-64 | ~17.4 ns/element |
 
@@ -405,13 +415,13 @@ left the object and its landing site is decided by the process memory map.
 Removing one unrelated descriptor was once enough to change this from "usually prints
 garbage" to "usually segfaults". It now only changes which sanitiser reports it.
 
-The other two open parser PRs, and the branch drafted for [#367], measured the same way:
+The other two open parser PRs, and [#368], measured the same way:
 
 | PR | what `compare REF=main` shows |
 |---|---|
 | [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. |
-| [#358] media keys without report IDs | identical parse on all 48 that parse at all, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. `gameball_gesture` and `many_usages` crash on both sides, as they do on `main`. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. |
-| `fix-report-id-lookup`, receivers looked up by report ID value | identical parse on the 47 that parse at all; only `sculpt_rx_mouse` moves, its handlers line going from `none` to `26:M 31:C`. `make dispatch` carries it the rest of the way: both `sculpt rx mouse on ID 0x1A` rows go from dropped to `mouse`, 19 of 29 with `main`'s routing and 29 of 29 with DeskHop Extended's. Compiled for the RP2040 it costs 22 bytes per interface, about 1 KB across `global_state`. |
+| [#358] media keys without report IDs | identical parse on all 50 that parse at all, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. `gameball_gesture` and `many_usages` crash on both sides, as they do on `main`. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. |
+| [#368] receivers looked up by report ID value | identical parse on 48 of the 50 that parse at all; `sculpt_rx_mouse` gains `26:M 31:C` and `apple_a2520_iface1` gains `82:C`, the two devices with a collection above ID 23. `make dispatch` carries it the rest of the way: the Sculpt's report 0x1A and the Apple's report 0x52 go from dropped to their receivers, 23 of 33 with `main`'s routing and 33 of 33 with DeskHop Extended's. Compiled for the RP2040 it costs 22 bytes per interface, about 1 KB across `global_state`. Confirmed on the real receiver by #367's reporter. |
 
 Three caveats on [#359], of which two are fixed and one stands.
 
@@ -530,8 +540,8 @@ alike, none of which touch the table. `make dispatch` shows both `sculpt rx mous
 DeskHop Extended routes boot protocol by interface while `main` reads the button byte as an
 ID. The Apple keyboard in [#157] has the same shape, media keys on report 0x52, and would
 lose them the same way. Keying the table by value, as `report_offsets` already is, is the
-fix; the `fix-report-id-lookup` branch does that and is measured in the table above, and
-`emu/sculpt-emu.uf2` puts the receiver on a desk for an A/B against a board.
+fix; [#368] does that and is measured in the table above, and `emu/sculpt-emu.uf2` puts the
+receiver on a desk for an A/B against a board.
 
 **A collection nested inside another Application collection is lost.** The Cherry MW 8C's
 interface 2, the third of its three, wraps its whole descriptor in one Application
@@ -1036,6 +1046,7 @@ of the build directory still says where it came from.
 [#359]: https://github.com/hrvach/deskhop/pull/359
 [#361]: https://github.com/hrvach/deskhop/pull/361
 [#367]: https://github.com/hrvach/deskhop/issues/367
+[#368]: https://github.com/hrvach/deskhop/pull/368
 [hidintro]: https://docs.kernel.org/hid/hidintro.html
 [tmk]: https://github.com/tmk/tmk_keyboard/wiki/USB:-HID-Report-Descriptor
 [rpigist]: https://gist.github.com/probonopd/9646c69f876ff2b4b879aeb1c1cbc532

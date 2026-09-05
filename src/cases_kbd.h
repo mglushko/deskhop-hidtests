@@ -362,6 +362,19 @@ static const kbd_case_t k_sculpt_cases[] = {
     {"ctrl + alt + delete",{0x05, 0x00, 0x4C}, 8,                   0x05, {0x4C}, {0x4C}},
 };
 
+/* Apple A2520, interface 1 (issue #157). Report 1 as the reporter captured it: ten bytes,
+   [id][modifiers][reserved][six keys][Eject, Fn, Menu and one more consumer bit, 4 pad].
+   uses_report_id is set, so _extract_kbd_other reads the key slots at bytes 2 to 7 after
+   the ID. The trailing byte of bits is declared under the keyboard collection on consumer
+   and vendor pages, which no map row claims, so Eject and Fn never reach the host. */
+static const kbd_case_t k_apple_a2520_cases[] = {
+    {"q",                  {0x01, 0x00, 0x00, 0x14}, 10,             0x00, {0x14}, {0x14}},
+    {"shift + q",          {0x01, 0x02, 0x00, 0x14}, 10,             0x02, {0x14}, {0x14}},
+    {"Eject bit, no key",  {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}, 10,
+                                                                     0x00, {0}, {0}},
+    {"released",           {0x01, 0x00, 0x00, 0x00}, 10,             0x00, {0}, {0}},
+};
+
 #define DEV(d, p, c) {#d, d_##d, (int)sizeof(d_##d), p, c, (unsigned)ARRAY_SIZE(c)}
 
 static const kbd_device_t kbd_devices[] = {
@@ -388,6 +401,7 @@ static const kbd_device_t kbd_devices[] = {
     DEV(bitdo_retro_iface2, HID_PROTOCOL_BOOT, k_bitdo_boot_cases),
     DEV(kbd_with_bit_field, HID_PROTOCOL_REPORT, k_bit_field_cases),
     DEV(sculpt_rx_keyboard, HID_PROTOCOL_REPORT, k_sculpt_cases),
+    DEV(apple_a2520_iface1, HID_PROTOCOL_REPORT, k_apple_a2520_cases),
 };
 
 #undef DEV

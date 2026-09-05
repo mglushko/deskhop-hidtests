@@ -143,6 +143,18 @@ static const route_case_t cases[] = {
                                        process_mouse_report, NULL},
 {"sculpt rx mouse, boot, left held",   D(sculpt_rx_mouse),      MSE, B, {0x01,0x01,0x00}, 3,
                                        process_mouse_report, NULL},
+
+/* Apple A2520 (issue #157): keys on report 1 route everywhere; media keys on 0x52, which
+   is 82, only on a table keyed by value; the 64-byte vendor report 0x3F and interface 0's
+   battery report 0x90 must reach nobody, and do. */
+{"a2520 keys on report 1",             D(apple_a2520_iface1),   KBD, R, {0x01,0x00,0x00,0x14}, 10,
+                                       process_keyboard_report, NULL},
+{"a2520 media keys on report 0x52",    D(apple_a2520_iface1),   KBD, R, {0x52,0x01}, 2,
+                                       process_consumer_report, NULL},
+{"a2520 vendor report 0x3F, dropped",  D(apple_a2520_iface1),   KBD, R, {0x3F,0x00}, 8,
+                                       NULL, NULL},
+{"a2520 iface0 battery 0x90, dropped", D(apple_a2520_iface0),   NON, R, {0x90,0x03,0x63}, 3,
+                                       NULL, NULL},
 };
 
 #undef D
