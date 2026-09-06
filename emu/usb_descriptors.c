@@ -123,10 +123,10 @@ uint8_t const desc_configuration[] = {
  *                 buttons were held. Declaring MOUSE takes the direct branch
  *                 instead, which is both correct and what a real trackball does.
  *   1  gesture    Vendor page 0xFFE0, no boot anything, so subclass 0 and
- *                 protocol 0. This is the interface that carries the bug: its
- *                 first report declares Report Count 0x3FC8, which is 16328,
- *                 against a 128 entry usages[] array. Nothing is ever sent on
- *                 it. Enumerating is the whole test.
+ *                 protocol 0. This is the interface that carries the bug: three
+ *                 of its reports declare 8-bit fields with Report Counts of 256,
+ *                 1024 and 2048 against a 128 entry usages[] array. Nothing is
+ *                 ever sent on it. Enumerating is the whole test.
  *   2  keyboard   Boot keyboard. Note it declares eight modifier bits and 48
  *                 bits of padding and no key array at all, so it can report
  *                 modifiers and nothing else. That is the device's own doing,

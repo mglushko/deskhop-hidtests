@@ -7,7 +7,7 @@ confirmed on real hardware rather than only on the host. One per UF2:
 |---|---|---|---|
 | `bitdo-emu.uf2` | 8BitDo Retro Mechanical Keyboard `2dc8:5201` | [#57] | three keyboard collections on one interface |
 | `ultralink-emu.uf2` | Keychron Ultra-Link 8K `3434:d028` | [#324] | an NKRO usage range one wider than its block |
-| `gameball-emu.uf2` | Gameball trackball `0782:001B` | [#332] | Report Count 16328 against a 128 entry array |
+| `gameball-emu.uf2` | Gameball trackball `0782:001B` | [#332] | Report Counts of 256, 1024 and 2048 against a 128 entry array |
 | `sculpt-emu.uf2` | Microsoft Sculpt receiver `045e:07a5` | [#367] | a mouse on report ID 26, above the handler table |
 
 Every report descriptor is pulled out of `../descriptors.h` by `gen_desc.py` at build
@@ -145,13 +145,21 @@ All three interfaces, in the order the real device does:
 | 1 | gesture | 350 | vendor, subclass 0 | nothing at all |
 | 2 | keyboard | 38 | boot keyboard | nothing |
 
-Interface 1 is the whole test. Its first report declares Report Count `0x3FC8`, which
-is 16328, against `usages[HID_MAX_USAGES]` where `HID_MAX_USAGES` is 128. In
+Interface 1 is the whole test. Three of its input reports declare 8-bit fields with
+Report Counts of 256, 1024 and 2048 against a single usage each, and the parser walks
+the usage cursor once per element through `usages[HID_MAX_USAGES]`, where
+`HID_MAX_USAGES` is 128; the last of the three reaches `usages[2051]`. In
 `parser_state_t` the member immediately after that array is `p_usage`, a pointer the
 parser then dereferences, so a tree without a bound runs off the end of the array and
 straight into it. Parsing this descriptor on upstream main aborts under ASan on the
 host; on an RP2040 it corrupts a live pointer instead. Nothing is ever sent on that
 interface, because the damage happens at parse time and enumerating is enough.
+
+The descriptor's largest count is not the one that does it. The first report's
+`0x3FC8`, 16328, is a 1-bit constant padding 7 data bytes out to 2048, and with no
+usage queued `handle_main_input` swaps size and count and stores it as one element.
+Cut it to 8 and the overflow stays; leave it alone and cut the three 8-bit counts to
+8 and the parse is clean.
 
 Interface 0 is what you watch. `bInterfaceProtocol` is deliberately `MOUSE`: the
 trackball descriptor declares no report ID, so an interface presenting as `NONE` would
@@ -201,11 +209,11 @@ re-encodes End Collection with a size byte.
 The bottom two did not enumerate on the Windows PC used on 2026-08-19. They are
 kept as separate builds so each finding keeps its own evidence.
 
-`gameball-full-emu` is the one that tests the parser bug, because the Report Count
-of 16328 lives on the gesture interface and only the three interface builds present
-it. The repairs are applied there because a host has to accept the device before
-anything can be tested at all, and the evidence says they move the bytes closer to
-what the real device sends. The 16328 is untouched.
+`gameball-full-emu` is the one that tests the parser bug, because the Report Counts
+of 256, 1024 and 2048 live on the gesture interface and only the three interface
+builds present it. The repairs are applied there because a host has to accept the
+device before anything can be tested at all, and the evidence says they move the
+bytes closer to what the real device sends. The Report Counts are untouched.
 
 The open question is recorded in `../descriptors.h`: #332's dump was taken on
 Windows and shows HID collection paths, so Windows accepted whatever that device

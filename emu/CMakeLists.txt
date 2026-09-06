@@ -89,11 +89,11 @@ emu_device(gameball-fixed-emu "EMU_GAMEBALL;EMU_FIXED"
   d_gameball_trackball=gameball_trackball --normalise-end-collection --fix-signed-axes)
 
 # The one that tests #332. All three interfaces, both repairs, so the gesture
-# interface with its Report Count of 16328 is actually presented to deskhop while
-# the trackball stays watchable. The repairs are applied because a host has to
-# accept the device before any of this can be tested at all, and the evidence
-# says they bring the bytes closer to what the real device sends rather than
-# further from it.
+# interface with its Report Counts of 256, 1024 and 2048 is actually presented to
+# deskhop while the trackball stays watchable. The repairs are applied because a
+# host has to accept the device before any of this can be tested at all, and the
+# evidence says they bring the bytes closer to what the real device sends rather
+# than further from it.
 emu_device(gameball-full-emu "EMU_GAMEBALL;EMU_FULLFIX"
   d_gameball_trackball=gameball_trackball
   d_gameball_gesture=gameball_gesture

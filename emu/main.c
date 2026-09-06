@@ -41,12 +41,15 @@
  * on the interface you watch, which is the whole reason this one has to be a
  * composite device rather than a single descriptor.
  *
- * The gesture interface declares Report Count 0x3FC8, which is 16328, against a
- * 128 entry usages[] array, and in parser_state_t the very next member after
- * usages[] is p_usage, a pointer the parser then dereferences. On a tree without
- * a bound the parse runs off the end of the array and into that pointer. Parsing
- * this descriptor on upstream main aborts under ASan on the host; on an RP2040
- * it corrupts a live pointer instead.
+ * The gesture interface declares 8-bit fields with Report Counts of 256, 1024 and
+ * 2048 against a 128 entry usages[] array, one usage each, and in parser_state_t
+ * the very next member after usages[] is p_usage, a pointer the parser then
+ * dereferences. On a tree without a bound the parse runs off the end of the array
+ * and into that pointer. Its largest count, the 16328 bits of padding on the
+ * first report, is not involved: a 1-bit constant takes the size/count swap in
+ * handle_main_input and lands as a single element. Parsing this descriptor on
+ * upstream main aborts under ASan on the host; on an RP2040 it corrupts a live
+ * pointer instead.
  *
  * Nothing is ever sent on the gesture interface. Enumerating is the entire test,
  * because the damage happens at parse time. What you watch is the trackball, on
