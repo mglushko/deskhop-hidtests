@@ -9,7 +9,7 @@ confirmed on real hardware rather than only on the host. One per UF2:
 | `ultralink-emu.uf2` | Keychron Ultra-Link 8K `3434:d028` | [#324] | an NKRO usage range one wider than its block |
 | `gameball-emu.uf2` | Gameball trackball `0782:001B` | [#332] | Report Counts of 256, 1024 and 2048 against a 128 entry array |
 | `sculpt-emu.uf2` | Microsoft Sculpt receiver `045e:07a5` | [#367] | a mouse on report ID 26, above the handler table |
-| `sleepwake-emu.uf2` | BOOTSEL System Control rig `cafe:4025` | extended #22 / #25 | press BOOTSEL to send Sleep or Wake |
+| `sleepwake-emu.uf2` | BOOTSEL System Control rig `cafe:4025` | [extended #22][extended-22] / [#25][extended-25] | press BOOTSEL to send Sleep or Wake |
 
 Every report descriptor is pulled out of `../descriptors.h` by `gen_desc.py` at build
 time rather than checked in twice, so an emulator and the corpus cannot drift apart.
@@ -52,8 +52,8 @@ the two DeskHop controllers should run the `media-and-system-keys` firmware.
 3. Move the emulator to DeskHop's USB-A keyboard port. Select that board's output
    while the PC is awake, then repeat the hold-to-sleep and tap-to-wake test.
 4. Select the other board's output while both PCs are awake and repeat. This is
-   the forwarding path fixed by extended #25; waking the selected suspended host
-   also exercises #22. Move the emulator to the other board and repeat to cover
+   the forwarding path fixed by [extended #25][extended-25]; waking the selected suspended host
+   also exercises [#22][extended-22]. Move the emulator to the other board and repeat to cover
    both directions.
 
 Use the development PC for software probes. The Dell machine remains observation
@@ -624,3 +624,6 @@ emulator`, so a bus scan distinguishes it from the real hardware.
 
 [#332]: https://github.com/hrvach/deskhop/issues/332
 [#367]: https://github.com/hrvach/deskhop/issues/367
+
+[extended-22]: https://github.com/mglushko/deskhop-extended/issues/22
+[extended-25]: https://github.com/mglushko/deskhop-extended/issues/25
