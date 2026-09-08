@@ -50,11 +50,13 @@ the two DeskHop controllers should run the `media-and-system-keys` firmware.
    OS, hold BOOTSEL until the LED stays lit, then release to request Sleep. Wait
    until the PC is asleep, then tap and release BOOTSEL to request Wake.
 3. Move the emulator to DeskHop's USB-A keyboard port. Select that board's output
-   while the PC is awake, then repeat the hold-to-sleep and tap-to-wake test.
+   while the PC is awake, then repeat the hold-to-sleep and tap-to-wake test. Waking
+   the PC from here is the local half of [#22][extended-22]: the Wake report leaves
+   through the queue that fix taught to request resume.
 4. Select the other board's output while both PCs are awake and repeat. This is
-   the forwarding path fixed by [extended #25][extended-25]; waking the selected suspended host
-   also exercises [#22][extended-22]. Move the emulator to the other board and repeat to cover
-   both directions.
+   the forwarding path fixed by [extended #25][extended-25], and waking that PC once it
+   sleeps exercises [#22][extended-22] on the receiving board. Move the emulator to the
+   other board and repeat to cover both directions.
 
 Use the development PC for software probes. The Dell machine remains observation
 only. Windows' `powercfg /devicequery wake_armed` and `powercfg /lastwake` help

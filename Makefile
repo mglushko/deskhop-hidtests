@@ -373,16 +373,20 @@ endif  # compare in MAKECMDGOALS
 # this permanently red and worth nothing. Their exit status is the finding, not a
 # regression. `make findings` runs those, and reports rather than gates.
 #
-# check-constants is last: it is the only one needing the Pico SDK submodule
-# populated, and it skips cleanly when it is not.
+# check-constants sits after the decode suites: it is the only one needing the Pico
+# SDK submodule populated, and it skips cleanly when it is not. test-sleepwake closes
+# the list; it needs only gcc.
 .PHONY: test findings
 test: mouse kbd consumer check-parse check-constants test-sleepwake
+	@echo
+	@echo "known good decode unchanged against $(SRC)"
 
+# The Sleep/Wake rig's own gesture and delivery logic, on the host. Nothing here reads a
+# DeskHop tree, so this target says nothing about decode; the rig's packets are covered on
+# the DeskHop side by the consumer suite and by dispatch.
 .PHONY: test-sleepwake
 test-sleepwake:
 	bash emu/sleepwake/test.sh
-	@echo
-	@echo "known good decode unchanged against $(SRC)"
 
 # The bounds, overread and routing checks, run for their numbers. Each prints its own
 # summary and its own exit status is ignored here on purpose: see above.
