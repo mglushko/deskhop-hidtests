@@ -9,9 +9,103 @@ confirmed on real hardware rather than only on the host. One per UF2:
 | `ultralink-emu.uf2` | Keychron Ultra-Link 8K `3434:d028` | [#324] | an NKRO usage range one wider than its block |
 | `gameball-emu.uf2` | Gameball trackball `0782:001B` | [#332] | Report Counts of 256, 1024 and 2048 against a 128 entry array |
 | `sculpt-emu.uf2` | Microsoft Sculpt receiver `045e:07a5` | [#367] | a mouse on report ID 26, above the handler table |
+| `sleepwake-emu.uf2` | BOOTSEL System Control rig `cafe:4025` | extended #22 / #25 | press BOOTSEL to send Sleep or Wake |
 
 Every report descriptor is pulled out of `../descriptors.h` by `gen_desc.py` at build
 time rather than checked in twice, so an emulator and the corpus cannot drift apart.
+
+# BOOTSEL Sleep/Wake
+
+`sleepwake-emu.uf2` makes a spare RP2040 into a USB System Control device. Plug it
+into DeskHop's USB-A host port to test the Sleep/Wake input path, including forwarding
+to the other board. It needs no extra button or wiring. The build targets a standard
+RP2040 Pico with its GPIO25 LED; boards with a different LED need the appropriate
+`PICO_BOARD` configuration. The BOOTSEL button must use the standard flash-CS wiring.
+
+| BOOTSEL gesture | report sent when the button is released |
+|---|---|
+| tap, under 1.5 seconds | System Wake Up (`0x83`), then release (`0x00`) |
+| hold at least 1.5 seconds, until the LED stays lit | System Sleep (`0x82`), then release (`0x00`) |
+
+Nothing is sent while the button stays down. There is no automatic alternating
+state: a short press always means Wake, even if the computer is already awake.
+Power Down is never generated. Holding BOOTSEL while plugging the board in still
+enters the normal `RPI-RP2` bootloader for reflashing.
+
+Build from the harness root:
+
+```sh
+cmake -S emu -B emu/build -DPICO_SDK_PATH="$HOME/deskhop-extended/pico-sdk" \
+    -DPICO_BOARD=pico -DCMAKE_BUILD_TYPE=Release
+cmake --build emu/build --target sleepwake-emu --parallel 4
+```
+
+Adjust `PICO_SDK_PATH` for another checkout. The output is
+`emu/build/sleepwake-emu.uf2`. This firmware goes on the **spare emulator board**;
+the two DeskHop controllers should run the `media-and-system-keys` firmware.
+
+1. Hold BOOTSEL on the spare board while plugging it into the PC. Release BOOTSEL
+   and copy the UF2 to `RPI-RP2`.
+2. Test it directly on the development PC first. With USB wakeup permitted by the
+   OS, hold BOOTSEL until the LED stays lit, then release to request Sleep. Wait
+   until the PC is asleep, then tap and release BOOTSEL to request Wake.
+3. Move the emulator to DeskHop's USB-A keyboard port. Select that board's output
+   while the PC is awake, then repeat the hold-to-sleep and tap-to-wake test.
+4. Select the other board's output while both PCs are awake and repeat. This is
+   the forwarding path fixed by extended #25; waking the selected suspended host
+   also exercises #22. Move the emulator to the other board and repeat to cover
+   both directions.
+
+Use the development PC for software probes. The Dell machine remains observation
+only. Windows' `powercfg /devicequery wake_armed` and `powercfg /lastwake` help
+check wake permission and the reported wake source. Sleep behavior is subject to
+the host's configured action for a Sleep key. A Wake key may have no visible effect
+on an awake PC; capturing the HID input reports can verify delivery in that case.
+
+| LED | meaning |
+|---|---|
+| off | connected and idle, or a short press has not reached the Sleep threshold |
+| solid while held | release BOOTSEL to send Sleep |
+| fast blink after release | reports are waiting for this USB host to accept them |
+| one short flash every two seconds | this USB host has not enumerated the emulator |
+
+Behind DeskHop, the LED describes the connection to DeskHop, not the final PC.
+It cannot prove that a forwarded report reached the other board or woke its host.
+This device has a non-boot System Control interface and types no letters. DeskHop's
+keyboard-presence indicator may stay off because this interface is not a boot keyboard.
+
+The descriptor is the synthetic `sleepwake_emu` corpus entry, an explicit one-byte
+usage array on report ID 3, like the System Control arrays in the Microsoft 600 and
+Sculpt descriptors. The wire packets are `03 82` (Sleep), `03 83` (Wake), and `03 00`
+(release). The harness tests these exact packets against DeskHop's parser, decoder
+and dispatcher. This does not test conversion of a different keyboard's bitmap or
+indexed System Control encoding.
+
+The control code debounces BOOTSEL and retries failed or busy USB submissions. A
+press and its release reserve space together; the queue holds at most two gestures
+and discards a whole additional gesture if full. Disconnection discards pending
+input, and a button held across startup or re-enumeration must first be released.
+USB transfer completion advances the queue, so a successful submit cannot lose a
+release. Only a queued Wake press can request USB resume. A pending Sleep release
+does not wake the PC again, and a later tap can wake it with that release pending.
+Directly attached to a suspended USB host, a long hold is ignored; a short tap
+requests remote wakeup if the host permits it. Through DeskHop, the emulator's USB
+link can remain awake while the selected PC sleeps, so DeskHop makes that decision.
+
+BOOTSEL shares the flash chip-select pin. Its sampling routine follows Raspberry
+Pi's [button example](https://github.com/raspberrypi/pico-examples/blob/master/picoboard/button/button.c):
+it runs from RAM, masks interrupts, briefly floats chip select, reads the button,
+then restores chip select before returning. This target never starts core 1 or DMA
+readers of flash. That constraint is part of the implementation; the routine must
+not be copied into a multicore firmware without coordinating other flash readers.
+The example's license is retained in [sleepwake/LICENSE.bootsel](sleepwake/LICENSE.bootsel).
+
+`make test-sleepwake` runs the gesture and USB-state tests on the host with ASan and
+UBSan; it is also part of `make test`. The tests cover debounce, hold thresholds,
+timer wrap, submission and transfer failures, completion, queue saturation, suspend/resume, denied wakeup,
+the pending-Sleep-release case and re-enumeration. The host tests and UF2 build
+cannot establish physical BOOTSEL behavior or real OS sleep/wake; those require
+the hardware procedure above.
 
 # 8BitDo, the keyboard collection collapse
 
@@ -513,9 +607,8 @@ even when everything is working. That is expected and does not affect key delive
 
 ## Notes
 
-It types on a timer with no input of its own, because the RP2040 has no button
-other than BOOTSEL and reading that while USB is live is more risk than the test
-is worth. Unplug it when you are done.
+The 8BitDo rig types on a timer with no input of its own. Unplug it when you are
+done. The separate Sleep/Wake rig above uses BOOTSEL through a RAM-resident sampler.
 
 It uses the real device's VID and PID, `2dc8:5201`, taken from the [#57] dump, so
 deskhop sees the same identifiers as the reported device. Nothing in deskhop keys

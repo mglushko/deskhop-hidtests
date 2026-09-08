@@ -166,7 +166,15 @@ static const cc_case_t apple_a2520_cc_cases[] = {
 #define CCDEV(d, path, rid, c) \
     {#d, d_##d, (int)sizeof(d_##d), path, rid, c, (unsigned)ARRAY_SIZE(c)}
 
+/* Exactly the reports sent by the BOOTSEL rig, including the release. */
+static const cc_case_t sleepwake_emu_cases[] = {
+    {"BOOTSEL hold: sleep", {0x03, 0x82}, 2, true, {0x82}, true, {0x82}},
+    {"BOOTSEL tap: wake",   {0x03, 0x83}, 2, true, {0x83}, true, {0x83}},
+    {"release",             {0x03, 0x00}, 2, true, {0x00}, true, {0x00}},
+};
+
 static const cc_device_t cc_devices[] = {
+    CCDEV(sleepwake_emu,          CC_SYSTEM,   3, sleepwake_emu_cases),
     CCDEV(cherry_kc6000_consumer, CC_CONSUMER, 0, kc6000_cases),
     CCDEV(consumer,               CC_CONSUMER, 3, consumer_rid_cases),
     CCDEV(bolt_rx_consumer,       CC_CONSUMER, 3, bolt_consumer_cases),

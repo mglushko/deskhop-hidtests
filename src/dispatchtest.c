@@ -55,6 +55,12 @@ typedef struct {
 #define D(x) d_##x, (int)sizeof(d_##x)
 
 static const route_case_t cases[] = {
+{"BOOTSEL rig, sleep on report ID 3",  D(sleepwake_emu),        NON, R, {0x03,0x82}, 2,
+                                       process_system_report, NULL},
+{"BOOTSEL rig, wake on report ID 3",   D(sleepwake_emu),        NON, R, {0x03,0x83}, 2,
+                                       process_system_report, NULL},
+{"BOOTSEL rig, release on ID 3",       D(sleepwake_emu),        NON, R, {0x03,0x00}, 2,
+                                       process_system_report, NULL},
 /* ---- report protocol: the control group, all of this must keep working ------ */
 {"boot_keyboard, no report ID",        D(boot_keyboard),        KBD, R, {0x00,0x00,0x04}, 8,
                                        process_keyboard_report, NULL},

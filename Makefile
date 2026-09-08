@@ -376,7 +376,11 @@ endif  # compare in MAKECMDGOALS
 # check-constants is last: it is the only one needing the Pico SDK submodule
 # populated, and it skips cleanly when it is not.
 .PHONY: test findings
-test: mouse kbd consumer check-parse check-constants
+test: mouse kbd consumer check-parse check-constants test-sleepwake
+
+.PHONY: test-sleepwake
+test-sleepwake:
+	bash emu/sleepwake/test.sh
 	@echo
 	@echo "known good decode unchanged against $(SRC)"
 

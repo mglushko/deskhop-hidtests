@@ -26,7 +26,7 @@ make compare REF=main DESKHOP=~/dh-fix
 
 Needs `gcc`, `python3`, and `make`. No cross compiler. `check-constants` is the one
 target that wants the Pico SDK, and it skips rather than fails when the submodule is not
-populated, so `make test` still passes with four checks run instead of five.
+populated, so `make test` still passes with five suites run instead of six.
 
 ## Targets
 
@@ -45,7 +45,8 @@ populated, so `make test` still passes with four checks run instead of five.
 | `make timing` | how long does a large but legal Report Count take to parse? |
 | `make check-constants` | do the constants `harness.h` copies still match TinyUSB's? |
 | `make check-parse` | does `add_descriptor.py` still read every dump shape without dropping bytes? |
-| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `check-parse`, `check-constants` |
+| `make test-sleepwake` | does the BOOTSEL emulator debounce and deliver Sleep/Wake safely across USB state changes? |
+| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `check-parse`, `check-constants`, `test-sleepwake` |
 | `make findings` | the four bounds checks, run for their numbers |
 | `make all` | build everything without running it |
 

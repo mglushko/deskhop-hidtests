@@ -4,6 +4,7 @@
 #   ultralink-emu.uf2  Keychron Ultra-Link 8K 3434:d028, hrvach/deskhop#324
 #   gameball-emu.uf2   Gameball trackball 0782:001B, hrvach/deskhop#332
 #   sculpt-emu.uf2     Microsoft Sculpt receiver 045e:07a5, hrvach/deskhop#367
+#   sleepwake-emu.uf2  BOOTSEL-triggered System Sleep/Wake, deskhop-extended#22/#25
 #
 #   cmake -B build -G Ninja -DPICO_SDK_PATH=$HOME/deskhop-extended/pico-sdk
 #   cmake --build build
@@ -99,3 +100,21 @@ emu_device(gameball-full-emu "EMU_GAMEBALL;EMU_FULLFIX"
   d_gameball_gesture=gameball_gesture
   d_gameball_keyboard=gameball_keyboard
   --normalise-end-collection --fix-signed-axes)
+
+# An interactive rig with its own main loop. The timed device emulators above
+# retain their existing behavior. BOOTSEL sampling is specific to the RP2040.
+set(sleepwake_header ${CMAKE_CURRENT_BINARY_DIR}/gen/sleepwake-emu/emu_desc.h)
+add_custom_command(
+  OUTPUT ${sleepwake_header}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/gen/sleepwake-emu
+  COMMAND ${CMAKE_COMMAND} -E env python3 ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py
+          ${CORPUS} ${sleepwake_header} d_sleepwake_emu=sleepwake
+  DEPENDS ${CORPUS} ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py
+  VERBATIM)
+add_executable(sleepwake-emu sleepwake/main.c sleepwake/control.c
+               sleepwake/bootsel.c sleepwake/usb_descriptors.c ${sleepwake_header})
+target_include_directories(sleepwake-emu PRIVATE ${CMAKE_CURRENT_LIST_DIR}
+                           ${CMAKE_CURRENT_BINARY_DIR}/gen/sleepwake-emu)
+target_compile_options(sleepwake-emu PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(sleepwake-emu pico_stdlib tinyusb_device hardware_sync)
+pico_add_extra_outputs(sleepwake-emu)
