@@ -118,8 +118,7 @@ authenticate `sudo` *before* attaching if you are dumping the keyboard you are t
 `--auto-attach` is worth using for devices that re-enumerate on handover; some do.
 
 Avoid judging a descriptor from [win-hid-dump][winhiddump] output. It reconstructs from
-Windows' parsed caps rather than reading the device, and the table in [What the corpus is
-already worth](#what-the-corpus-is-already-worth) lists five ways that went wrong on the
+Windows' parsed caps rather than reading the device, and the table under [Dumped here](CORPUS.md#dumped-here) lists five ways that went wrong on the
 two devices dumped both ways - including key arrays vanishing into padding and whole
 collections coming back empty. Windows does not expose raw report descriptors to user
 mode, so a tool on that side is reconstructing rather than reading; [hidapi's
@@ -146,123 +145,27 @@ in more than one quadrant. `emu/` keeps both states as separate builds so the
 comparison stays available. None of this is raised on [#332] itself: it does not change
 the fix there, and the reporter did not choose the tool.
 
-### What the corpus is already worth
+### What is in the corpus
 
-The corpus is 53 descriptors, 42 of them captured from real devices: 25 from upstream
-issues, 4 from dumps published elsewhere, and 13 dumped here from two devices on hand.
-What they have bought so far:
-
-- **Wooting Two HE** ([#335], "only CTRL, Shift & Win work"). `make dump
-  D=wooting_keyboard` shows why: the keyboard declares four key blocks as separate
-  Usage Min/Max ranges, and `main` keeps only the last one. The modifiers survive,
-  every letter key does not. PR [#359] recovers all four, the 8-bit block included.
-- **Logitech G Pro Superlight 2 receiver** ([#215]) is the same bug wearing a
-  different face, on a device that PR was not written for. Its keyboard interface
-  declares three key ranges; `main` keeps the *first* rather than the last, because
-  only that one clears the `src->size > 32` filter. Letters work, so nothing looks
-  broken, but usages 0x87-0x8B and 0x90-0x92 - the Japanese and Korean IME keys - are
-  silently dropped. `make compare REF=main` with PR [#359] checked out shows
-  `nkro_count=3` where `main` has one block.
-- **Cherry MW 8 vs MW 8C** ([#133], "older version worked fine"). The two dumps
-  explain the difference in one line of `dump` each: the MW 8 puts buttons, 12-bit
-  X/Y and wheel in a single report, the MW 8C splits them across report IDs 1 and 2.
-  Both parse and decode correctly on `main` - their 32 cases in `make mouse` all pass -
-  so whatever broke for that reporter was fixed by `6c92c11`, which tracks offsets per
-  report ID.
-- **Cherry KC6000** ([#117], media keys not working). A consumer control block with
-  no report ID at all, which is the case PR [#358] addresses - and the only device
-  here that separates that PR from `main`. `make consumer` shows what it costs: on
-  `main`, pressing Calculator sends Play/Pause, because the receiver reads byte 1
-  where the data is in byte 0 and finds bit 0 of the wrong byte set. It does not
-  merely lose the key, it reports a different one.
-- **8BitDo Retro Mechanical Keyboard** (`2dc8:5201`, [#57], open since March 2024).
-  Interface 2 declares three keyboard collections on one interface: a 6KRO keyboard on
-  report ID 1 and NKRO bitmaps on 12 and 10. On `main` all three land on `keyboards[0]`,
-  which sets `is_nkro` on the entry that also holds the 6KRO key array, so a 6KRO report
-  is decoded as though its bytes were bitmap bits. `make kbd` shows `a` coming out as
-  keycode 10 against the first three commits of [#359], which bound the bitmap walk without
-  separating the collections; on `main` the unbounded walk keeps the device out of
-  everything but its boot-protocol row. [#359] now carries the separation as a fourth
-  commit, so `a` comes out as `a` against its head. It is the sharper version of the
-  Keychron finding below.
-- **Microsoft Wired Keyboard 600** ([#297]) is the cleanest reproduction of the stale
-  usage cursor: its system control block comes out as `usage=0xFF02 page=0x0001`, an
-  identifier it never declares, carried over from the vendor block in the preceding
-  top-level collection.
-- **Microsoft Sculpt Ergonomic Mouse receiver** (`045e:07a5`, [#367], "unable to move
-  cursor, keys not working"), all three interfaces from the reporter's `usbhid-dump`. Its
-  mouse sits on report ID 0x1A, which is 26, and `main` binds receivers in a table of
-  `MAX_REPORTS` (24) slots indexed by the ID, so nothing is ever bound and every report is
-  dropped before decode. `make dump D=sculpt_rx_mouse` shows the parse is right and the
-  handlers line empty, `make mouse` decodes all twelve reports the reporter captured, and
-  `make dispatch` shows them reaching nobody. The finding below has the rest.
-- **Apple Magic Keyboard with Touch ID** (`05ac:029f`, [#157], "will not work", and a board
-  that reboots over and over). Three interfaces. The keyboard and the device-management
-  interface come from the reporter's `usbhid-dump`; the third, Touch ID, sits on a bulk
-  endpoint that Linux's HID driver never binds, so that tool never showed it and the
-  emulation built from the dump could not reproduce the loop. Its 49 bytes were transcribed
-  from the `lsusb -v` decode in the same thread: three vendor reports, one with a Report
-  Count of 649. That is [#332] again. `make dump D=apple_a2520_touchid` aborts under ASan on
-  `main` and on every open PR except [#361], where it parses and binds nothing. The
-  keystrokes in the stream capture decode everywhere, and the media keys on report 0x52,
-  which is 82, need [#368] the same way the Sculpt does.
-
-The four that did not come from an issue were added to break that selection bias -
-every real device above is one that already misbehaved, which is a biased sample.
-These are captures published elsewhere, picked for shapes the corpus did not have:
-
-- **Logitech MX518** (`046d:c08e`, from the [tmk_keyboard wiki][tmk]) declares a
-  padding item with Report Count 0, puts a two-byte vendor block *inside* the mouse's
-  physical collection between the buttons and the axes, and declares the wheel before
-  X and Y. All three parse and decode correctly; `make mouse` includes a case asserting
-  the vendor bytes never reach an axis.
-- **A multi-collection composite** from the [kernel's HID documentation][hidintro] is
-  the only descriptor here declaring two mouse collections, on report IDs 1 and 2. See
-  the finding below: the second wins and the first goes dark.
-- **Raspberry Pi wired keyboard** (`04d9:0006`, from [a gist][rpigist]) bounds its key
-  array with a 16-bit `2A FF 00` over the full 0-255 range rather than the usual
-  `29 65`, and carries the LED output block a real keyboard has. Its second interface
-  is *not* in the corpus: that consumer control block is byte for byte
-  `cherry_kc6000_consumer`, so it would parse identically and test nothing. Worth
-  knowing when reading [#358] that two unrelated vendors ship the same descriptor,
-  but it is not extra coverage.
-- **PixArt/HP optical mouse** (`093a:2510`, also from the kernel docs) is a real
-  capture of the shape `d_boot_mouse` synthesises, declaring Report Size before Report
-  Count and ending in plain `C0`. It confirms item ordering does not change the parse.
-
-The last 13 came from two devices on hand, dumped with `usbhid-dump` after handing each
-one to WSL with `usbipd-win`. They are the first entries here that cover a whole USB
-interface as the firmware receives it, rather than one collection at a time:
-
-- **Logi Bolt receiver** (`046d:c548`) contributes four interfaces. Interface 1 is the
-  richest descriptor in the corpus: mouse, consumer control, system control and a fourth
-  collection, on report IDs 2, 3, 4 and 0x0B. Its mouse declares **16 buttons**, as wide
-  as anything here - `superlight2_mouse` matches it - and enough to reach bit 15 of a
-  signed read, see the button finding below. Interface 3 is a Precision Touchpad, the
-  largest descriptor here at 429 bytes, and the only one using Push and Pop; it parses to
-  nothing at all, which is the right answer and is now asserted rather than assumed.
-- **Keychron Ultra-Link 8K** (`3434:d028`) contributes five. Interface 1 carries a 6KRO
-  keyboard on report ID 7, consumer control on 0x0C, and an NKRO keyboard on 0x11 - and
-  it is the entry behind two of the findings below. One of them, the collection collapse,
-  is invisible unless the whole interface is parsed at once, which is exactly why the
-  interface-level entries exist; the other, the off-by-one usage range on the 0x11 bitmap,
-  is why that collection is also here on its own.
-
-These two also cost the corpus something worth recording. Both were dumped first with
-[win-hid-dump][winhiddump], whose HidSharp backend reconstructs descriptors from Windows'
-parsed caps rather than reading the wire, and the reconstruction was wrong in ways that
-would have produced confident, wrong conclusions:
-
-| what the device declares | what the reconstruction produced |
+| | |
 |---|---|
-| a 6-byte key array, `19 00 2A FF 00 ... 81 00` | `95 38 81 03`, constant padding - so no keys at all |
-| consumer usages under `05 0C` | 16 constant bits and no usages |
-| the Bolt's consumer and system collections | zero bytes, [win-hid-dump issue 2][whd2] |
-| HID++ as `81 00` arrays of 6 and 19 bytes | 48 and 152 bits of 1-bit *constant* padding |
-| NKRO `2A 98 00` (usage max 152) | `29 97` (usage max 151), which hides the off-by-one |
+| descriptors in `descriptors.h` | 105 |
+| captured from real devices | 93 |
+| synthetic probes | 12 |
+| real captures from upstream issues | 76, from 31 issues |
+| real captures published elsewhere | 4 |
+| real captures dumped here from devices on hand | 13 |
+| declaring a mouse collection | 35 |
+| declaring a keyboard collection | 41 |
+| declaring consumer control | 36 |
+| declaring system control | 25 |
+| vendor interfaces with nothing the firmware routes | 17 |
+| carrying report IDs | 63 |
+| more than one top-level collection, i.e. a whole interface | 40 |
+| with hand-written decode cases | mouse 11 devices, keyboard 17, consumer 9 |
 
-Every one of those changes what the parser does. Prefer `usbhid-dump` when the bytes
-matter; see [Adding a device](#adding-a-device).
+[CORPUS.md](CORPUS.md) lists every real device: the issue or capture it came from,
+the tool that read it, and what it has caught so far.
 
 ## How it works
 
@@ -341,43 +244,43 @@ matter; see [Adding a device](#adding-a-device).
 ## Known good numbers
 
 Reference results, so a broken harness is distinguishable from a broken firmware.
-Taken against `main` at `59577cc`, the [#332] fix (now PR [#361]) at `ea680e4`, and
-[DeskHop Extended][deskhop-extended], over the current 53-descriptor corpus.
+Taken in September 2026 against upstream `main` at `59577cc` and
+[DeskHop Extended][deskhop-extended] `main` at `5024fca`, over the 105-descriptor corpus.
 
-The third column is the one that matters day to day. `main` and [#361] are references;
-DeskHop Extended carries all three upstream PRs plus the short-report, boot-routing and
-multi-keyboard fixes, and is what actually runs on the hardware, so it is the tree whose
-regressions cost something.
+The second column is the one that matters day to day. Upstream `main` is the reference;
+DeskHop Extended carries the three upstream PRs ([#358], [#359], [#361]) plus the
+short-report, boot-routing, report-ID lookup and multi-keyboard fixes, and is what
+actually runs on the hardware, so it is the tree whose regressions cost something.
 
-Two rows have a larger denominator there rather than a comparable count.
+Four rows have a larger denominator there rather than a comparable count.
 `bitdo_retro_iface2`'s report-protocol rows only enter `kbd` and `shortreport` on a tree
-that bounds the bitmap
-walk, because without the bound that device reads off the end and takes the run down.
+that bounds the bitmap walk, because without the bound that device reads off the end and
+takes the run down. `mouse` gains four cases on the same terms: they ask where a skipped
+button field falls back to, which is only a question on a tree that keeps buttons per
+interface; on `main` there is no such field to read and the block is not built, which
+`mousetest` says on its last line rather than passing silently. `consumer` and `dispatch`
+add the A2520's media keys on report 0x52, which only a tree that looks receivers up by
+report ID value can deliver.
 
-`mouse` gains four cases on the same terms. They ask where a skipped button field falls
-back to, which is only a question on a tree that keeps buttons per interface; on `main`
-and [#361] there is no such field to read and the block is not built, which `mousetest`
-says on its last line rather than passing silently.
+`truncate` is the one row where the fork is no better than `main` in kind, and
+deliberately so: that is the short *descriptor* finding in the parse loop, which nothing
+here has fixed. It is easy to mistake for the short *report* row above it, which is why
+the findings below separate the two.
 
-`truncate` is the one row where the fork is no better than [#361], and deliberately so:
-that is the short *descriptor* finding in the parse loop, which nothing here has fixed. It
-is easy to mistake for the short *report* row above it, which is why the findings below
-separate the two.
-
-| check | main | [#361] | [DeskHop Extended][deskhop-extended] |
-|---|---|---|---|
-| `compare` | crashes on `gameball_gesture`, `many_usages` and `apple_a2520_touchid` under ASan | all three crashes fixed, other 50 identical | all three fixed; 53 compared, differences confined to keyboards and the two report-ID devices |
-| `mouse` | 137 of 137 cases over 11 devices | 137 of 137 cases | 137 of 137, plus **4 of 4** button fallback cases |
-| `kbd` | 59 of 59 cases over 16 devices | same - #361 is a parser change | **65 of 65 over 17** |
-| `consumer` | 23 of 23 over 7 devices; verdict "does NOT have the #358 fix" | same - #361 is a parser change | **26 of 26 over 8**; verdict "has the #358 fix" |
-| `dispatch` | 20 of 33 routed correctly, 4 of those only by luck; 13 misrouted | same - `usb.c` is untouched by these PRs | **33 of 33**, lifted rather than modelled |
-| `check-constants` | all 47 agree with TinyUSB | same | same |
-| `check-parse` | 7 dump shapes read and 2 non-dumps refused, 53 descriptors round trip | same - it tests this repo's reader, not the firmware | same |
-| `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 | 0 out of bounds, peak index 127 |
-| `truncate` | 2817 of 5252 prefixes overread | 2691 of 5252 - the 126 fewer are all `gameball_gesture`, `many_usages` and `apple_a2520_touchid`, where the usage array aborted the parse first; the descriptor overread is untouched | 2691 of 5252 - still open, see below |
-| `shortreport` | 900 of 1378 truncated reports overread | 900 of 1378, identical - the fix is in the parser, this is the decode path | **0 of 1414** |
-| `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails; Y offset goes to 0 at 126 preceding usages, X at 127, and stays there | never fails |
-| `timing` | segfaults | ~17.5 ns/element on x86-64 | ~17.4 ns/element |
+| check | upstream main | [DeskHop Extended][deskhop-extended] |
+|---|---|---|
+| `compare` | crashes on `gameball_gesture`, `many_usages`, `apple_a2520_touchid` and `magic_trackpad_mouse` under ASan | all four crashes fixed; 105 compared, differences confined to entries with a keyboard collection, plus `sculpt_rx_mouse` |
+| `mouse` | 137 of 137 cases over 11 devices | 137 of 137, plus **4 of 4** button fallback cases |
+| `kbd` | 59 of 59 cases over 16 devices | **65 of 65 over 17** |
+| `consumer` | 26 of 26 over 8 devices; verdict "does NOT have the #358 fix" | **29 of 29 over 9**; verdict "has the #358 fix" |
+| `dispatch` | 23 of 36 routed correctly, 4 of those only by luck; 13 misrouted | **36 of 36**, lifted rather than modelled |
+| `check-constants` | all 47 agree with TinyUSB | same |
+| `check-parse` | 7 dump shapes read and 2 non-dumps refused, 105 descriptors round trip | same - it tests this repo's reader, not the firmware |
+| `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
+| `truncate` | 5197 of 9947 prefixes overread | 5069 of 9947 - the 128 fewer are all on `apple_a2520_touchid`, `gameball_gesture`, `magic_trackpad_mouse`, `many_usages`, where the usage array aborts the parse on `main` first; the descriptor overread is untouched, see below |
+| `shortreport` | 900 of 1378 truncated reports overread | **0 of 1414** |
+| `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails |
+| `timing` | segfaults | ~17.8 ns/element on x86-64 |
 
 Fuzz counts depend on the generator and the seed, and `truncate` counts move with
 the size of the corpus. Change either and these numbers move; the qualitative
@@ -1030,30 +933,21 @@ of the build directory still says where it came from.
 
 <!-- upstream issues and PRs -->
 [#57]: https://github.com/hrvach/deskhop/issues/57
-[#117]: https://github.com/hrvach/deskhop/issues/117
 [#211]: https://github.com/hrvach/deskhop/issues/211
 [#295]: https://github.com/hrvach/deskhop/issues/295
-[#133]: https://github.com/hrvach/deskhop/issues/133
-[#215]: https://github.com/hrvach/deskhop/issues/215
 [#229]: https://github.com/hrvach/deskhop/issues/229
 [#216]: https://github.com/hrvach/deskhop/issues/216
-[#297]: https://github.com/hrvach/deskhop/issues/297
 [#287]: https://github.com/hrvach/deskhop/issues/287
 [deskhop-extended]: https://github.com/mglushko/deskhop-extended
 [#157]: https://github.com/hrvach/deskhop/issues/157
 [#332]: https://github.com/hrvach/deskhop/issues/332
-[#335]: https://github.com/hrvach/deskhop/issues/335
 [#358]: https://github.com/hrvach/deskhop/pull/358
 [#359]: https://github.com/hrvach/deskhop/pull/359
 [#361]: https://github.com/hrvach/deskhop/pull/361
 [#367]: https://github.com/hrvach/deskhop/issues/367
 [#368]: https://github.com/hrvach/deskhop/pull/368
-[hidintro]: https://docs.kernel.org/hid/hidintro.html
-[tmk]: https://github.com/tmk/tmk_keyboard/wiki/USB:-HID-Report-Descriptor
-[rpigist]: https://gist.github.com/probonopd/9646c69f876ff2b4b879aeb1c1cbc532
 
 <!-- dumping tools -->
 [winhiddump]: https://github.com/todbot/win-hid-dump
-[whd2]: https://github.com/todbot/win-hid-dump/issues/2
 [usbipd]: https://github.com/dorssel/usbipd-win
 [hidapi]: https://github.com/libusb/hidapi/blob/master/windows/hidapi_descriptor_reconstruct.c
