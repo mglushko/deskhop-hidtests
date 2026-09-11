@@ -92,7 +92,7 @@ BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/kbdtest $(OUT)/fuzz $(OUT)/exhaust \
         $(OUT)/timing $(OUT)/truncate $(OUT)/shortreport $(OUT)/cctest \
         $(OUT)/dispatchtest
 
-.PHONY: all dump compare mouse kbd consumer fuzz exhaust timing truncate shortreport \
+.PHONY: corpus all dump compare mouse kbd consumer fuzz exhaust timing truncate shortreport \
         dispatch clean \
         check-target \
         check-ref check-constants check-parse
@@ -449,6 +449,12 @@ check-constants:
 # to drop whole lines of a dump without saying so. A short descriptor does not fail to
 # build either - it parses cleanly and describes a device nobody owns. Cheap to check
 # and it needs nothing outside the repo, so unlike check-constants there is no skip.
+# Rewrite the table of every entry in CORPUS.md from descriptors.h and the case tables.
+# Refuses if an entry has no hand-kept row in tools/corpus_table.py, so the table stays
+# complete rather than quietly short.
+corpus:
+	@python3 tools/corpus_table.py
+
 check-parse:
 	@python3 tools/add_descriptor.py --selftest
 

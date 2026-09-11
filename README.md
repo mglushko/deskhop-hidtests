@@ -78,7 +78,9 @@ It prints the C array and the registry line, and warns if the items do not land
 exactly on the end, the collections are unbalanced, or there is no collection at
 all, which catches a bad paste before it becomes a misleading test. Paste both into
 `descriptors.h` and `dump`, `compare`, `truncate` and `check-parse` pick the device up
-automatically. `mouse`, `kbd`, `consumer`, `shortreport` and `dispatch` run hand-written
+automatically. Then give the entry a row in `tools/corpus_table.py` and run
+`make corpus`, which rewrites the table in [CORPUS.md](CORPUS.md) and refuses while the
+row is missing. `mouse`, `kbd`, `consumer`, `shortreport` and `dispatch` run hand-written
 case tables, so a new device tells them nothing until a case is added in `src/cases_*.h`.
 
 It reports the lines it dropped, though only those holding four bytes or more, and runs
