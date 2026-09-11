@@ -375,6 +375,167 @@ static const kbd_case_t k_apple_a2520_cases[] = {
     {"released",           {0x01, 0x00, 0x00, 0x00}, 10,             0x00, {0}, {0}},
 };
 
+/* Keyboard on report ID 1 with an explicit reserved byte, [id][modifier][reserved][six
+   keys], nine bytes. _extract_kbd_other drops the ID and picks the keycodes out of bytes
+   2 to 7. Three devices ship this exact shape: the Logitech G502's keyboard interface
+   ([#17]), the ZMK Corne ([#79]) and the G Pro Superlight 2 on its cable ([#215]). */
+static const kbd_case_t k_rid1_reserved_cases[] = {
+    {"a",                  {0x01, 0x00, 0x00, 0x04}, 9,             0x00, {4}, {4}},
+    {"shift + a",          {0x01, 0x02, 0x00, 0x04}, 9,             0x02, {4}, {4}},
+    {"six keys at once",   {0x01, 0x00, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 9,
+                                                                    0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+    {"every modifier",     {0x01, 0xFF, 0x00, 0x00}, 9,             0xFF, {0}, {0}},
+};
+
+/* Corsair Strafe RGB in BIOS mode, [#45], the mode the reporter says works. The reporter's
+   capture shows nine-byte reports for a descriptor that declares eight, and the len ==
+   KBD_REPORT_LENGTH + 1 rule in _extract_kbd_boot reads the first byte as a stray report
+   ID: the modifier byte is dropped, the reserved byte is read as the modifier, and the
+   first key slot lands where the reserved byte was. So 'd' held with 'e' comes out as 'e'
+   alone, and right alt with '0' comes out as nothing at all. The eight-byte rows are the
+   same keys without the padding byte, for contrast. Same on every tree. */
+static const kbd_case_t k_strafe_bios_cases[] = {
+    {"d + e, nine bytes as captured",   {0x00, 0x00, 0x07, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00}, 9,
+                                                                    0x00, {8}, {8}},
+    {"right alt + 0, nine bytes as captured", {0x40, 0x00, 0x27, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 9,
+                                                                    0x00, {0}, {0}},
+    {"d + e in eight bytes",            {0x00, 0x00, 0x07, 0x08}, 8, 0x00, {7, 8}, {7, 8}},
+    {"right alt + 0 in eight bytes",    {0x40, 0x00, 0x27}, 8,       0x40, {0x27}, {0x27}},
+};
+
+/* Corsair Strafe RGB in its normal mode, [#45]: a 152-bit bitmap over usages 0 to 0x97 on
+   report ID 1, [id][modifier][19 bytes]. One usage per bit exactly, so every tree keeps
+   it. The first row is a report the reporter captured, 22 bytes with a padding byte on
+   the end: bit 7 of the first bitmap byte and bit 1 of the second, usages 7 and 9. */
+static const kbd_case_t k_strafe_cases[] = {
+    {"d + f, as captured",  {0x01, 0x00, 0x80, 0x02, [21] = 0x00}, 22, 0x00, {7, 9}, {7, 9}},
+    {"usage 4 (a)",         {0x01, 0x00, 0x10}, 21,                 0x00, {4}, {4}},
+    {"shift + a",           {0x01, 0x02, 0x10}, 21,                 0x02, {4}, {4}},
+    {"more keys than fit",  {0x01, 0x00, 0xF0, 0x1F}, 21,           0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+    {"highest usage, 151",  {0x01, 0x00, [20] = 0x80}, 21,          0x00, {151}, {151}},
+};
+
+/* Corsair Scimitar RGB Elite, [#45]: the twelve-key side panel is a keyboard collection on
+   report ID 0x10 inside the mouse's interface, the Strafe's bitmap shape. The mouse half of
+   this interface waits behind HARNESS_FIELD_32 in cases_mouse.h; the keyboard half does
+   not touch get_report_value and decodes everywhere. */
+static const kbd_case_t k_scimitar_kbd_cases[] = {
+    {"usage 4 on the side panel", {0x10, 0x00, 0x10}, 21,          0x00, {4}, {4}},
+    {"usage 30 (1) on the side panel", {0x10, 0x00, 0x00, 0x00, 0x00, 0x40}, 21,
+                                                                    0x00, {30}, {30}},
+    {"highest usage, 151",  {0x10, 0x00, [20] = 0x80}, 21,          0x00, {151}, {151}},
+    {"modifier byte, declared but not on the panel", {0x10, 0x02, 0x00}, 21,
+                                                                    0x02, {0}, {0}},
+};
+
+/* Logi Bolt receiver at bcdDevice 5.01, interface 0, [#47]: the Superlight 2 receiver's
+   three key ranges with no report ID, [modifier][112 bits][5 bits][3 bits], sixteen
+   bytes. main keeps the first range only, so usages 4 to 115 work and the IME keys in
+   the other two come out as nothing; a tree keeping every block returns them. */
+static const kbd_case_t k_bolt_v501_cases[] = {
+    {"usage 4 (a)",                   {[1] = 0x01}, 16,             0x00, {4}, {4}},
+    {"usage 115, end of block 0",     {[14] = 0x80}, 16,            0x00, {115}, {115}},
+    {"usage 135, IME key in block 1", {[15] = 0x01}, 16,            0x00, {0}, {135}},
+    {"usage 144, block 2",            {[15] = 0x20}, 16,            0x00, {0}, {144}},
+    {"shift + a",                     {[0] = 0x02, [1] = 0x01}, 16, 0x02, {4}, {4}},
+};
+
+/* Apple A1243, [#48]: a boot layout whose key array has five slots, followed by one byte
+   on vendor page 0xFF usage 3, the Fn key. Eight bytes and no report ID, so the len == 8
+   shortcut copies the report as a boot report and the Fn byte arrives as the sixth
+   keycode: Fn held reads as ErrorRollOver in slot six. The reporter says 0.51 made the
+   keyboard work, and these rows agree that the keys decode; the last two are the cost. */
+static const kbd_case_t k_a1243_cases[] = {
+    {"a",                       {0x00, 0x00, 0x04}, 8,              0x00, {4}, {4}},
+    {"shift + a",               {0x02, 0x00, 0x04}, 8,              0x02, {4}, {4}},
+    {"five keys, the whole array", {0x00, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08}, 8,
+                                                                    0x00, {4, 5, 6, 7, 8}, {4, 5, 6, 7, 8}},
+    {"Fn held, read as key slot six", {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}, 8,
+                                                                    0x00, {[5] = 1}, {[5] = 1}},
+    {"Fn + a",                  {0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x01}, 8,
+                                                                    0x00, {4, 0, 0, 0, 0, 1}, {4, 0, 0, 0, 0, 1}},
+};
+
+/* Dry Studio Black Diamond 75, interface 0, [#50]: no report ID and no key array at all,
+   [modifier][constant byte][224-bit bitmap over usages 0 to 0xDF], thirty bytes. One usage
+   per bit, so every tree keeps the block, and the bitmap starts at byte 2. */
+static const kbd_case_t k_blackdiamond_cases[] = {
+    {"usage 4 (a)",         {[2] = 0x10}, 30,                       0x00, {4}, {4}},
+    {"shift + a",           {[0] = 0x02, [2] = 0x10}, 30,           0x02, {4}, {4}},
+    {"more keys than fit",  {[2] = 0xF0, [3] = 0x1F}, 30,           0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+    {"highest usage, 223",  {[29] = 0x80}, 30,                      0x00, {223}, {223}},
+};
+
+/* Leopold FC660C on TMK, interface 4, [#142]: the second keyboard interface, a 248-bit
+   bitmap over usages 0 to 0xF7 straight after the modifier, no report ID, 32 bytes. */
+static const kbd_case_t k_fc660c_nkro_cases[] = {
+    {"usage 4 (a)",         {[1] = 0x10}, 32,                       0x00, {4}, {4}},
+    {"shift + a",           {[0] = 0x02, [1] = 0x10}, 32,           0x02, {4}, {4}},
+    {"highest usage, 247",  {[31] = 0x80}, 32,                      0x00, {247}, {247}},
+};
+
+/* Kinesis Advantage360 Pro on ZMK, [#160], "F24 is not sent". Report ID 1, then the
+   modifier, a constant byte, and a 152-bit bitmap over usages 0 to 0x97, 22 bytes. F24 is
+   usage 115, bit 3 of the fifteenth bitmap byte, and it decodes: whatever loses it is not
+   the keyboard decode. */
+static const kbd_case_t k_adv360_cases[] = {
+    {"usage 4 (a)",         {0x01, 0x00, 0x00, 0x10}, 22,           0x00, {4}, {4}},
+    {"shift + a",           {0x01, 0x02, 0x00, 0x10}, 22,           0x02, {4}, {4}},
+    {"F24, usage 115",      {0x01, 0x00, 0x00, [17] = 0x08}, 22,    0x00, {115}, {115}},
+    {"highest usage, 151",  {0x01, 0x00, 0x00, [21] = 0x80}, 22,    0x00, {151}, {151}},
+};
+
+/* QMK's shared endpoint, the NKRO keyboard on report ID 6, [#17], [#30], [#61]. The
+   d_nkro_keyboard layout on a different ID: [id][modifier][30 bytes], one usage per bit
+   over 0 to 0xEF. */
+static const kbd_case_t k_qmk_shared_cases[] = {
+    {"usage 4 (a)",         {0x06, 0x00, 0x10}, 32,                 0x00, {4}, {4}},
+    {"shift + a + b",       {0x06, 0x02, 0x30}, 32,                 0x02, {4, 5}, {4, 5}},
+    {"more keys than fit",  {0x06, 0x00, 0xF0, 0x1F}, 32,           0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
+    {"highest usage, 239",  {0x06, 0x00, [31] = 0x80}, 32,          0x00, {239}, {239}},
+};
+
+/* Keychron 2.4 GHz dongle, interface 2, [#211]: a 6KRO keyboard on report ID 1 and an NKRO
+   keyboard on report ID 12 whose bitmap declares 153 usages over 152 bits, the Ultra-Link's
+   off-by-one. The two 6KRO rows are reports the reporter typed, ten bytes with a padding
+   byte on the end, and they decode correctly on every tree - on main by luck: the
+   collapsed keyboard_t is flagged NKRO, but _extract_kbd_nkro rejects the wide range and
+   falls through to _extract_kbd_other, whose key_array the NKRO block never overwrote.
+
+   The NKRO rows need the wide-range acceptance, and only that: without it the block is
+   discarded on every tree, the report falls to _extract_kbd_other, and a collection of two
+   VARIABLE items has no key slots, so the modifier decodes and no key does. */
+static const kbd_case_t k_keychron_dongle_cases[] = {
+    {"n + d, as typed",     {0x01, 0x00, 0x00, 0x11, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00}, 10,
+                                                                    0x00, {0x11, 0, 0, 0x07}, {0x11, 0, 0, 0x07}},
+    {"k d f j, as typed",   {0x01, 0x00, 0x00, 0x0E, 0x07, 0x09, 0x0D, 0x00, 0x00, 0x00}, 10,
+                                                                    0x00, {0x0E, 0x07, 0x09, 0x0D}, {0x0E, 0x07, 0x09, 0x0D}},
+    {"usage 4 on the NKRO collection", {0x0C, 0x00, 0x10}, 21,      0x00, {0}, {0},
+                                                                    true, {0}, true, {4}},
+    {"shift + a on the NKRO collection", {0x0C, 0x02, 0x10}, 21,    0x02, {0}, {0},
+                                                                    true, {0}, true, {4}},
+    {"highest usage, 151, NKRO collection", {0x0C, 0x00, [20] = 0x80}, 21,
+                                                                    0x00, {0}, {0},
+                                                                    true, {0}, true, {151}},
+};
+
+/* The Areson trackball's keyboard collection, [#23]: no report ID of its own on an
+   interface where every other collection has one. uses_report_id is set for the
+   interface, so _extract_kbd_other treats the first byte of the eight-byte boot report as
+   the ID and reads the rest one byte late: the modifier byte is taken for an ID, the
+   reserved byte for the modifier, and the first key slot falls into the reserved
+   position. 'a' alone decodes to nothing, shift is lost, and six keys come back as five.
+   The same on every tree that reaches the answer; a tree without the length guard in
+   _extract_kbd_other reads one byte past the eight instead, which is why the entry is
+   gated. */
+static const kbd_case_t k_areson_kbd_cases[] = {
+    {"a, modifier byte taken as the ID",  {0x00, 0x00, 0x04}, 8,    0x00, {0}, {0}},
+    {"shift + a, shift byte taken as the ID", {0x02, 0x00, 0x04}, 8, 0x00, {0}, {0}},
+    {"six keys, the first lands in the reserved slot", {0x00, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 8,
+                                                                    0x00, {5, 6, 7, 8, 9}, {5, 6, 7, 8, 9}},
+};
+
+
 #define DEV(d, p, c) {#d, d_##d, (int)sizeof(d_##d), p, c, (unsigned)ARRAY_SIZE(c)}
 
 static const kbd_device_t kbd_devices[] = {
@@ -402,6 +563,39 @@ static const kbd_device_t kbd_devices[] = {
     DEV(kbd_with_bit_field, HID_PROTOCOL_REPORT, k_bit_field_cases),
     DEV(sculpt_rx_keyboard, HID_PROTOCOL_REPORT, k_sculpt_cases),
     DEV(apple_a2520_iface1, HID_PROTOCOL_REPORT, k_apple_a2520_cases),
+    /* The September 2026 sweep. Nine of the new keyboards are the plain eight-byte boot
+       layout with no report ID, and take the same len == 8 shortcut as d_boot_keyboard,
+       so they run k_boot_cases: the two Unifying receivers, QMK's stock keyboard, the
+       PS/2 converter, both Cherry MW 8 keyboards, the TMK board's interface 0, the QMK
+       board from [#71] and the Roccat's keyboard interface. */
+    DEV(unifying_rx_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
+    DEV(unifying_rx_b_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
+    DEV(qmk_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
+    DEV(ps2_converter_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
+    DEV(cherry_mw8_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
+    DEV(cherry_mw8c_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
+    DEV(fc660c_tmk_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
+    DEV(issue71_qmk_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
+    DEV(roccat_kone_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
+    DEV(g502_iface1, HID_PROTOCOL_REPORT, k_rid1_reserved_cases),
+    DEV(zmk_corne, HID_PROTOCOL_REPORT, k_rid1_reserved_cases),
+    DEV(superlight2_wired_keyboard, HID_PROTOCOL_REPORT, k_rid1_reserved_cases),
+    DEV(strafe_bios_keyboard, HID_PROTOCOL_REPORT, k_strafe_bios_cases),
+    DEV(strafe_iface0, HID_PROTOCOL_REPORT, k_strafe_cases),
+    DEV(scimitar_iface0, HID_PROTOCOL_REPORT, k_scimitar_kbd_cases),
+    DEV(bolt_rx_v501_keyboard, HID_PROTOCOL_REPORT, k_bolt_v501_cases),
+    DEV(apple_a1243_keyboard, HID_PROTOCOL_REPORT, k_a1243_cases),
+    DEV(blackdiamond75_keyboard, HID_PROTOCOL_REPORT, k_blackdiamond_cases),
+    DEV(fc660c_tmk_nkro, HID_PROTOCOL_REPORT, k_fc660c_nkro_cases),
+    DEV(adv360_pro, HID_PROTOCOL_REPORT, k_adv360_cases),
+    DEV(qmk_shared_endpoint, HID_PROTOCOL_REPORT, k_qmk_shared_cases),
+    DEV(keychron_dongle_keyboard, HID_PROTOCOL_REPORT, k_keychron_dongle_cases),
+#ifdef HARNESS_BOUNDED_KEY_ARRAY
+    /* Only on a tree whose _extract_kbd_other stops at the bytes that arrived: elsewhere
+       the one-byte-late read of an eight-byte report runs off its end. PR #359 bounds the
+       bitmap walk but not this loop, which is why this is its own flag. */
+    DEV(areson_trackball, HID_PROTOCOL_REPORT, k_areson_kbd_cases),
+#endif
 };
 
 #undef DEV

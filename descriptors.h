@@ -922,8 +922,9 @@ static const uint8_t d_apple_a2520_touchid[] = {
  *  DeskHop's own output descriptors at older firmware versions, which several
  *  reporters dumped beside their devices.
  *
- *  Nothing here has a decode case yet, so mouse, kbd and consumer know nothing
- *  about these devices; dump, compare, truncate and check-parse pick them up.
+ *  Every entry below that declares a mouse or keyboard collection has decode cases in
+ *  src/cases_mouse.h and src/cases_kbd.h; consumer knows nothing about these devices
+ *  yet, and dump, compare, truncate and check-parse pick them all up.
  *============================================================================*/
 
 /* Logitech G502, VID 046D PID C332, mouse interface -

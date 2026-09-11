@@ -162,7 +162,7 @@ the fix there, and the reporter did not choose the tool.
 | vendor interfaces with nothing the firmware routes | 17 |
 | carrying report IDs | 63 |
 | more than one top-level collection, i.e. a whole interface | 40 |
-| with hand-written decode cases | mouse 11 devices, keyboard 17, consumer 9 |
+| with hand-written decode cases | mouse 28 devices, keyboard 40, consumer 9 |
 
 [CORPUS.md](CORPUS.md) lists every real device: the issue or capture it came from,
 the tool that read it, and what it has caught so far.
@@ -192,8 +192,11 @@ the tool that read it, and what it has caught so far.
   `(1u << val->size) - 1` and `0xFFFFFFFFU << val->size`, and `val->size` is the
   *swapped* Report Count for 1-bit fields, so a mouse declaring 40 one-bit buttons
   shifts by 40. That is undefined, and on x86 it silently takes the shift mod 32 and
-  returns a plausible wrong number rather than faulting. No device in the corpus
-  reaches that path, so this costs nothing and is waiting.
+  returns a plausible wrong number rather than faulting. One device now reaches it: the
+  Corsair Scimitar's 32-button field, whose rows in `cases_mouse.h` wait behind
+  `HARNESS_FIELD_32` until a tree handles the width, because UBSan aborts the run on
+  every tree there is. On the RP2040 the same shift comes out as 0 and the buttons
+  decode; on x86 without the sanitiser the mask is 0 and every button reads released.
 - The decode tests key their expectations on what the target can do, detected by the
   Makefile rather than declared by the target. `MAX_NKRO_BLOCKS` used to be enough on its
   own, but stopped being once more than one fix existed: [#359] defines it and so does
@@ -255,7 +258,9 @@ actually runs on the hardware, so it is the tree whose regressions cost somethin
 Four rows have a larger denominator there rather than a comparable count.
 `bitdo_retro_iface2`'s report-protocol rows only enter `kbd` and `shortreport` on a tree
 that bounds the bitmap walk, because without the bound that device reads off the end and
-takes the run down. `mouse` gains four cases on the same terms: they ask where a skipped
+takes the run down; the Areson trackball's keyboard rows need the matching bound on the
+key-array loop, and the Magic Trackpad's mouse rows need the usage-array bound, for the
+same reason. `mouse` gains four cases on the same terms: they ask where a skipped
 button field falls back to, which is only a question on a tree that keeps buttons per
 interface; on `main` there is no such field to read and the block is not built, which
 `mousetest` says on its last line rather than passing silently. `consumer` and `dispatch`
@@ -270,15 +275,15 @@ the findings below separate the two.
 | check | upstream main | [DeskHop Extended][deskhop-extended] |
 |---|---|---|
 | `compare` | crashes on `gameball_gesture`, `many_usages`, `apple_a2520_touchid` and `magic_trackpad_mouse` under ASan | all four crashes fixed; 105 compared, differences confined to entries with a keyboard collection, plus `sculpt_rx_mouse` |
-| `mouse` | 137 of 137 cases over 11 devices | 137 of 137, plus **4 of 4** button fallback cases |
-| `kbd` | 59 of 59 cases over 16 devices | **65 of 65 over 17** |
+| `mouse` | 320 of 320 cases over 27 devices | **327 of 327 over 28**, plus **4 of 4** button fallback cases |
+| `kbd` | 159 of 159 cases over 38 devices | **168 of 168 over 40** |
 | `consumer` | 26 of 26 over 8 devices; verdict "does NOT have the #358 fix" | **29 of 29 over 9**; verdict "has the #358 fix" |
 | `dispatch` | 23 of 36 routed correctly, 4 of those only by luck; 13 misrouted | **36 of 36**, lifted rather than modelled |
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `check-parse` | 7 dump shapes read and 2 non-dumps refused, 105 descriptors round trip | same - it tests this repo's reader, not the firmware |
 | `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
 | `truncate` | 5197 of 9947 prefixes overread | 5069 of 9947 - the 128 fewer are all on `apple_a2520_touchid`, `gameball_gesture`, `magic_trackpad_mouse`, `many_usages`, where the usage array aborts the parse on `main` first; the descriptor overread is untouched, see below |
-| `shortreport` | 900 of 1378 truncated reports overread | **0 of 1414** |
+| `shortreport` | 2064 of 3260 truncated reports overread | **0 of 3355** |
 | `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails |
 | `timing` | segfaults | ~17.8 ns/element on x86-64 |
 

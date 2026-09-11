@@ -145,6 +145,14 @@ KBD_BOUNDED := $(shell grep -q 'byte_index >= len' $(SRC)/src/hid_report.c 2>/de
 # loudly, which is the opposite of the silent skip c6d0264 was written to get rid of.
 KBD_WIDE := $(shell grep -q 'is_key_bitmap' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_WIDE_USAGE_RANGE)
 
+# Does _extract_kbd_other stop at the bytes that arrived? Its key_array loop is indexed by
+# byte offset from the descriptor, and a keyboard whose report comes up one byte short of
+# where the descriptor put the last key slot reads past the report. DeskHop Extended
+# guards the loop with the report length; PR #359 bounds the bitmap walk (the flag above)
+# but not this loop, so the two need separate probes. Expression rather than identifier,
+# because the guard is one more clause in an existing loop and introduces no name.
+KBD_OTHER_BOUNDED := $(shell grep -q 'i < MAX_KEYS && i < len' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_BOUNDED_KEY_ARRAY)
+
 $(GEN)/lifted_kbd.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 	@python3 tools/lift.py $< $@ $(KBD_LIFT)
 
@@ -163,6 +171,22 @@ $(GEN)/lifted_mouse.c: $(SRC)/src/mouse.c tools/lift.py | $(GEN)
 # tree that has the field but kept the old fallback is not a concern here, since that
 # fails loudly as MISMATCH rather than quietly as a skip.
 MOUSE_IFACE_BTN := $(shell grep -q 'mouse_buttons' $(SRC)/src/include/hid_parser.h 2>/dev/null && echo -DHARNESS_IFACE_MOUSE_BUTTONS)
+
+# Does the parser stop advancing its usage cursor once usages[] is full? PR #361's fix,
+# carried by DeskHop Extended, is the only code that does, and usages_left() is the
+# helper it introduced. Without it a descriptor with a Report Count in the hundreds
+# against one usage walks the parser out of its own state - the Gameball's shape - so a
+# device that declares one, the Magic Trackpad's mouse interface, is kept out of
+# mousetest and shortreport on such a tree rather than taking the run down.
+PARSER_BOUNDED := $(shell grep -q 'usages_left' $(SRC)/src/hid_parser.c 2>/dev/null && echo -DHARNESS_BOUNDED_USAGES)
+
+# Can get_report_value() read a field 32 bits wide? No tree can yet: both compute
+# (1u << size) - 1, which is undefined at 32, so UBSan aborts the run on the first such
+# report. The Corsair Scimitar's 32-button field is the first device to reach it, and its
+# rows wait behind this flag. The grep is a guess at what the fix will look like - a
+# width test before the shift - so a fix spelled differently reads as "not fixed" and
+# keeps the device out, which fails safe: nothing is asserted rather than something wrong.
+FIELD_32 := $(shell grep -q 'size >= 32' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_FIELD_32)
 
 # The two receivers PR #358 changes. Lifted rather than reimplemented for the same
 # reason as everything else here: a hand copy would answer the question "does this
@@ -203,12 +227,12 @@ $(OUT)/dump: src/dump.c src/handlers.h descriptors.h $(HDRS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/dump.c $(CORE)
 
 $(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
-	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
 
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries
 $(OUT)/kbdtest: src/kbdtest.c src/cases_kbd.h src/handlers.h descriptors.h $(HDRS) $(CORE) | $(GEN)
-	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_MULTI) $(KBD_BOUNDED) $(KBD_WIDE) -o $@ src/kbdtest.c $(CORE)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_MULTI) $(KBD_BOUNDED) $(KBD_WIDE) $(KBD_OTHER_BOUNDED) -o $@ src/kbdtest.c $(CORE)
 
 $(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/exhaust.c $(CORE)
@@ -241,7 +265,7 @@ $(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h src/handlers.h descriptor
 # truncate already counts.
 $(OUT)/shortreport: src/shortreport.c src/cases_mouse.h src/cases_kbd.h descriptors.h $(HDRS) \
                     $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
-	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_BOUNDED) -o $@ src/shortreport.c \
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_BOUNDED) $(KBD_OTHER_BOUNDED) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/shortreport.c \
 	    $(GEN)/lifted_mouse.c $(CORE)
 
 # no ASan: this one is a stopwatch, and the fuzzer clamps rather than faults

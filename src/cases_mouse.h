@@ -257,6 +257,240 @@ static const mouse_case_t m_sculpt_cases[] = {
     {"synthetic: extremes",     {0x1A, 0x1F, 0xFF, 0x7F, 0x01, 0x80, 0x7F, 0x81, 0x01, 0x80}, 10, 32767, -32767, -32385, -32767, 31},
 };
 
+/* Logitech G502 on its cable, [#17]. Eight bytes and no report ID: a 16-bit button
+   field, 16-bit X and Y, then 8-bit wheel and pan - the Bolt receiver's layout without
+   the ID byte, so bit 15 of the buttons sign-extends here just the same. */
+static const mouse_case_t m_g502_cases[] = {
+    {"move right (X +20)",    {0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,    20,      0,   0,   0,      0},
+    {"move left  (X -20)",    {0x00, 0x00, 0xEC, 0xFF, 0x00, 0x00, 0x00, 0x00}, 8,   -20,      0,   0,   0,      0},
+    {"move down  (Y +20)",    {0x00, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00}, 8,     0,     20,   0,   0,      0},
+    {"move up    (Y -20)",    {0x00, 0x00, 0x00, 0x00, 0xEC, 0xFF, 0x00, 0x00}, 8,     0,    -20,   0,   0,      0},
+    {"X +32767, Y -32767",    {0x00, 0x00, 0xFF, 0x7F, 0x01, 0x80, 0x00, 0x00}, 8, 32767, -32767,   0,   0,      0},
+    {"scroll up",             {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00}, 8,     0,      0,   1,   0,      0},
+    {"scroll down",           {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x00}, 8,     0,      0,  -1,   0,      0},
+    {"pan right",             {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}, 8,     0,      0,   0,   1,      0},
+    {"pan left",              {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 8,     0,      0,   0,  -1,      0},
+    {"button 1 (left)",       {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,     0,      0,   0,   0,      1},
+    {"button 8, still positive", {0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,  0,      0,   0,   0,    128},
+    {"button 16 alone",       {0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,     0,      0,   0,   0, -32768},
+    {"all 16 buttons held",   {0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,     0,      0,   0,   0,     -1},
+    {"drag: btn1 + move",     {0x01, 0x00, 0x0A, 0x00, 0xF6, 0xFF, 0x00, 0x00}, 8,    10,    -10,   0,   0,      1},
+};
+
+/* Logitech Unifying receiver, interface 1, [#17] and [#150] - two units with different
+   firmware that put the same fields in the same places. Eight bytes on report ID 2: a
+   16-bit button field, then 12-bit X and Y packed low nibble first, the Kensington's
+   arrangement with a byte of buttons in front:
+     byte 3 = X & 0xFF, byte 4 = (X >> 8) | ((Y & 0xF) << 4), byte 5 = Y >> 4
+   then 8-bit wheel and pan. */
+static const mouse_case_t m_unifying_cases[] = {
+    {"move right (X +1)",     {0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00}, 8,     1,     0,    0,    0,      0},
+    {"move left  (X -1)",     {0x02, 0x00, 0x00, 0xFF, 0x0F, 0x00, 0x00, 0x00}, 8,    -1,     0,    0,    0,      0},
+    {"move down  (Y +1)",     {0x02, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00}, 8,     0,     1,    0,    0,      0},
+    {"move up    (Y -1)",     {0x02, 0x00, 0x00, 0x00, 0xF0, 0xFF, 0x00, 0x00}, 8,     0,    -1,    0,    0,      0},
+    {"X +2047 (max)",         {0x02, 0x00, 0x00, 0xFF, 0x07, 0x00, 0x00, 0x00}, 8,  2047,     0,    0,    0,      0},
+    {"X -2047 (min)",         {0x02, 0x00, 0x00, 0x01, 0x08, 0x00, 0x00, 0x00}, 8, -2047,     0,    0,    0,      0},
+    {"Y +2047 (max)",         {0x02, 0x00, 0x00, 0x00, 0xF0, 0x7F, 0x00, 0x00}, 8,     0,  2047,    0,    0,      0},
+    {"Y -2047 (min)",         {0x02, 0x00, 0x00, 0x00, 0x10, 0x80, 0x00, 0x00}, 8,     0, -2047,    0,    0,      0},
+    {"scroll up",             {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00}, 8,     0,     0,    1,    0,      0},
+    {"scroll down",           {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x00}, 8,     0,     0,   -1,    0,      0},
+    {"pan right",             {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}, 8,     0,     0,    0,    1,      0},
+    {"pan left",              {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 8,     0,     0,    0,   -1,      0},
+    {"button 1 (left)",       {0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,     0,     0,    0,    0,      1},
+    {"button 8, still positive", {0x02, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,  0,     0,    0,    0,    128},
+    {"button 16 alone",       {0x02, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,     0,     0,    0,    0, -32768},
+    {"all 16 buttons held",   {0x02, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,     0,     0,    0,    0,     -1},
+    {"everything at once",    {0x02, 0x1F, 0x00, 0xFF, 0x17, 0x80, 0x7F, 0x81}, 8,  2047, -2047,  127, -127,     31},
+};
+
+/* 8BitDo Retro, interface 0, [#57]: the Ultra-Link's eight-byte layout on report ID 3
+   instead of 1 - five buttons padded to a byte, 16-bit X and Y, wheel, pan. The
+   Keychron 2.4 GHz dongle in [#211] sends these exact bytes as well. */
+static const mouse_case_t m_bitdo_mouse_cases[] = {
+    {"move right (X +20)",    {0x03, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,    20,      0,   0,    0,  0},
+    {"move left  (X -20)",    {0x03, 0x00, 0xEC, 0xFF, 0x00, 0x00, 0x00, 0x00}, 8,   -20,      0,   0,    0,  0},
+    {"move down  (Y +20)",    {0x03, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00}, 8,     0,     20,   0,    0,  0},
+    {"move up    (Y -20)",    {0x03, 0x00, 0x00, 0x00, 0xEC, 0xFF, 0x00, 0x00}, 8,     0,    -20,   0,    0,  0},
+    {"scroll up",             {0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00}, 8,     0,      0,   1,    0,  0},
+    {"pan right",             {0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}, 8,     0,      0,   0,    1,  0},
+    {"all five buttons",      {0x03, 0x1F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,     0,      0,   0,    0, 31},
+    {"everything at once",    {0x03, 0x1F, 0xFF, 0x7F, 0x01, 0x80, 0x7F, 0x81}, 8, 32767, -32767, 127, -127, 31},
+};
+
+/* The PS/2-to-USB converter's interface 1, [#26]. Five bytes on report ID 1: five
+   buttons padded to a byte, 8-bit X and Y, 8-bit wheel. No AC pan, so pan is 0
+   throughout, and the Motion Wakeup feature bit lives in a feature report, not here.
+   The padding row is the same on every device here that pads its buttons: the parser
+   reads the pad bits as buttons, see the note on that row. */
+static const mouse_case_t m_ps2_converter_cases[] = {
+    {"move right (X +10)",    {0x01, 0x00, 0x0A, 0x00, 0x00}, 5,   10,    0,  0, 0,  0},
+    {"move left  (X -10)",    {0x01, 0x00, 0xF6, 0x00, 0x00}, 5,  -10,    0,  0, 0,  0},
+    {"move down  (Y +10)",    {0x01, 0x00, 0x00, 0x0A, 0x00}, 5,    0,   10,  0, 0,  0},
+    {"move up    (Y -10)",    {0x01, 0x00, 0x00, 0xF6, 0x00}, 5,    0,  -10,  0, 0,  0},
+    {"X +127, Y -128",        {0x01, 0x00, 0x7F, 0x80, 0x00}, 5,  127, -128,  0, 0,  0},
+    {"scroll up",             {0x01, 0x00, 0x00, 0x00, 0x01}, 5,    0,    0,  1, 0,  0},
+    {"scroll down",           {0x01, 0x00, 0x00, 0x00, 0xFF}, 5,    0,    0, -1, 0,  0},
+    {"button 1 (left)",       {0x01, 0x01, 0x00, 0x00, 0x00}, 5,    0,    0,  0, 0,  1},
+    {"button 5",              {0x01, 0x10, 0x00, 0x00, 0x00}, 5,    0,    0,  0, 0, 16},
+    {"all five buttons",      {0x01, 0x1F, 0x00, 0x00, 0x00}, 5,    0,    0,  0, 0, 31},
+    /* -32, not 0: handle_buttons() folds the constant padding after the buttons into
+       the button field, so the byte is read whole and sign-extended. A device that set
+       its padding bits would be reporting phantom buttons. */
+    {"padding bits set, read as buttons", {0x01, 0xE0, 0x00, 0x00, 0x00}, 5, 0, 0, 0, 0, -32},
+    {"drag: btn1 + move",     {0x01, 0x01, 0x0A, 0xF6, 0x00}, 5,   10,  -10,  0, 0,  1},
+};
+
+/* The unnamed USB mouse from the same report, [#26]. Seven bytes, no report ID: five
+   buttons padded to a byte, 12-bit X and Y packed as on the Kensington but starting at
+   byte 1, wheel, AC pan, and then a byte on Generic Desktop usage 0x168 that no map row
+   claims. The last two rows check that byte goes nowhere. */
+static const mouse_case_t m_issue26_cases[] = {
+    {"move right (X +1)",     {0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,     1,     0,    0,    0,  0},
+    {"move left  (X -1)",     {0x00, 0xFF, 0x0F, 0x00, 0x00, 0x00, 0x00}, 7,    -1,     0,    0,    0,  0},
+    {"move down  (Y +1)",     {0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00}, 7,     0,     1,    0,    0,  0},
+    {"move up    (Y -1)",     {0x00, 0x00, 0xF0, 0xFF, 0x00, 0x00, 0x00}, 7,     0,    -1,    0,    0,  0},
+    {"X +2047, Y -2047",      {0x00, 0xFF, 0x17, 0x80, 0x00, 0x00, 0x00}, 7,  2047, -2047,    0,    0,  0},
+    {"scroll up",             {0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00}, 7,     0,     0,    1,    0,  0},
+    {"pan left",              {0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x00}, 7,     0,     0,    0,   -1,  0},
+    {"button 1 (left)",       {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,     0,     0,    0,    0,  1},
+    {"all five buttons",      {0x1F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,     0,     0,    0,    0, 31},
+    {"trailing usage 0x168 byte ignored", {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 7, 0, 0, 0,  0,  0},
+    {"everything at once",    {0x1F, 0xFF, 0x17, 0x80, 0x7F, 0x81, 0xAA}, 7,  2047, -2047,  127, -127, 31},
+};
+
+/* Corsair Scimitar RGB Elite, interface 0, [#45]. Every row up to the scroll is a report
+   the reporter captured with usbhid-dump, eleven bytes: [0x01][32 buttons][X 16][Y 16]
+   [wheel][pad]. The 32-bit button field is the first in the corpus, and it is why this
+   device sits behind HARNESS_FIELD_32 in the table below: get_report_value() computes
+   (1u << size) - 1, which is undefined for a size of 32, and UBSan aborts the run on
+   either tree. On the RP2040 the shift comes out as 0, the mask as all ones and the
+   buttons decode; on x86 without the sanitiser the mask is 0 and every button reads as
+   released. The rows are what the descriptor specifies, ready for a tree that handles
+   the width. */
+static const mouse_case_t m_scimitar_cases[] = {
+    {"move right (X +1), captured", {0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}, 11,  1,  0, 0, 0,    0},
+    {"move left  (X -1), captured", {0x01, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00}, 11, -1,  0, 0, 0,    0},
+    {"move up    (Y -1), captured", {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00}, 11,  0, -1, 0, 0,    0},
+    {"move down  (Y +1), captured", {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00}, 11,  0,  1, 0, 0,    0},
+    {"up-left, captured",           {0x01, 0x00, 0x00, 0x00, 0x00, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00}, 11, -2, -2, 0, 0,    0},
+    {"right button + left, captured", {0x01, 0x02, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00}, 11, -1, 0, 0, 0,   2},
+    {"right button + up, captured", {0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00}, 11,  0, -1, 0, 0,    2},
+    {"scroll up",                   {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00}, 11,  0,  0, 1, 0,    0},
+    {"side key 12 (button 12)",     {0x01, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 11,  0,  0, 0, 0, 2048},
+};
+
+/* The same Scimitar as it presented itself to the DeskHop, [#45]: a 58-byte boot mouse.
+   Seven bytes, no report ID: five buttons padded to a byte, 8-bit X, Y and wheel, then
+   three bytes of padding. No AC pan. */
+static const mouse_case_t m_scimitar_boot_cases[] = {
+    {"move right (X +20)",    {0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,   20,   0,  0, 0,  0},
+    {"move up-left",          {0x00, 0xF6, 0xF6, 0x00, 0x00, 0x00, 0x00}, 7,  -10, -10,  0, 0,  0},
+    {"scroll up",             {0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00}, 7,    0,   0,  1, 0,  0},
+    {"scroll down",           {0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00}, 7,    0,   0, -1, 0,  0},
+    {"all five buttons",      {0x1F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,    0,   0,  0, 0, 31},
+    {"padding bytes ignored", {0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF}, 7,    0,   0,  0, 0,  0},
+    {"drag: btn1 + move",     {0x01, 0x0A, 0xF6, 0x00, 0x00, 0x00, 0x00}, 7,   10, -10,  0, 0,  1},
+};
+
+/* The unnamed mouse from [#99], where the middle button came out of a DeskHop as buttons
+   2, 8 and 9. Five bytes, no report ID: three buttons and five bits of padding, 12-bit X
+   and Y packed as on the Kensington, 8-bit wheel. No AC pan. The middle-button row is the
+   one the issue is about: it decodes to 4 and nothing else, so whatever produced 8 and 9
+   happened after this point. */
+static const mouse_case_t m_issue99_cases[] = {
+    {"move right (X +1)",     {0x00, 0x01, 0x00, 0x00, 0x00}, 5,     1,     0,  0, 0, 0},
+    {"move left  (X -1)",     {0x00, 0xFF, 0x0F, 0x00, 0x00}, 5,    -1,     0,  0, 0, 0},
+    {"move down  (Y +1)",     {0x00, 0x00, 0x10, 0x00, 0x00}, 5,     0,     1,  0, 0, 0},
+    {"move up    (Y -1)",     {0x00, 0x00, 0xF0, 0xFF, 0x00}, 5,     0,    -1,  0, 0, 0},
+    {"X sign bit only (-2048)", {0x00, 0x00, 0x08, 0x00, 0x00}, 5, -2048,     0,  0, 0, 0},
+    {"Y +2047 (max)",         {0x00, 0x00, 0xF0, 0x7F, 0x00}, 5,     0,  2047,  0, 0, 0},
+    {"scroll up",             {0x00, 0x00, 0x00, 0x00, 0x01}, 5,     0,     0,  1, 0, 0},
+    {"scroll down",           {0x00, 0x00, 0x00, 0x00, 0xFF}, 5,     0,     0, -1, 0, 0},
+    {"middle button",         {0x04, 0x00, 0x00, 0x00, 0x00}, 5,     0,     0,  0, 0, 4},
+    {"all three buttons",     {0x07, 0x00, 0x00, 0x00, 0x00}, 5,     0,     0,  0, 0, 7},
+    {"padding bits set, read as buttons", {0xF8, 0x00, 0x00, 0x00, 0x00}, 5, 0, 0, 0, 0, -8},
+};
+
+/* A vial-qmk keyboard's mouse collection, [#151], where a layer change made the pointer
+   jump to the parking corner. Six bytes on report ID 2: five buttons padded to a byte,
+   8-bit X, Y, wheel and pan. The last row is the report the reporter captured on the
+   layer change, seven bytes of zeros: it decodes to nothing, which is the whole point -
+   an empty movement report is what reached the output side. */
+static const mouse_case_t m_vial_qmk_cases[] = {
+    {"move right (X +10)",    {0x02, 0x00, 0x0A, 0x00, 0x00, 0x00}, 6,   10,    0,  0,  0,  0},
+    {"move up    (Y -10)",    {0x02, 0x00, 0x00, 0xF6, 0x00, 0x00}, 6,    0,  -10,  0,  0,  0},
+    {"scroll up",             {0x02, 0x00, 0x00, 0x00, 0x01, 0x00}, 6,    0,    0,  1,  0,  0},
+    {"pan left",              {0x02, 0x00, 0x00, 0x00, 0x00, 0xFF}, 6,    0,    0,  0, -1,  0},
+    {"button 1 (left)",       {0x02, 0x01, 0x00, 0x00, 0x00, 0x00}, 6,    0,    0,  0,  0,  1},
+    {"all five buttons",      {0x02, 0x1F, 0x00, 0x00, 0x00, 0x00}, 6,    0,    0,  0,  0, 31},
+    {"padding bits set, read as buttons", {0x02, 0xE0, 0x00, 0x00, 0x00, 0x00}, 6, 0, 0, 0, 0, -32},
+    {"layer change, as captured", {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 7, 0,   0,  0,  0,  0},
+};
+
+/* QMK's shared endpoint, the mouse collection, [#17], [#30], [#61]. The vial layout with
+   eight buttons instead of five, so the byte can set bit 7 and sign-extend, as the MX518's
+   does. */
+static const mouse_case_t m_qmk_shared_mouse_cases[] = {
+    {"move right (X +10)",    {0x02, 0x00, 0x0A, 0x00, 0x00, 0x00}, 6,   10,    0,  0,  0,    0},
+    {"move up    (Y -10)",    {0x02, 0x00, 0x00, 0xF6, 0x00, 0x00}, 6,    0,  -10,  0,  0,    0},
+    {"scroll down",           {0x02, 0x00, 0x00, 0x00, 0xFF, 0x00}, 6,    0,    0, -1,  0,    0},
+    {"pan right",             {0x02, 0x00, 0x00, 0x00, 0x00, 0x01}, 6,    0,    0,  0,  1,    0},
+    {"button 1 (left)",       {0x02, 0x01, 0x00, 0x00, 0x00, 0x00}, 6,    0,    0,  0,  0,    1},
+    {"button 8 alone",        {0x02, 0x80, 0x00, 0x00, 0x00, 0x00}, 6,    0,    0,  0,  0, -128},
+    {"all eight buttons",     {0x02, 0xFF, 0x00, 0x00, 0x00, 0x00}, 6,    0,    0,  0,  0,   -1},
+    {"everything at once",    {0x02, 0x1F, 0x7F, 0x81, 0x02, 0xFE}, 6,  127, -127,  2, -2,   31},
+};
+
+/* Apple Mighty Mouse, [#185]. Six bytes, no report ID: four buttons and four bits of
+   padding, then X, Y, Z and Wheel declared as one four-count field, then a vendor byte.
+   The parser tracks X, Y and Wheel; the Z byte and the vendor byte go nowhere, and the
+   rows named for them check that they stay nowhere. */
+static const mouse_case_t m_mighty_mouse_cases[] = {
+    {"move right (X +10)",    {0x00, 0x0A, 0x00, 0x00, 0x00, 0x00}, 6,   10,    0,  0, 0,  0},
+    {"move up    (Y -10)",    {0x00, 0x00, 0xF6, 0x00, 0x00, 0x00}, 6,    0,  -10,  0, 0,  0},
+    {"scroll up",             {0x00, 0x00, 0x00, 0x00, 0x01, 0x00}, 6,    0,    0,  1, 0,  0},
+    {"scroll down",           {0x00, 0x00, 0x00, 0x00, 0xFF, 0x00}, 6,    0,    0, -1, 0,  0},
+    {"Z axis goes nowhere",   {0x00, 0x00, 0x00, 0x7F, 0x00, 0x00}, 6,    0,    0,  0, 0,  0},
+    {"vendor byte goes nowhere", {0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 6, 0,    0,  0, 0,  0},
+    {"button 1 (left)",       {0x01, 0x00, 0x00, 0x00, 0x00, 0x00}, 6,    0,    0,  0, 0,  1},
+    {"all four buttons",      {0x0F, 0x00, 0x00, 0x00, 0x00, 0x00}, 6,    0,    0,  0, 0, 15},
+    {"padding bits set, read as buttons", {0xF0, 0x00, 0x00, 0x00, 0x00, 0x00}, 6, 0, 0, 0, 0, -16},
+    {"everything at once",    {0x0F, 0x7F, 0x81, 0x55, 0xFF, 0xAA}, 6,  127, -127, -1, 0, 15},
+};
+
+/* Apple Magic Trackpad, the mouse collection, [#207]. Eight bytes on report ID 2: three
+   buttons and five bits of padding, 8-bit X and Y, four bytes of padding. No wheel and no
+   pan. Behind HARNESS_BOUNDED_USAGES in the table below, because the same interface
+   declares a 1387-byte input against one usage and parsing it takes a tree without the
+   usages[] bound down before any report can be decoded. */
+static const mouse_case_t m_magic_trackpad_cases[] = {
+    {"move right (X +10)",    {0x02, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,   10,    0, 0, 0, 0},
+    {"move up    (Y -10)",    {0x02, 0x00, 0x00, 0xF6, 0x00, 0x00, 0x00, 0x00}, 8,    0,  -10, 0, 0, 0},
+    {"button 1 (left)",       {0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,    0,    0, 0, 0, 1},
+    {"all three buttons",     {0x02, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8,    0,    0, 0, 0, 7},
+    {"padding bits set, read as buttons", {0x02, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8, 0, 0, 0, 0, -8},
+    {"padding bytes ignored", {0x02, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF}, 8,    0,    0, 0, 0, 0},
+    {"drag: btn1 + move",     {0x02, 0x01, 0x0A, 0xF6, 0x00, 0x00, 0x00, 0x00}, 8,   10,  -10, 0, 0, 1},
+};
+
+/* Keyboardio Model 100, interface 4, [#216]: the only absolute pointer among the real
+   devices. Six bytes, no report ID: eight buttons, 16-bit X and Y over 0..32767, a
+   relative 8-bit wheel. The values come out as declared, as signed reads of a field whose
+   declared range never goes negative; what the firmware does with an absolute position
+   is mouse.c's business, not the decode's. */
+static const mouse_case_t m_keyboardio_mouse_cases[] = {
+    {"X 100, absolute",       {0x00, 0x64, 0x00, 0x00, 0x00, 0x00}, 6,   100,     0,  0, 0,    0},
+    {"Y 200, absolute",       {0x00, 0x00, 0x00, 0xC8, 0x00, 0x00}, 6,     0,   200,  0, 0,    0},
+    {"X 32767, top of range", {0x00, 0xFF, 0x7F, 0x00, 0x00, 0x00}, 6, 32767,     0,  0, 0,    0},
+    {"Y 32767, top of range", {0x00, 0x00, 0x00, 0xFF, 0x7F, 0x00}, 6,     0, 32767,  0, 0,    0},
+    {"origin, nothing held",  {0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 6,     0,     0,  0, 0,    0},
+    {"scroll up",             {0x00, 0x00, 0x00, 0x00, 0x00, 0x01}, 6,     0,     0,  1, 0,    0},
+    {"button 1 (left)",       {0x01, 0x00, 0x00, 0x00, 0x00, 0x00}, 6,     0,     0,  0, 0,    1},
+    {"button 8 alone",        {0x80, 0x00, 0x00, 0x00, 0x00, 0x00}, 6,     0,     0,  0, 0, -128},
+    {"all eight buttons",     {0xFF, 0x00, 0x00, 0x00, 0x00, 0x00}, 6,     0,     0,  0, 0,   -1},
+};
+
+
 #define DEV(d, p, c) {#d, d_##d, (int)sizeof(d_##d), p, c, (unsigned)ARRAY_SIZE(c)}
 
 static const mouse_device_t mouse_devices[] = {
@@ -271,6 +505,37 @@ static const mouse_device_t mouse_devices[] = {
     DEV(bolt_rx_touchpad, HID_PROTOCOL_REPORT, m_bolt_touchpad_cases),
     DEV(boot_mouse, HID_PROTOCOL_BOOT, m_boot_protocol_cases),
     DEV(sculpt_rx_mouse, HID_PROTOCOL_REPORT, m_sculpt_cases),
+    /* The September 2026 sweep. Reused tables are byte-for-byte layout matches: the
+       Areson and the Roccat put the Ultra-Link's fields in the Ultra-Link's places on
+       report ID 1, the TMK board's mouse is the Gameball's five bytes, the 5.01 Bolt's
+       interface 1 begins with the corpus Bolt's 133 bytes, and the second Unifying
+       receiver differs from the first only in item order. */
+    DEV(g502_mouse, HID_PROTOCOL_REPORT, m_g502_cases),
+    DEV(unifying_rx_iface1, HID_PROTOCOL_REPORT, m_unifying_cases),
+    DEV(unifying_rx_b_iface1, HID_PROTOCOL_REPORT, m_unifying_cases),
+    DEV(areson_trackball, HID_PROTOCOL_REPORT, m_ultralink_cases),
+    DEV(roccat_kone_mouse, HID_PROTOCOL_REPORT, m_ultralink_cases),
+    DEV(bitdo_retro_mouse, HID_PROTOCOL_REPORT, m_bitdo_mouse_cases),
+    DEV(ps2_converter_iface1, HID_PROTOCOL_REPORT, m_ps2_converter_cases),
+    DEV(issue26_mouse, HID_PROTOCOL_REPORT, m_issue26_cases),
+#ifdef HARNESS_FIELD_32
+    /* A 32-bit button field: (1u << 32) is undefined and UBSan aborts the run on every
+       tree so far. See the table's comment. */
+    DEV(scimitar_iface0, HID_PROTOCOL_REPORT, m_scimitar_cases),
+#endif
+    DEV(scimitar_boot_mouse, HID_PROTOCOL_REPORT, m_scimitar_boot_cases),
+    DEV(bolt_rx_v501_iface1, HID_PROTOCOL_REPORT, m_bolt_rx_cases),
+    DEV(issue99_mouse, HID_PROTOCOL_REPORT, m_issue99_cases),
+    DEV(fc660c_tmk_mouse, HID_PROTOCOL_REPORT, m_gameball_cases),
+    DEV(vial_qmk_iface2, HID_PROTOCOL_REPORT, m_vial_qmk_cases),
+    DEV(qmk_shared_endpoint, HID_PROTOCOL_REPORT, m_qmk_shared_mouse_cases),
+    DEV(mighty_mouse, HID_PROTOCOL_REPORT, m_mighty_mouse_cases),
+#ifdef HARNESS_BOUNDED_USAGES
+    /* Only on a tree that stops the usage cursor at the end of usages[]. Elsewhere the
+       1387-count input on this interface walks the parser out of its own state. */
+    DEV(magic_trackpad_mouse, HID_PROTOCOL_REPORT, m_magic_trackpad_cases),
+#endif
+    DEV(keyboardio_mouse, HID_PROTOCOL_REPORT, m_keyboardio_mouse_cases),
 };
 
 #undef DEV

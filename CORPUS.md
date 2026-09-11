@@ -135,8 +135,8 @@ The last 51 came from a sweep of every upstream issue and comment in September 2
 Each dump was run through `add_descriptor.py` and compared byte for byte, then item
 for item, with what was already here. Only real-wire captures went in; the Windows
 reconstructions the same sweep turned up were left out, since the table under [Dumped
-here](#dumped-here) shows what those cost. None has a decode case yet, so `dump`,
-`compare` and `truncate` are what they feed. What their first run bought:
+here](#dumped-here) shows what those cost. Every one that declares a mouse or keyboard collection now has decode cases in
+`src/cases_mouse.h` and `src/cases_kbd.h`; `dump`, `compare` and `truncate` take the rest. What their first run bought:
 
 - **Apple Magic Trackpad** (`05ac:0265`, [#207]) is a fourth device with the [#332]
   shape: its mouse interface declares a 1387-byte input on report 0x44 against a single
