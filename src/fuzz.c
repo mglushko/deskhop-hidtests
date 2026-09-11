@@ -16,7 +16,7 @@
 #include <errno.h>
 #include <limits.h>
 
-static long touches, out_of_bounds, highest;
+static long touches, out_of_bounds, highest, lowest;
 static int  this_descriptor_went_out;
 
 void dbg_touch(parser_state_t *parser, long abs_idx) {
@@ -25,6 +25,8 @@ void dbg_touch(parser_state_t *parser, long abs_idx) {
     touches++;
     if (abs_idx > highest)
         highest = abs_idx;
+    if (touches == 1 || abs_idx < lowest)
+        lowest = abs_idx;
 
     if (abs_idx < 0 || abs_idx >= HID_MAX_USAGES) {
         out_of_bounds++;
@@ -160,7 +162,12 @@ int main(int argc, char **argv) {
     printf("  descriptors parsed           : %ld\n", count);
     printf("  usages[] capacity            : %d\n", HID_MAX_USAGES);
     printf("  total accesses               : %ld\n", touches);
+    /* Read together, the two extremes name the shape of a failure. A lowest of -1 under
+       a highest of 127 is the slot behind the array: 1e31d10's carry reads p_usage[-1] on
+       a first Input that declared no usage. A highest in the thousands is the pre-fix
+       cursor walking off the end into the parser's own state. */
     printf("  highest index touched        : %ld\n", highest);
+    printf("  lowest index touched         : %ld\n", lowest);
     printf("  out-of-bounds accesses       : %ld\n", out_of_bounds);
     printf("  descriptors going out of bounds: %ld\n", bad_descriptors);
 

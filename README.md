@@ -512,16 +512,19 @@ by the *vendor* block in the previous top-level collection.
 descriptors and checked against `dump`: 42 elements in 23 of them read a usage their block
 never declared. 30 land on a map row that wildcards the usage, so the stale value is copied
 into state and then read by nothing but `dump`; 11 match no row at all. Exactly one changes
-decode - `d_composite`'s consumer padding bit holds `0x00B5`, Scan Next Track, and
-`process_consumer_report` has no `break`, so a set padding bit would *replace* a real key
-rather than add one. That descriptor is hand-written, from the section used to prove parser
+decode - `d_composite`'s consumer padding bit holds `0x00B5`, Scan Next Track, on the
+parsers before `1e31d10` and `0x0223`, AC Home, from it on, and `process_consumer_report`
+has no `break`, so a set padding bit would *replace* a real key rather than add one. That descriptor is hand-written, from the section used to prove parser
 changes are inert, so **no captured device here is affected**.
 
-Two things for whoever does fix it. The carry it depends on is mislabelled: `hid_parser.c`
-says "Carry the last usage" and carries the **first**, because after `p_usage +=
-usage_count` the expression `*(p_usage - usage_count)` is the old slot 0. `d_composite`
-shows it, declaring `00B5, 00B6, 00CD, 0223` and carrying `00B5`. The sentence above is
-right about the ms600 only because that block declared a single usage.
+Two things for whoever does fix it. The carry it depends on was mislabelled until upstream
+`1e31d10` of 11 September 2026: `hid_parser.c` said "Carry the last usage" and carried the
+**first**, because after `p_usage += usage_count` the expression `*(p_usage - usage_count)`
+was the old slot 0. `d_composite` showed it, declaring `00B5, 00B6, 00CD, 0223` and carrying
+`00B5`. From `1e31d10` on, which DeskHop Extended carries, the carry is `*(p_usage - 1)` and
+that padding bit holds `0223`, AC Home, so the same set bit now replaces a different real
+key. The sentence above is right about the ms600 only because that block declared a single
+usage.
 
 And there is no settled answer to copy. HID 1.11 section 6.2.2.8 says local items do not
 carry over to the next main item; Linux clears its whole local struct per main item and
@@ -533,6 +536,18 @@ whole array, `ms600_consumer` and `keyboardio_media` declaring 1024. What fits i
 `return 0` when `usage_count` is zero - two lines in `get_usage()` on [#361] and
 Extended, one in `store_element()` on `main`, which has no `get_usage()` - inert on every
 decode path, and it changes what `dump` prints for 18 of the 47 descriptors.
+
+**The rewritten carry reads the slot behind the array.** On `1e31d10` the carry runs
+whether or not the block declared a usage, and it is spelled `*(p_usage - 1)`. On the first
+Input of a descriptor that declared none, which is buttons and modifiers by `Usage Min..Max`,
+`p_usage` still points at slot 0, so the read is `usages[-1]`. That is the high half of
+`usage_count`, the member before the array on the RP2040 and on the host alike, and it is
+zero at that moment, so what lands in slot 0 is a zero: formally out of bounds, harmless
+today, and one struct reordering away from not being. 79 of the 105 descriptors here execute
+it. `make fuzz` reports it as `lowest index touched: -1` under `highest index touched: 127`,
+59101 accesses in 26717 of 40000 descriptors at seed 1, and exits non-zero for it, which is
+the finding; a highest in the thousands is the other shape, the pre-fix cursor walking off
+the end. A guard that skips the carry when `usage_count` is zero removes it.
 
 **A second mouse collection blanks the first.** `kernel_multi_collection` declares two,
 on report IDs 1 and 2, identically laid out. The parser walks both, and the second

@@ -5,10 +5,11 @@ the harness survives and can keep fuzzing instead of dying on the first overflow
 
     instrument.py <hid_parser.c> <out.c>
 
-Works on both the pre-fix and post-fix shapes of the file. Sites that only exist
-in one shape are optional; at least one must match or it exits non-zero, which
-catches the case where upstream restructured the parser and this tool has gone
-stale.
+Works on the three shapes the file has had: before the usage-array bound, with PR
+#361's usages_left(), and with upstream 1e31d10's rewrite of that bound. A site that
+exists in only some shapes is optional where its shape is absent; every access that
+is there must be matched, or it exits non-zero, which catches the case where
+upstream restructured the parser again and this tool has gone stale.
 """
 import os
 import sys
@@ -38,13 +39,14 @@ static inline uint16_t *dbg_slot(parser_state_t *parser, uint16_t *p, long i) {
 # group is what the site belongs to, and every group must end up with at least one
 # match or the run fails. A site in a group of its own is simply required.
 #
-# The read of the usage is spelled differently before and after the #332 fix, so
-# those two share a group: either shape counts, neither being present does not.
+# The read of the usage is spelled differently in each shape of the parser, so those
+# sites share a group: any one of them counts, none being present does not.
 # Marking them individually optional - which is what this used to do - meant a
 # restructure upstream could leave the read uninstrumented while every required
 # site still matched, and fuzz would then under-report out-of-bounds accesses
 # without a word. That is the exact false negative this tool exists to prevent.
 SITES = [
+    # pre-fix and #361: update_usage() writes the previous element's usage forward
     ("update_usage",
      "*(parser->p_usage + i) = *(parser->p_usage + i - 1);",
      "*dbg_slot(parser, parser->p_usage, i) = *dbg_slot(parser, parser->p_usage, i - 1);",
@@ -56,10 +58,16 @@ SITES = [
      ".usage        = *dbg_slot(parser, parser->p_usage, i),",
      "usage_read"),
 
-    # post-fix only: get_usage() returns it
+    # #361: get_usage() returns it
     ("get_usage_read",
      "return *(parser->p_usage + i);",
      "return *dbg_slot(parser, parser->p_usage, i);",
+     "usage_read"),
+
+    # 1e31d10: get_usage() takes the slot's address, clamps it to the array, then reads
+    ("get_usage_slot",
+     "uint16_t *slot = parser->p_usage + idx;",
+     "uint16_t *slot = dbg_slot(parser, parser->p_usage, idx);",
      "usage_read"),
 
     ("local_push",
@@ -68,10 +76,17 @@ SITES = [
      " parser->usage_count++; }",
      "local_push"),
 
-    ("carry",
+    # pre-fix and #361: the carry copies the first usage of the finished block
+    ("carry_first",
      "*parser->p_usage = *(parser->p_usage - parser->usage_count);",
      "*dbg_slot(parser, parser->p_usage, 0) ="
      " *dbg_slot(parser, parser->p_usage, -(long)parser->usage_count);",
+     "carry"),
+
+    # 1e31d10: it copies the last one, reading the slot behind the cursor
+    ("carry_last",
+     "*parser->p_usage = *(parser->p_usage - 1);",
+     "*dbg_slot(parser, parser->p_usage, 0) = *dbg_slot(parser, parser->p_usage, -1);",
      "carry"),
 
     # the cursor advance itself can walk out of the array
@@ -80,7 +95,24 @@ SITES = [
      "parser->p_usage += parser->usage_count;"
      " dbg_touch(parser, (long)(parser->p_usage - parser->usages));",
      "advance"),
+
+    # 1e31d10 only: a full array pins the cursor on the last slot instead of advancing
+    ("pin",
+     "parser->p_usage = parser->usages + HID_MAX_USAGES - 1;",
+     "parser->p_usage = parser->usages + HID_MAX_USAGES - 1;"
+     " dbg_touch(parser, HID_MAX_USAGES - 1);",
+     "advance"),
 ]
+
+# A group whose sites exist only in some shapes of the file is required only while the
+# shape is: the marker is text that proves the shape is present. update_usage() was
+# removed by 1e31d10, which reads the last declared usage instead of writing it forward,
+# so on that shape there is nothing to instrument and nothing missing. Without this the
+# tool refused the current upstream parser outright; with the group merely optional it
+# would stay silent if a #361-shaped tree ever lost the site to reformatting.
+GROUP_MARKER = {
+    "update_usage": "void update_usage(",
+}
 
 
 def main():
@@ -88,6 +120,7 @@ def main():
         raise SystemExit(__doc__)
 
     src = open(sys.argv[1]).read()
+    orig = src
 
     # This is a modified copy of a GPLv3 source file, so it is a derivative work
     # and carries the same terms. Saying so at the top keeps that visible to
@@ -116,7 +149,13 @@ def main():
             applied.append("%s x%d" % (tag, hits) if hits > 1 else tag)
             seen_groups.add(group)
 
-    missing = [g for g in all_groups if g not in seen_groups]
+    # required unless the group's marker says this shape never had the site
+    def required(group):
+        marker = GROUP_MARKER.get(group)
+        return marker is None or marker in orig
+
+    missing = [g for g in all_groups if g not in seen_groups and required(g)]
+    absent  = [g for g in all_groups if g not in seen_groups and not required(g)]
 
     if missing:
         # Bail before writing anything. Writing first and returning non-zero after
@@ -141,6 +180,8 @@ def main():
 
     print("instrumented %s -> %s" % (sys.argv[1], sys.argv[2]))
     print("  sites: %s" % ", ".join(applied))
+    if absent:
+        print("  absent in this shape: %s" % ", ".join(absent))
     return 0
 
 

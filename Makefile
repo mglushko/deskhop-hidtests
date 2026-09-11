@@ -172,13 +172,16 @@ $(GEN)/lifted_mouse.c: $(SRC)/src/mouse.c tools/lift.py | $(GEN)
 # fails loudly as MISMATCH rather than quietly as a skip.
 MOUSE_IFACE_BTN := $(shell grep -q 'mouse_buttons' $(SRC)/src/include/hid_parser.h 2>/dev/null && echo -DHARNESS_IFACE_MOUSE_BUTTONS)
 
-# Does the parser stop advancing its usage cursor once usages[] is full? PR #361's fix,
-# carried by DeskHop Extended, is the only code that does, and usages_left() is the
-# helper it introduced. Without it a descriptor with a Report Count in the hundreds
-# against one usage walks the parser out of its own state - the Gameball's shape - so a
+# Does the parser stop advancing its usage cursor once usages[] is full? The bound has
+# two spellings. PR #361 introduced usages_left() for it, and upstream 1e31d10 rewrote
+# the same bound as pointer comparisons against usages + HID_MAX_USAGES, so either
+# string is the fix. The pre-fix parser has neither: it compares usage_count and the
+# element index against HID_MAX_USAGES alone, which is what lets p_usage walk out of
+# the array. Without the bound a descriptor with a Report Count in the hundreds against
+# one usage walks the parser out of its own state, which is the Gameball's shape, so a
 # device that declares one, the Magic Trackpad's mouse interface, is kept out of
 # mousetest and shortreport on such a tree rather than taking the run down.
-PARSER_BOUNDED := $(shell grep -q 'usages_left' $(SRC)/src/hid_parser.c 2>/dev/null && echo -DHARNESS_BOUNDED_USAGES)
+PARSER_BOUNDED := $(shell grep -qE 'usages_left|usages \+ HID_MAX_USAGES' $(SRC)/src/hid_parser.c 2>/dev/null && echo -DHARNESS_BOUNDED_USAGES)
 
 # Can get_report_value() read a field 32 bits wide? No tree can yet: both compute
 # (1u << size) - 1, which is undefined at 32, so UBSan aborts the run on the first such
