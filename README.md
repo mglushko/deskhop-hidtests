@@ -249,82 +249,90 @@ the tool that read it, and what it has caught so far.
 ## Known good numbers
 
 Reference results, so a broken harness is distinguishable from a broken firmware.
-Taken in September 2026 against upstream `main` at `59577cc` and
-[DeskHop Extended][deskhop-extended] `main` at `5024fca`, over the 105-descriptor corpus.
+Taken in September 2026 against upstream `main` at `1e31d10` and
+[DeskHop Extended][deskhop-extended] `main` at `7506336`, over the 105-descriptor corpus.
 
 The second column is the one that matters day to day. Upstream `main` is the reference;
-DeskHop Extended carries the three upstream PRs ([#358], [#359], [#361]) plus the
+DeskHop Extended carries the two upstream PRs still open ([#358], [#359]) plus the
 short-report, boot-routing, report-ID lookup and multi-keyboard fixes, and is what
-actually runs on the hardware, so it is the tree whose regressions cost something.
+actually runs on the hardware, so it is the tree whose regressions cost something. [#361]
+is in both, as upstream `1e31d10` rewrote it, so `hid_parser.c` is the same file on either
+side and the rows that measure only the parser agree.
 
-Four rows have a larger denominator there rather than a comparable count.
+Three rows have a larger denominator there rather than a comparable count.
 `bitdo_retro_iface2`'s report-protocol rows only enter `kbd` and `shortreport` on a tree
 that bounds the bitmap walk, because without the bound that device reads off the end and
-takes the run down; the Areson trackball's keyboard rows need the matching bound on the
-key-array loop, and the Magic Trackpad's mouse rows need the usage-array bound, for the
-same reason. `mouse` gains four cases on the same terms: they ask where a skipped
-button field falls back to, which is only a question on a tree that keeps buttons per
-interface; on `main` there is no such field to read and the block is not built, which
-`mousetest` says on its last line rather than passing silently. `consumer` and `dispatch`
-add the A2520's media keys on report 0x52, which only a tree that looks receivers up by
-report ID value can deliver.
+takes the run down, and the Areson trackball's keyboard rows need the matching bound on
+the key-array loop. The Magic Trackpad's mouse rows need the usage-array bound for the
+same reason, and since [#361] both trees have it, so they count on both sides. `mouse`
+gains four cases on the same terms: they ask where a skipped button field falls back to,
+which is only a question on a tree that keeps buttons per interface; on `main` there is no
+such field to read and the block is not built, which `mousetest` says on its last line
+rather than passing silently. `consumer` and `dispatch` add the A2520's media keys on
+report 0x52, which only a tree that looks receivers up by report ID value can deliver.
 
-`truncate` is the one row where the fork is no better than `main` in kind, and
-deliberately so: that is the short *descriptor* finding in the parse loop, which nothing
-here has fixed. It is easy to mistake for the short *report* row above it, which is why
-the findings below separate the two.
+`truncate` and `fuzz` are the two rows where the fork is no better than `main`, and
+deliberately so. `truncate` is the short *descriptor* finding in the parse loop, which
+nothing here has fixed; `fuzz` is the rewritten carry's read of `usages[-1]`, which the
+fork took from upstream verbatim. The first is easy to mistake for the short *report* row
+above it, which is why the findings below separate the two.
 
 | check | upstream main | [DeskHop Extended][deskhop-extended] |
 |---|---|---|
-| `compare` | crashes on `gameball_gesture`, `many_usages`, `apple_a2520_touchid` and `magic_trackpad_mouse` under ASan | all four crashes fixed; 105 compared, differences confined to entries with a keyboard collection, plus `sculpt_rx_mouse` |
-| `mouse` | 320 of 320 cases over 27 devices | **327 of 327 over 28**, plus **4 of 4** button fallback cases |
+| `compare` | all 105 parse; the four that crashed under ASan before [#361], `gameball_gesture`, `many_usages`, `apple_a2520_touchid` and `magic_trackpad_mouse`, no longer do | 105 compared against upstream `main`, no crash on either side; differences confined to the 41 entries with a keyboard collection, plus `sculpt_rx_mouse` |
+| `mouse` | 327 of 327 cases over 28 devices | **327 of 327 over 28**, plus **4 of 4** button fallback cases |
 | `kbd` | 159 of 159 cases over 38 devices | **168 of 168 over 40** |
 | `consumer` | 26 of 26 over 8 devices; verdict "does NOT have the #358 fix" | **29 of 29 over 9**; verdict "has the #358 fix" |
 | `dispatch` | 23 of 36 routed correctly, 4 of those only by luck; 13 misrouted | **36 of 36**, lifted rather than modelled |
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `check-parse` | 7 dump shapes read and 2 non-dumps refused, 105 descriptors round trip | same - it tests this repo's reader, not the firmware |
-| `fuzz N=40000` | 113,785,197 out of bounds over 30,316 descriptors, peak index 4564 | 0 out of bounds, peak index 127 |
-| `truncate` | 5197 of 9947 prefixes overread | 5069 of 9947 - the 128 fewer are all on `apple_a2520_touchid`, `gameball_gesture`, `magic_trackpad_mouse`, `many_usages`, where the usage array aborts the parse on `main` first; the descriptor overread is untouched, see below |
-| `shortreport` | 2064 of 3260 truncated reports overread | **0 of 3355** |
-| `exhaust` | fails 10 runs in 10 under the sanitisers, see below | never fails |
-| `timing` | segfaults | ~17.8 ns/element on x86-64 |
+| `fuzz N=40000` | 59,101 out of bounds over 26,717 descriptors, every one of them index -1 under a peak of 127: the carry's read behind the array, see the open findings | same, and by design: the parser is the same file, so the finding is the same |
+| `truncate` | 5069 of 9947 prefixes overread | the same 5069 of 9947; the 128 that used to separate the columns were the four devices where the unbounded usage array aborted the parse first, which [#361] took away; the descriptor overread is untouched, see below |
+| `shortreport` | 2085 of 3316 truncated reports overread | **0 of 3355** |
+| `exhaust` | never fails since [#361], 10 runs in 10 clean; before it, 10 in 10 failed, see below | never fails |
+| `timing` | ~18.4 ns/element on x86-64 | ~17.0 ns/element |
 
 Fuzz counts depend on the generator and the seed, and `truncate` counts move with
 the size of the corpus. Change either and these numbers move; the qualitative
-result, zero versus non-zero, is the part that matters. The `timing` figure is per
-host, not per firmware.
+result, zero versus non-zero, is the part that matters, and for `fuzz` the lowest index
+beside the peak, which tells the carry's read of `usages[-1]` apart from the pre-fix cursor
+walking off the end into the thousands. The `timing` figure is per host, not per firmware.
 
-`exhaust` on `main` used to be the one entry here that was not reproducible. At 500
-preceding usages `p_usage` has walked clean out of `parser_state`, and this line
-writes through it:
+`exhaust` on upstream `main` before [#361], last measured at `59577cc`, was the one entry
+here that was not reproducible. At 500 preceding usages `p_usage` had walked clean out of
+`parser_state`, and this line wrote through it:
 
 ```c
 *parser->p_usage = *(parser->p_usage - parser->usage_count);
 ```
 
-Where that write lands is decided by the process memory map, so the same binary
+Where that write landed was decided by the process memory map, so the same binary
 segfaulted on some runs and printed a plausible-looking table on others - measured at
-8 crashes in 10 with ASLR on, and 0 in 10 under `setarch -R`. That warning is now
-obsolete, and turning ASan and UBSan on together is what obsoleted it: **`main` now
-fails 10 runs in 10**, with a diagnosis rather than a signal. Which sanitiser catches
-it first still moves with the layout - measured at 6 runs reporting ASan
-`global-buffer-overflow` in `store_element` (`hid_parser.c:77`, the read of
-`*(parser->p_usage + i)`, which ASan calls "a wild pointer") and 4 reporting a UBSan
-misaligned `uint16_t` store at `hid_parser.c:104` - but a clean run is no longer one
-of the outcomes. Both are the same root cause: a cursor that has left the object.
+8 crashes in 10 with ASLR on, and 0 in 10 under `setarch -R`. Turning ASan and UBSan on
+together is what made it reproducible: **that `main` failed 10 runs in 10**, with a
+diagnosis rather than a signal. Which sanitiser caught it first still moved with the
+layout - measured at 6 runs reporting ASan `global-buffer-overflow` in `store_element`
+(`hid_parser.c:77`, the read of `*(parser->p_usage + i)`, which ASan calls "a wild
+pointer") and 4 reporting a UBSan misaligned `uint16_t` store at `hid_parser.c:104` -
+but a clean run was no longer one of the outcomes. Both are the same root cause: a
+cursor that has left the object. [#361] bounds the cursor and `1e31d10` keeps the bound,
+so from `54e3fe5` on `exhaust` is clean on upstream `main` 10 runs in 10, as it has been
+on the fork. What both trees still show past 126 preceding usages is X and Y no longer
+resolving, the open finding below.
 
-The write itself is still layout-dependent, so this says the sanitisers now catch it
-reliably on this build, not that the underlying behaviour became deterministic.
+The write itself was layout-dependent, so the 10 in 10 said the sanitisers caught it
+reliably on that build, not that the underlying behaviour had become deterministic.
 
-The corpus size feeds into this too, though not by moving what sits next to
+The corpus size fed into this too, though not by moving what sits next to
 `parser_state`: the descriptor arrays are `static const` with initialisers, so
 they land in `.rodata`, and what actually follows `parser_state` in the BSS is
 `exhaust.c`'s own `iface` and `desc[16384]`, by link order. What changing the
-corpus moves is the size of `.rodata`, and so where the BSS lands relative to
-page boundaries and the heap - which is enough, because the write has already
-left the object and its landing site is decided by the process memory map.
+corpus moved was the size of `.rodata`, and so where the BSS landed relative to
+page boundaries and the heap - which was enough, because the write had already
+left the object and its landing site was decided by the process memory map.
 Removing one unrelated descriptor was once enough to change this from "usually prints
-garbage" to "usually segfaults". It now only changes which sanitiser reports it.
+garbage" to "usually segfaults", and under the sanitisers it only changed which one
+reported it.
 
 The other two open parser PRs, and [#368], measured the same way:
 
@@ -508,9 +516,10 @@ The Microsoft 600's system control collection declares a usage range (`19 00 29 
 and no single usage of its own, and comes out carrying `0xFF02`, the last usage named
 by the *vendor* block in the previous top-level collection.
 
-**It reaches almost nothing, which is why it is still here.** Measured over all 47
-descriptors and checked against `dump`: 42 elements in 23 of them read a usage their block
-never declared. 30 land on a map row that wildcards the usage, so the stale value is copied
+**It reaches almost nothing, which is why it is still here.** Measured over the 47
+descriptors the corpus had at the time and checked against `dump`: 42 elements in 23 of
+them read a usage their block never declared. 30 land on a map row that wildcards the
+usage, so the stale value is copied
 into state and then read by nothing but `dump`; 11 match no row at all. Exactly one changes
 decode - `d_composite`'s consumer padding bit holds `0x00B5`, Scan Next Track, on the
 parsers before `1e31d10` and `0x0223`, AC Home, from it on, and `process_consumer_report`
@@ -533,9 +542,9 @@ a saved `usage_last`; this parser does neither. Linux's version is not portable 
 skipping depends on expanding `Usage Min..Max` into the usage array - 12288 slots there
 against 128 here, and sixteen descriptors in this corpus declare a range larger than the
 whole array, `ms600_consumer` and `keyboardio_media` declaring 1024. What fits is
-`return 0` when `usage_count` is zero - two lines in `get_usage()` on [#361] and
-Extended, one in `store_element()` on `main`, which has no `get_usage()` - inert on every
-decode path, and it changes what `dump` prints for 18 of the 47 descriptors.
+`return 0` when `usage_count` is zero - two lines in `get_usage()`, the same on upstream
+`main` since `1e31d10` and on Extended - inert on every decode path, and on the current
+shape it changes what `dump` prints for 39 of the 105 descriptors.
 
 **The rewritten carry reads the slot behind the array.** On `1e31d10` the carry runs
 whether or not the block declared a usage, and it is spelled `*(p_usage - 1)`. On the first
