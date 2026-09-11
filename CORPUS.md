@@ -2,8 +2,9 @@
 
 `descriptors.h` holds 105 HID report descriptors: 93 captured from real devices and 12
 synthetic probes. This page says where each real one came from, which tool read it, and
-what it has caught so far. The [README](README.md) has the numbers and the findings; the
-comments in `descriptors.h` have the bytes and the per-device notes.
+what it has caught so far. The [README](README.md) has the tool and the reference numbers,
+[FINDINGS.md](FINDINGS.md) the findings; the comments in `descriptors.h` have the bytes
+and the per-device notes.
 
 Of the 93 real captures, 76 come from 31 upstream issues, 4 from dumps published
 elsewhere, and 13 were dumped here from two devices on hand. The table below has every
@@ -165,7 +166,7 @@ The first 25 were collected while chasing individual reports. What they have bou
   separating the collections; on `main` the unbounded walk keeps the device out of
   everything but its boot-protocol row. [#359] now carries the separation as a fourth
   commit, so `a` comes out as `a` against its head. It is the sharper version of the
-  Keychron finding in the README's [open findings](README.md#open-findings).
+  Keychron finding in the [open findings](FINDINGS.md#open-findings).
 - **Microsoft Wired Keyboard 600** ([#297]) is the cleanest reproduction of the stale
   usage cursor: its system control block comes out as `usage=0xFF02 page=0x0001`, an
   identifier it never declares, carried over from the vendor block in the preceding
@@ -176,7 +177,7 @@ The first 25 were collected while chasing individual reports. What they have bou
   `MAX_REPORTS` (24) slots indexed by the ID, so nothing is ever bound and every report is
   dropped before decode. `make dump D=sculpt_rx_mouse` shows the parse is right and the
   handlers line empty, `make mouse` decodes all twelve reports the reporter captured, and
-  `make dispatch` shows them reaching nobody. The [open findings](README.md#open-findings) have the rest.
+  `make dispatch` shows them reaching nobody. The [open findings](FINDINGS.md#open-findings) have the rest.
 - **Apple Magic Keyboard with Touch ID** (`05ac:029f`, [#157], "will not work", and a board
   that reboots over and over). Three interfaces. The keyboard and the device-management
   interface come from the reporter's `usbhid-dump`; the third, Touch ID, sits on a bulk
@@ -201,7 +202,7 @@ These are captures published elsewhere, picked for shapes the corpus did not hav
   the vendor bytes never reach an axis.
 - **A multi-collection composite** from the [kernel's HID documentation][hidintro] is
   the only descriptor here declaring two mouse collections, on report IDs 1 and 2. See
-  the [open findings](README.md#open-findings): the second wins and the first goes dark.
+  the [open findings](FINDINGS.md#open-findings): the second wins and the first goes dark.
 - **Raspberry Pi wired keyboard** (`04d9:0006`, from [a gist][rpigist]) bounds its key
   array with a 16-bit `2A FF 00` over the full 0-255 range rather than the usual
   `29 65`, and carries the LED output block a real keyboard has. Its second interface
@@ -223,12 +224,12 @@ interface as the firmware receives it, rather than one collection at a time:
   richest descriptor in the corpus: mouse, consumer control, system control and a fourth
   collection, on report IDs 2, 3, 4 and 0x0B. Its mouse declares **16 buttons**, as wide
   as anything here - `superlight2_mouse` matches it - and enough to reach bit 15 of a
-  signed read, see the button finding among the [open findings](README.md#open-findings). Interface 3 is a Precision Touchpad, the
+  signed read, see the button finding among the [open findings](FINDINGS.md#open-findings). Interface 3 is a Precision Touchpad, the
   largest descriptor here at 429 bytes, and the only one using Push and Pop; it parses to
   nothing at all, which is the right answer and is now asserted rather than assumed.
 - **Keychron Ultra-Link 8K** (`3434:d028`) contributes five. Interface 1 carries a 6KRO
   keyboard on report ID 7, consumer control on 0x0C, and an NKRO keyboard on 0x11 - and
-  it is the entry behind two of the README's [open findings](README.md#open-findings). One of them, the collection collapse,
+  it is the entry behind two of the [open findings](FINDINGS.md#open-findings). One of them, the collection collapse,
   is invisible unless the whole interface is parsed at once, which is exactly why the
   interface-level entries exist; the other, the off-by-one usage range on the 0x11 bitmap,
   is why that collection is also here on its own.
