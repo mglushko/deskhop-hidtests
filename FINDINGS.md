@@ -51,8 +51,8 @@ The other two open parser PRs, and [#368], measured the same way:
 | PR | what `compare REF=main` shows |
 |---|---|
 | [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. |
-| [#358] media keys without report IDs | identical parse on all 50 that parse at all, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. `gameball_gesture` and `many_usages` crash on both sides, as they do on `main`. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. |
-| [#368] receivers looked up by report ID value | identical parse on 48 of the 50 that parse at all; `sculpt_rx_mouse` gains `26:M 31:C` and `apple_a2520_iface1` gains `82:C`, the two devices with a collection above ID 23. `make dispatch` carries it the rest of the way: the Sculpt's report 0x1A and the Apple's report 0x52 go from dropped to their receivers, 23 of 33 with `main`'s routing and 33 of 33 with DeskHop Extended's. Compiled for the RP2040 it costs 22 bytes per interface, about 1 KB across `global_state`. Confirmed on the real receiver by #367's reporter. |
+| [#358] media keys without report IDs | identical parse on all 50 that parse at all, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. `gameball_gesture` and `many_usages` crash on both sides, as they do on `main`. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. Merged upstream on 2026-09-11 as `6e10fa3` and simplified in `6124ef4`; the fork carries both, and upstream `main` now classifies as having the fix. |
+| [#368] receivers looked up by report ID value | identical parse on 48 of the 50 that parse at all; `sculpt_rx_mouse` gains `26:M 31:C` and `apple_a2520_iface1` gains `82:C`, the two devices with a collection above ID 23. `make dispatch` carries it the rest of the way: the Sculpt's report 0x1A and the Apple's report 0x52 go from dropped to their receivers, 23 of 33 with `main`'s routing and 33 of 33 with DeskHop Extended's. Compiled for the RP2040 it costs 22 bytes per interface, about 1 KB across `global_state`. Confirmed on the real receiver by #367's reporter. Closed on 2026-09-12 in favor of upstream's own fix, `ce8abb6`: a 256-entry map from report ID to receiver per interface, which binds any 8-bit ID with no guard at all, at 256 bytes per interface against this PR's 22. The fork carries that shape since `f380907`. |
 
 Three caveats on [#359], of which two are fixed and one stands.
 
@@ -200,22 +200,8 @@ fix, but a large enough count still outruns the 500 ms watchdog.
 
 ### Functionality lost on a real device
 
-Two devices, one capability each.
-
-**A report ID of 24 or above is never dispatched.** The Microsoft Sculpt receiver ([#367])
-puts its mouse on report ID 0x1A, which is 26. `main` binds receivers in
-`report_handler[MAX_REPORTS]`, indexed by the ID, and both the binding in `extract_data()`
-and the lookup in `usb.c` are guarded by `report_id < MAX_REPORTS`, so nothing is ever bound
-and every report is dropped before decode. The parser is not at fault: `make dump
-D=sculpt_rx_mouse` derives every field at the right offset and `make mouse` decodes all
-twelve reports the reporter captured, on `main`, on every open PR and on DeskHop Extended
-alike, none of which touch the table. `make dispatch` shows both `sculpt rx mouse on ID
-0x1A` rows dropped everywhere. Only its boot-protocol rows differ between trees, because
-DeskHop Extended routes boot protocol by interface while `main` reads the button byte as an
-ID. The Apple keyboard in [#157] has the same shape, media keys on report 0x52, and would
-lose them the same way. Keying the table by value, as `report_offsets` already is, is the
-fix; [#368] does that and is measured in the table above, and `emu/sculpt-emu.uf2` puts the
-receiver on a desk for an A/B against a board.
+One device, one capability. The Sculpt receiver that used to sit here is under fixed,
+below.
 
 **A collection nested inside another Application collection is lost.** The Cherry MW 8C's
 interface 2, the third of its three, wraps its whole descriptor in one Application
@@ -300,18 +286,6 @@ whole array, `ms600_consumer` and `keyboardio_media` declaring 1024. What fits i
 `main` since `1e31d10` and on Extended - inert on every decode path, and on the current
 shape it changes what `dump` prints for 39 of the 105 descriptors.
 
-**The rewritten carry reads the slot behind the array.** On `1e31d10` the carry runs
-whether or not the block declared a usage, and it is spelled `*(p_usage - 1)`. On the first
-Input of a descriptor that declared none, which is buttons and modifiers by `Usage Min..Max`,
-`p_usage` still points at slot 0, so the read is `usages[-1]`. That is the high half of
-`usage_count`, the member before the array on the RP2040 and on the host alike, and it is
-zero at that moment, so what lands in slot 0 is a zero: formally out of bounds, harmless
-today, and one struct reordering away from not being. 79 of the 105 descriptors here execute
-it. `make fuzz` reports it as `lowest index touched: -1` under `highest index touched: 127`,
-59101 accesses in 26717 of 40000 descriptors at seed 1, and exits non-zero for it, which is
-the finding; a highest in the thousands is the other shape, the pre-fix cursor walking off
-the end. A guard that skips the carry when `usage_count` is zero removes it.
-
 **A second mouse collection blanks the first.** `kernel_multi_collection` declares two,
 on report IDs 1 and 2, identically laid out. The parser walks both, and the second
 overwrites `mouse.report_id` with 2. `extract_value()` opens by rejecting any report
@@ -357,10 +331,10 @@ sixteen together read `-1`. Both are in `make mouse`. The truncation to `uint8_t
 longer harmless either, because buttons 9 to 16 have nowhere to go at all - whatever
 happens to the sign, they cannot reach the output PC through a one-byte field.
 
-### Fixed in DeskHop Extended
+### Fixed
 
-Left in place because the reasoning and the numbers are the record of how each was found
-and confirmed.
+Fixed in DeskHop Extended, and the last two upstream as well. Left in place because the
+reasoning and the numbers are the record of how each was found and confirmed.
 
 **Short reports read past the end of the buffer, in four separate places.** This
 is the counterpart to the truncated-descriptor finding above, and the more serious
@@ -608,6 +582,37 @@ are there for the opposite claim, that the wire still wins where there is someth
 ```sh
 make mouse DESKHOP=~/deskhop-extended   # 4 of 4 fell back to the interface that sent the report
 ```
+
+**A report ID of 24 or above was never dispatched.** Fixed upstream in `ce8abb6` on
+2026-09-12 and on the fork in `f380907` the same day. The Microsoft Sculpt receiver ([#367])
+puts its mouse on report ID 0x1A, which is 26. Upstream bound receivers in
+`report_handler[MAX_REPORTS]`, indexed by the ID, and both the binding in `extract_data()`
+and the lookup in `usb.c` were guarded by `report_id < MAX_REPORTS`, so nothing was ever
+bound and every report was dropped before decode. The parser was not at fault: `make dump
+D=sculpt_rx_mouse` derived every field at the right offset and `make mouse` decoded all
+twelve reports the reporter captured, on every tree alike, none of which touched the table.
+`make dispatch` showed both `sculpt rx mouse on ID 0x1A` rows dropped everywhere. Only its
+boot-protocol rows still differ between trees, because DeskHop Extended routes boot protocol
+by interface while upstream reads the button byte as an ID. The Apple keyboard in [#157] has
+the same shape, media keys on report 0x52, and lost them the same way. DeskHop Extended first
+keyed the table by value, as `report_offsets` is, and sent that as [#368]; upstream chose a
+256-entry map per interface instead, measured in the table above, and the fork now carries
+that shape. `make dump` binds `26:M 31:C` and `82:C` on both trees, and `emu/sculpt-emu.uf2`
+puts the receiver on a desk for an A/B against a board.
+
+**The rewritten carry read the slot behind the array.** Reported on `1e31d10` and fixed
+upstream in `d7a453e` on 2026-09-12 with the guard described at the end; the fork carries it
+as `9913a64`. On `1e31d10` the carry ran whether or not the block declared a usage, spelled
+`*(p_usage - 1)`. On the first Input of a descriptor that declared none, which is buttons and
+modifiers by `Usage Min..Max`, `p_usage` still pointed at slot 0, so the read was
+`usages[-1]`. That is the high half of `usage_count`, the member before the array on the
+RP2040 and on the host alike, and it is zero at that moment, so what landed in slot 0 was a
+zero: formally out of bounds, harmless in practice, and one struct reordering away from not
+being. 79 of the 105 descriptors here executed it. `make fuzz` reported it as `lowest index
+touched: -1` under `highest index touched: 127`, 59101 accesses in 26717 of 40000
+descriptors at seed 1, and exited non-zero for it; a highest in the thousands is the other
+shape, the pre-fix cursor walking off the end. The guard skips the carry when `usage_count`
+is zero, and with it both trees report a lowest index of 0 and nothing out of bounds.
 
 ## Confirmed on hardware
 

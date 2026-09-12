@@ -162,8 +162,8 @@ that read them, and what each has caught.
 ## Reference numbers
 
 Results against two trees, so a broken harness can be told from a broken firmware.
-Taken in September 2026 against upstream `main` at `1e31d10` and
-[DeskHop Extended][deskhop-extended] `main` at `7506336`, over the 105-descriptor corpus.
+Taken in September 2026 against upstream `main` at `ce8abb6` and
+[DeskHop Extended][deskhop-extended] `main` at `f380907`, over the 105-descriptor corpus.
 The second column is the tree that runs on hardware, and the one whose regressions cost
 something. Where its denominator is larger, the extra rows are devices the harness keeps
 out of a run on a tree that lacks the bound they need, and cases that only apply to code
@@ -171,18 +171,18 @@ the fork has.
 
 | check | upstream main | [DeskHop Extended][deskhop-extended] |
 |---|---|---|
-| `compare` | all 105 parse, no crashes | 105 compared against upstream `main`, no crash on either side; differences confined to the 41 entries with a keyboard collection, plus `sculpt_rx_mouse` |
+| `compare` | all 105 parse, no crashes | 105 compared against upstream `main`, no crash on either side; differences confined to the 41 entries with a keyboard collection |
 | `mouse` | 327 of 327 cases over 28 devices | **327 of 327 over 28**, plus **4 of 4** button fallback cases |
 | `kbd` | 159 of 159 cases over 38 devices | **168 of 168 over 40** |
-| `consumer` | 26 of 26 over 8 devices | **29 of 29 over 9** |
-| `dispatch` | 23 of 36 routed correctly, 4 of those only by luck; 13 misrouted | **36 of 36**, lifted rather than modeled |
+| `consumer` | 29 of 29 over 9 devices | same |
+| `dispatch` | 26 of 36 routed correctly, 4 of those only by luck; the 10 misrouted are all boot protocol | **36 of 36**, lifted rather than modeled |
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `check-parse` | 7 dump shapes read, 2 non-dumps refused, 105 descriptors round trip | same |
-| `fuzz N=40000` | 59,101 out of bounds over 26,717 descriptors, every one at index -1 under a peak of 127 | same: the parser is the same file |
+| `fuzz N=40000` | 0 out of bounds; lowest index 0, peak 127 | same: the parser is the same file |
 | `truncate` | 5069 of 9947 prefixes overread | the same 5069 of 9947 |
 | `shortreport` | 2085 of 3316 truncated reports overread | **0 of 3355** |
 | `exhaust` | never fails, 10 runs in 10 clean | never fails |
-| `timing` | ~18 ns/element on x86-64 | ~17 ns/element |
+| `timing` | ~19 ns/element on x86-64 | ~18 ns/element |
 
 Fuzz counts move with the generator and the seed, `truncate` counts with the size of the
 corpus, and `timing` with the host. The qualitative result is what matters: zero against

@@ -151,11 +151,12 @@ static const cc_case_t sculpt_system_cases[] = {
 
 /* Apple A2520 media keys (issue #157): five variable bits on report 0x52, which is 82. On a
    table indexed by the ID nothing is bound for it, so the rows below would fail on routing
-   rather than decode; they enter only on a tree that looks the ID up by value, the way the
-   8BitDo rows enter only on a tree that bounds the bitmap walk.
+   rather than decode; they enter only on a tree that binds an ID of 24 or more, keyed by
+   value or through the 256-entry map, the way the 8BitDo rows enter only on a tree that
+   bounds the bitmap walk.
    cc_array from dump: [0]=00CD play/pause [1]=00B3 fast forward [2]=00B4 rewind
    [3]=00B5 scan next [4]=00B6 scan previous */
-#ifdef HARNESS_HANDLER_LOOKUP
+#if defined(HARNESS_HANDLER_LOOKUP) || defined(HARNESS_HANDLER_MAP)
 static const cc_case_t apple_a2520_cc_cases[] = {
     {"play/pause (bit 0)",   {0x52, 0x01}, 2, true, {0xCD, 0x00},       true,  {0xCD, 0x00}},
     {"scan next (bit 3)",    {0x52, 0x08}, 2, true, {0xB5, 0x00},       true,  {0xB5, 0x00}},
@@ -182,7 +183,7 @@ static const cc_device_t cc_devices[] = {
     CCDEV(system_no_report_id,    CC_SYSTEM,   0, system_no_rid_cases),
     CCDEV(sculpt_rx_consumer,     CC_CONSUMER, 7, sculpt_consumer_cases),
     CCDEV(sculpt_rx_consumer,     CC_SYSTEM,   3, sculpt_system_cases),
-#ifdef HARNESS_HANDLER_LOOKUP
+#if defined(HARNESS_HANDLER_LOOKUP) || defined(HARNESS_HANDLER_MAP)
     CCDEV(apple_a2520_iface1,     CC_CONSUMER, 0x52, apple_a2520_cc_cases),
 #endif
 };
