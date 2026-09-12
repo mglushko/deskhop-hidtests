@@ -52,7 +52,7 @@ The other two open parser PRs, and [#368], measured the same way:
 |---|---|
 | [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. |
 | [#358] media keys without report IDs | identical parse on all 50 that parse at all, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. `gameball_gesture` and `many_usages` crash on both sides, as they do on `main`. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. Merged upstream on 2026-09-11 as `6e10fa3` and simplified in `6124ef4`; the fork carries both, and upstream `main` now classifies as having the fix. |
-| [#368] receivers looked up by report ID value | identical parse on 48 of the 50 that parse at all; `sculpt_rx_mouse` gains `26:M 31:C` and `apple_a2520_iface1` gains `82:C`, the two devices with a collection above ID 23. `make dispatch` carries it the rest of the way: the Sculpt's report 0x1A and the Apple's report 0x52 go from dropped to their receivers, 23 of 33 with `main`'s routing and 33 of 33 with DeskHop Extended's. Compiled for the RP2040 it costs 22 bytes per interface, about 1 KB across `global_state`. Confirmed on the real receiver by #367's reporter. Closed on 2026-09-12 in favor of upstream's own fix, `ce8abb6`: a 256-entry map from report ID to receiver per interface, which binds any 8-bit ID with no guard at all, at 256 bytes per interface against this PR's 22. The fork carries that shape since `f380907`. |
+| [#368] receivers looked up by report ID value | identical parse on 48 of the 50 that parse at all; `sculpt_rx_mouse` gains `26:M 31:C` and `apple_a2520_iface1` gains `82:C`, the two devices with a collection above ID 23. `make dispatch` carries it the rest of the way: the Sculpt's report 0x1A and the Apple's report 0x52 go from dropped to their receivers, 23 of 33 with `main`'s routing and 33 of 33 with DeskHop Extended's. Compiled for the RP2040 it costs 22 bytes per interface, about 1 KB across `global_state`. Confirmed on the real receiver by #367's reporter. Closed on 2026-09-12 in favor of upstream's own fix, `ce8abb6`: a 256-entry map from report ID to receiver per interface, which binds any 8-bit ID with no guard at all, at 256 bytes per interface against this PR's 22. The fork carries that shape since `7dec931`. |
 
 Three caveats on [#359], of which two are fixed and one stands.
 
@@ -584,7 +584,7 @@ make mouse DESKHOP=~/deskhop-extended   # 4 of 4 fell back to the interface that
 ```
 
 **A report ID of 24 or above was never dispatched.** Fixed upstream in `ce8abb6` on
-2026-09-12 and on the fork in `f380907` the same day. The Microsoft Sculpt receiver ([#367])
+2026-09-12 and on the fork in `7dec931` the same day. The Microsoft Sculpt receiver ([#367])
 puts its mouse on report ID 0x1A, which is 26. Upstream bound receivers in
 `report_handler[MAX_REPORTS]`, indexed by the ID, and both the binding in `extract_data()`
 and the lookup in `usb.c` were guarded by `report_id < MAX_REPORTS`, so nothing was ever
