@@ -208,6 +208,12 @@ $(GEN)/lifted_cc.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 HANDLER_LOOKUP := $(shell grep -q 'get_report_handler' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_HANDLER_LOOKUP)
 CFLAGS += $(HANDLER_LOOKUP)
 
+# Upstream ce8abb6 answers the same finding a third way: a 256-entry map of receiver ids
+# per interface, resolved through report_receivers[] in hid_report.c, so a uint8_t ID can
+# never miss the table. The table's name is the grep, and src/handlers.h reads through it.
+HANDLER_MAP := $(shell grep -q 'report_receivers' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_HANDLER_MAP)
+CFLAGS += $(HANDLER_MAP)
+
 LIFTABLE_DISPATCH := $(shell grep -l 'process_report_f pick_receiver' $(SRC)/src/usb.c 2>/dev/null)
 
 ifneq ($(LIFTABLE_DISPATCH),)
