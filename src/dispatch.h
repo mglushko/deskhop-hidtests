@@ -16,8 +16,8 @@
  *   survived: mousetest carried a copy of these rules, display-only and documented as
  *   able to go stale, and it duly kept printing the old answer.
  *
- * KEEP THIS IN STEP WITH usb.c. Last checked against 59577cc, where the function
- * reads:
+ * KEEP THIS IN STEP WITH usb.c. Last checked against upstream c220d0c, which keeps this
+ * shape and reads the table through a 256-entry map; at 59577cc the function read:
  *
  *     if (iface->uses_report_id || itf_protocol == HID_ITF_PROTOCOL_NONE) {
  *         uint8_t report_id = 0;
@@ -32,10 +32,10 @@
  *     else if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD) process_keyboard_report(...);
  *     else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE)    process_mouse_report(...);
  *
- * The `report_id < MAX_REPORTS` guard is what drops sculpt_rx_mouse. A target keyed by
- * value has no guard and reads the table through get_report_handler(); hid_handler()
- * in src/handlers.h does the same on either shape, so the model above needs no second
- * copy for the fix.
+ * The `report_id < MAX_REPORTS` guard is what dropped sculpt_rx_mouse. A target keyed by
+ * value reads the table through get_report_handler(), and upstream since ce8abb6 through
+ * report_receivers[]; hid_handler() in src/handlers.h does the same on all three shapes,
+ * so the model above needs no second copy for either fix.
  *
  * Note what this does NOT depend on: iface->protocol. Boot protocol changes what
  * the device puts on the wire, not which branch runs. That is the whole of the
@@ -67,7 +67,8 @@ static inline process_report_f hid_route(const hid_interface_t *iface, uint8_t i
 #define HID_ROUTE_IS_LIFTED 0
 
 /* Stand-in for a target whose usb.c still has the routing inlined in the callback,
-   where there is no function to lift. It reproduces the upstream logic at 59577cc.
+   where there is no function to lift. It reproduces the upstream logic at 59577cc, which
+   c220d0c keeps apart from the table's shape.
    A model can only ever report what it was written to say, so dispatchtest prints
    which of the two it used: a modelled result is not a measurement of the firmware.
 

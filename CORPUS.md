@@ -136,15 +136,16 @@ The first 25 were collected while chasing individual reports. What they have bou
 
 - **Wooting Two HE** ([#335], "only CTRL, Shift & Win work"). `make dump
   D=wooting_keyboard` shows why: the keyboard declares four key blocks as separate
-  Usage Min/Max ranges, and `main` keeps only the last one. The modifiers survive,
-  every letter key does not. PR [#359] recovers all four, the 8-bit block included.
+  Usage Min/Max ranges, and `main` before [#359] kept only the last one. The modifiers
+  survived, every letter key did not. [#359], merged 2026-09-15, recovers all four, the
+  8-bit block included.
 - **Logitech G Pro Superlight 2 receiver** ([#215]) is the same bug wearing a
   different face, on a device that PR was not written for. Its keyboard interface
-  declares three key ranges; `main` keeps the *first* rather than the last, because
-  only that one clears the `src->size > 32` filter. Letters work, so nothing looks
-  broken, but usages 0x87-0x8B and 0x90-0x92 - the Japanese and Korean IME keys - are
-  silently dropped. `make compare REF=main` with PR [#359] checked out shows
-  `nkro_count=3` where `main` has one block.
+  declares three key ranges; `main` before [#359] kept the *first* rather than the last,
+  because only that one cleared the `src->size > 32` filter. Letters worked, so nothing
+  looked broken, but usages 0x87-0x8B and 0x90-0x92 - the Japanese and Korean IME keys -
+  were silently dropped. `make dump D=superlight2_rx_keyboard` shows `nkro_count=3` on
+  both trees now; `compare` against a `REF` before the merge shows the one block it had.
 - **Cherry MW 8 vs MW 8C** ([#133], "older version worked fine"). The two dumps
   explain the difference in one line of `dump` each: the MW 8 puts buttons, 12-bit
   X/Y and wheel in a single report, the MW 8C splits them across report IDs 1 and 2.
@@ -153,41 +154,42 @@ The first 25 were collected while chasing individual reports. What they have bou
   report ID.
 - **Cherry KC6000** ([#117], media keys not working). A consumer control block with
   no report ID at all, which is the case PR [#358] addresses - and the only device
-  here that separates that PR from `main`. `make consumer` shows what it costs: on
-  `main`, pressing Calculator sends Play/Pause, because the receiver reads byte 1
-  where the data is in byte 0 and finds bit 0 of the wrong byte set. It does not
-  merely lose the key, it reports a different one.
+  here that separated that PR from `main` before it merged as `6e10fa3`. `make consumer`
+  shows what it cost: before the fix, pressing Calculator sent Play/Pause, because the
+  receiver read byte 1 where the data is in byte 0 and found bit 0 of the wrong byte set.
+  It did not merely lose the key, it reported a different one.
 - **8BitDo Retro Mechanical Keyboard** (`2dc8:5201`, [#57], open since March 2024).
   Interface 2 declares three keyboard collections on one interface: a 6KRO keyboard on
-  report ID 1 and NKRO bitmaps on 12 and 10. On `main` all three land on `keyboards[0]`,
-  which sets `is_nkro` on the entry that also holds the 6KRO key array, so a 6KRO report
-  is decoded as though its bytes were bitmap bits. `make kbd` shows `a` coming out as
-  keycode 10 against the first three commits of [#359], which bound the bitmap walk without
-  separating the collections; on `main` the unbounded walk keeps the device out of
-  everything but its boot-protocol row. [#359] now carries the separation as a fourth
-  commit, so `a` comes out as `a` against its head. It is the sharper version of the
-  Keychron finding in the [open findings](FINDINGS.md#open-findings).
+  report ID 1 and NKRO bitmaps on 12 and 10. Before [#359] all three landed on
+  `keyboards[0]`, which set `is_nkro` on the entry that also held the 6KRO key array, so a
+  6KRO report was decoded as though its bytes were bitmap bits. `make kbd` showed `a`
+  coming out as keycode 10 against the first three commits of [#359], which bound the
+  bitmap walk without separating the collections; before the bound, the unbounded walk
+  kept the device out of everything but its boot-protocol row. The separation went in as
+  the PR's fourth commit, `fff129f`, so `a` comes out as `a` on both trees now. It is the
+  sharper version of the Keychron finding in the [open findings](FINDINGS.md#open-findings).
 - **Microsoft Wired Keyboard 600** ([#297]) is the cleanest reproduction of the stale
   usage cursor: its system control block comes out as `usage=0xFF02 page=0x0001`, an
   identifier it never declares, carried over from the vendor block in the preceding
   top-level collection.
 - **Microsoft Sculpt Ergonomic Mouse receiver** (`045e:07a5`, [#367], "unable to move
   cursor, keys not working"), all three interfaces from the reporter's `usbhid-dump`. Its
-  mouse sits on report ID 0x1A, which is 26, and `main` binds receivers in a table of
-  `MAX_REPORTS` (24) slots indexed by the ID, so nothing is ever bound and every report is
-  dropped before decode. `make dump D=sculpt_rx_mouse` shows the parse is right and the
-  handlers line empty, `make mouse` decodes all twelve reports the reporter captured, and
-  `make dispatch` shows them reaching nobody. The [open findings](FINDINGS.md#open-findings) have the rest.
+  mouse sits on report ID 0x1A, which is 26, and `main` before `ce8abb6` bound receivers in
+  a table of `MAX_REPORTS` (24) slots indexed by the ID, so nothing was ever bound and every
+  report was dropped before decode. `make dump D=sculpt_rx_mouse` showed the parse right and
+  the handlers line empty, `make mouse` decodes all twelve reports the reporter captured,
+  and `make dispatch` showed them reaching nobody. Both trees bind `26:M 31:C` now. The
+  [open findings](FINDINGS.md#open-findings) have the rest.
 - **Apple Magic Keyboard with Touch ID** (`05ac:029f`, [#157], "will not work", and a board
   that reboots over and over). Three interfaces. The keyboard and the device-management
   interface come from the reporter's `usbhid-dump`; the third, Touch ID, sits on a bulk
   endpoint that Linux's HID driver never binds, so that tool never showed it and the
   emulation built from the dump could not reproduce the loop. Its 49 bytes were transcribed
   from the `lsusb -v` decode in the same thread: three vendor reports, one with a Report
-  Count of 649. That is [#332] again. `make dump D=apple_a2520_touchid` aborts under ASan on
-  `main` and on every open PR except [#361], where it parses and binds nothing. The
-  keystrokes in the stream capture decode everywhere, and the media keys on report 0x52,
-  which is 82, need [#368] the same way the Sculpt does.
+  Count of 649. That is [#332] again. `make dump D=apple_a2520_touchid` aborted under ASan
+  on `main` until [#361] merged; since then it parses and binds nothing. The keystrokes in
+  the stream capture decode everywhere, and the media keys on report 0x52, which is 82,
+  needed [#368] the same way the Sculpt did, and reach their receiver since `ce8abb6`.
 
 ### Published elsewhere
 
@@ -261,18 +263,20 @@ here](#dumped-here) shows what those cost. Every one that declares a mouse or ke
 
 - **Apple Magic Trackpad** (`05ac:0265`, [#207]) is a fourth device with the [#332]
   shape: its mouse interface declares a 1387-byte input on report 0x44 against a single
-  usage, and `make dump D=magic_trackpad_mouse` aborts under ASan on `main` in
-  `store_element`, where the Gameball did. DeskHop Extended parses it as a three-button
+  usage, and `make dump D=magic_trackpad_mouse` aborted under ASan on `main` before [#361]
+  in `store_element`, where the Gameball did. Both trees now parse it as a three-button
   mouse on report ID 2.
 - **Corsair Scimitar RGB Elite** (`1b1c:1b8b`, [#45]) is two descriptors for one device.
   The PC sees 172 bytes, with an NKRO keyboard collection on report ID 0x10 for the side
   panel; the DeskHop's TinyUSB, asking for those 172, was handed a 58-byte boot mouse
   instead. `scimitar_iface0` and `scimitar_boot_mouse` keep both.
 - **Logi Bolt receiver at bcdDevice 5.01** ([#47]) declares its keys as three bitmap
-  ranges where the corpus's own, newer Bolt declares a 6-slot array. `main` keeps only
-  the 0x04-0x73 range and drops the IME keys, the [#215] finding on a second receiver
-  firmware. The **Keychron 2.4 GHz dongle** ([#211]) reproduces the [#57] collapse on
-  `main`: its 6KRO and NKRO collections land on one entry with `is_nkro` set.
+  ranges where the corpus's own, newer Bolt declares a 6-slot array. `main` before [#359]
+  kept only the 0x04-0x73 range and dropped the IME keys, the [#215] finding on a second
+  receiver firmware. The **Keychron 2.4 GHz dongle** ([#211]) reproduced the [#57] collapse
+  the same way: its 6KRO and NKRO collections landed on one entry with `is_nkro` set. What
+  still separates it from upstream is its 153-usage bitmap over 152 bits, which [#366]
+  keeps.
 - **Areson trackball** (`25a7:fa11`, [#23]) puts a keyboard collection with no report ID
   beside six collections that carry one, on a single interface. Both trees record it as
   report ID 0 on an interface they mark as using report IDs. What the device actually
@@ -294,6 +298,7 @@ here](#dumped-here) shows what those cost. Every one that declares a mouse or ke
 [#358]: https://github.com/hrvach/deskhop/pull/358
 [#359]: https://github.com/hrvach/deskhop/pull/359
 [#361]: https://github.com/hrvach/deskhop/pull/361
+[#366]: https://github.com/hrvach/deskhop/pull/366
 [#367]: https://github.com/hrvach/deskhop/issues/367
 [#368]: https://github.com/hrvach/deskhop/pull/368
 [hidintro]: https://docs.kernel.org/hid/hidintro.html

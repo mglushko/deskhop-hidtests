@@ -56,8 +56,8 @@ static void dump_iface(hid_interface_t *iface) {
 
         dump_val("modifier", &kb->modifier);
 
-        /* keyboard_t differs by branch: main carries a single nkro field, the
-           multi-block branch carries an array. Detect on the macro it adds. */
+        /* keyboard_t differs by tree: before #359 it carries a single nkro field, from
+           #359 on an array. Detect on the macro the array brought with it. */
 #ifdef MAX_NKRO_BLOCKS
         printf("      nkro_count=%u\n", kb->nkro_count);
         for (int j = 0; j < kb->nkro_count && j < MAX_NKRO_BLOCKS; j++)

@@ -8,18 +8,25 @@
 #
 #   make dump D=gameball_gesture     parse one descriptor, print the result
 #   make compare REF=main            diff the working tree against a commit
+#   make compare REF=main V=1        the same, printing each descriptor's diff
 #   make mouse                       end to end mouse decode
 #   make kbd                         end to end keyboard decode
 #   make consumer                    end to end consumer and system control
-#   make fuzz N=40000                bounds check over generated descriptors
+#   make fuzz N=40000 SEED=1         bounds check over generated descriptors
 #   make truncate                    every prefix of every descriptor, under ASan
 #   make shortreport                 every prefix of every report, under ASan
 #   make dispatch                    which receiver does a report actually reach?
 #   make exhaust                     usage array exhaustion behaviour
 #   make timing                      cost per element vs report count
-#   make test                        the regression gate: mouse, kbd, consumer, constants
-#   make findings                    the bounds checks, for their numbers
-#   make all
+#   make check-constants             harness.h against the vendored TinyUSB header
+#   make check-parse                 add_descriptor.py's reader against every dump shape
+#   make test-sleepwake              the BOOTSEL rig's gesture logic, on the host
+#   make test                        the regression gate: mouse, kbd, consumer, check-parse,
+#                                    check-constants and test-sleepwake
+#   make findings                    the four that fail by design, for their numbers
+#   make corpus                      regenerate the table in CORPUS.md
+#   make all                         build everything without running it
+#   make clean
 #
 #   make dump DESKHOP=/tmp/other-worktree
 #   make compare REF=v0.7
@@ -29,6 +36,8 @@ REF     ?= main
 D       ?= gameball_gesture
 N       ?= 40000
 SEED    ?= 1
+# V=1 makes compare print the parse diff of every descriptor that changed.
+V       ?=
 
 CC     := gcc
 WARN   := -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
@@ -68,6 +77,12 @@ TAG ?= $(notdir $(patsubst %/,%,$(DESKHOP)))
 OUT := $(B)/$(TAG)
 GEN := $(OUT)/gen
 
+# The harness's own headers and this file are prerequisites of every binary. The copied
+# target headers are already in $(HDRS); without these, a corrected constant in harness.h
+# or a widened probe rebuilds nothing, and make hands back the old binary with a straight
+# face.
+DEPS := Makefile include/harness.h include/main.h include/tusb.h
+
 # The target's src/include is deliberately NOT on the include path. A quoted
 # #include "main.h" searches the including file's own directory first, so leaving
 # it there would pull in deskhop's real main.h and the whole Pico SDK with it.
@@ -95,7 +110,7 @@ BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/kbdtest $(OUT)/fuzz $(OUT)/exhaust \
 .PHONY: corpus all dump compare mouse kbd consumer fuzz exhaust timing truncate shortreport \
         dispatch clean \
         check-target \
-        check-ref check-constants check-parse
+        check-constants check-parse
 
 all: check-target $(BINS)
 	@echo "built against $(SRC) -> $(OUT)/"
@@ -120,12 +135,13 @@ $(GEN)/%.h: $(SRC)/src/include/%.h | $(GEN)
 # decode-time lookup. Lift it where it is there; where it is not, the target's own
 # hid_report.c does not reference it either, so leaving it out is correct rather than
 # a gap - and lift.py would fail loudly if this guessed wrong.
-KBD_LIFT := get_keyboard $(shell grep -q 'get_or_add_keyboard' $(SRC)/src/keyboard.c 2>/dev/null && echo get_or_add_keyboard)
+HAS_MULTI_KBD := $(shell grep -q 'get_or_add_keyboard' $(SRC)/src/keyboard.c 2>/dev/null && echo y)
+KBD_LIFT      := get_keyboard $(if $(HAS_MULTI_KBD),get_or_add_keyboard)
 
-# Same grep, as a flag for the decode tests. MAX_NKRO_BLOCKS no longer separates the
+# The same answer, as a flag for the decode tests. MAX_NKRO_BLOCKS no longer separates the
 # trees on its own: #359 defines it and so does every tree built on top, including ones
 # without this fix, so a third state is needed for the devices whose answer it moves.
-KBD_MULTI := $(shell grep -q 'get_or_add_keyboard' $(SRC)/src/keyboard.c 2>/dev/null && echo -DHARNESS_MULTI_KEYBOARD)
+KBD_MULTI := $(if $(HAS_MULTI_KBD),-DHARNESS_MULTI_KEYBOARD)
 
 # Does the target bound extract_bit_variable against the report length? On a tree that
 # does not, feeding a 6KRO report to a collection wrongly flagged NKRO walks the bitmap
@@ -242,27 +258,27 @@ $(GEN)/hid_parser_instr.c: $(PARSER) tools/instrument.py | $(GEN)
 
 # ---- binaries ----------------------------------------------------------------
 
-$(OUT)/dump: src/dump.c src/handlers.h descriptors.h $(HDRS) $(CORE) | $(GEN)
+$(OUT)/dump: src/dump.c src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(NKRO_BITS_FIELDS) -o $@ src/dump.c $(CORE)
 
-$(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/kept_out.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
+$(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/kept_out.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
 
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries
-$(OUT)/kbdtest: src/kbdtest.c src/cases_kbd.h src/kept_out.h src/handlers.h descriptors.h $(HDRS) $(CORE) | $(GEN)
+$(OUT)/kbdtest: src/kbdtest.c src/cases_kbd.h src/kept_out.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_MULTI) $(KBD_BOUNDED) $(KBD_WIDE) $(KBD_OTHER_BOUNDED) $(NKRO_BITS_FIELDS) -o $@ src/kbdtest.c $(CORE)
 
-$(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(CORE) | $(GEN)
+$(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/exhaust.c $(CORE)
 
-$(OUT)/truncate: src/truncate.c descriptors.h $(HDRS) $(CORE) | $(GEN)
+$(OUT)/truncate: src/truncate.c descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/truncate.c $(CORE)
 
 # The one target that does NOT link src/stubs.c's consumer and system stubs:
 # -DHARNESS_LIFT_CC keeps them out, and $(GEN)/lifted_cc.c supplies the real bodies
 # from the branch under test. src/recorders.c supplies what those bodies reach for.
-$(OUT)/cctest: src/cctest.c src/cases_cc.h src/handlers.h descriptors.h $(HDRS) $(CORE) \
+$(OUT)/cctest: src/cctest.c src/cases_cc.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) \
                $(GEN)/lifted_cc.c src/recorders.c | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -DHARNESS_LIFT_CC -o $@ src/cctest.c \
 	    $(GEN)/lifted_cc.c src/recorders.c $(CORE)
@@ -270,7 +286,7 @@ $(OUT)/cctest: src/cctest.c src/cases_cc.h src/handlers.h descriptors.h $(HDRS) 
 # Routing, not decode, so the only thing it needs out of $(CORE) is the four
 # distinguishable receiver addresses in src/stubs.c. $(DISPATCH_SRC) is the target's
 # own pick_receiver() where the target has one, and empty otherwise.
-$(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(CORE) \
+$(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) \
                      $(DISPATCH_SRC) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(DISPATCH_FLAG) -o $@ src/dispatchtest.c \
 	    $(DISPATCH_SRC) $(CORE)
@@ -282,16 +298,17 @@ $(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h src/handlers.h descriptor
 # it the 8BitDo would be in one binary and not the other, which is a confusing thing to
 # debug later; the coverage it would add here on an unbounded tree is the same overread
 # truncate already counts.
-$(OUT)/shortreport: src/shortreport.c src/cases_mouse.h src/cases_kbd.h src/kept_out.h descriptors.h $(HDRS) \
+$(OUT)/shortreport: src/shortreport.c src/cases_mouse.h src/cases_kbd.h src/kept_out.h descriptors.h $(HDRS) $(DEPS) \
                     $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_BOUNDED) $(KBD_OTHER_BOUNDED) $(NKRO_BITS_FIELDS) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/shortreport.c \
 	    $(GEN)/lifted_mouse.c $(CORE)
 
-# no ASan: this one is a stopwatch, and the fuzzer clamps rather than faults
-$(OUT)/timing: src/timing.c $(HDRS) $(CORE) | $(GEN)
-	$(CC) -O2 $(WARN) $(INCS) -o $@ src/timing.c $(CORE)
+# no ASan: this one is a stopwatch, and the fuzzer clamps rather than faults. -O2 in
+# place of CFLAGS, so the two probes CFLAGS carries are passed by hand.
+$(OUT)/timing: src/timing.c $(HDRS) $(DEPS) $(CORE) | $(GEN)
+	$(CC) -O2 $(WARN) $(INCS) $(HANDLER_LOOKUP) $(HANDLER_MAP) -o $@ src/timing.c $(CORE)
 
-$(OUT)/fuzz: src/fuzz.c $(HDRS) $(GEN)/hid_parser_instr.c $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c | $(GEN)
+$(OUT)/fuzz: src/fuzz.c $(HDRS) $(DEPS) $(GEN)/hid_parser_instr.c $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c | $(GEN)
 	$(CC) $(CFLAGS) $(INCS) -o $@ src/fuzz.c $(GEN)/hid_parser_instr.c $(REPORT) \
 	    src/stubs.c $(GEN)/lifted_kbd.c
 
@@ -350,6 +367,7 @@ REF_SHA  := $(shell git -C $(DESKHOP) rev-parse --short $(REF) 2>/dev/null)
 REF_TREE := $(B)/tree/$(REF_SHA)
 REF_OUT  := $(B)/ref-$(REF_SHA)
 
+.PHONY: check-ref
 check-ref:
 	@test -n "$(REF_SHA)" || { \
 	  echo "cannot resolve REF=$(REF) in $(DESKHOP)."; \
@@ -411,8 +429,8 @@ endif  # compare in MAKECMDGOALS
 # stopped decoding. Safe to wire into CI.
 #
 # fuzz, truncate, shortreport and dispatch are deliberately NOT here. They fail by design on
-# firmware that has the bug they look for - fuzz and truncate both fail on main
-# today, and truncate still fails on the #332 fix - so folding them in would make
+# firmware that has the bug they look for - truncate fails on every tree measured and
+# dispatch on upstream main today - so folding them in would make
 # this permanently red and worth nothing. Their exit status is the finding, not a
 # regression. `make findings` runs those, and reports rather than gates.
 #
@@ -429,7 +447,7 @@ test: mouse kbd consumer check-parse check-constants test-sleepwake
 # the DeskHop side by the consumer suite and by dispatch.
 .PHONY: test-sleepwake
 test-sleepwake:
-	bash emu/sleepwake/test.sh
+	@bash emu/sleepwake/test.sh
 
 # The bounds, overread and routing checks, run for their numbers. Each prints its own
 # summary and its own exit status is ignored here on purpose: see above.
@@ -464,16 +482,16 @@ check-constants:
 	    $(PARSER) $(REPORT); \
 	fi
 
-# add_descriptor.py is the way a descriptor gets into the corpus, and its reader used
-# to drop whole lines of a dump without saying so. A short descriptor does not fail to
-# build either - it parses cleanly and describes a device nobody owns. Cheap to check
-# and it needs nothing outside the repo, so unlike check-constants there is no skip.
 # Rewrite the table of every entry in CORPUS.md from descriptors.h and the case tables.
 # Refuses if an entry has no hand-kept row in tools/corpus_table.py, so the table stays
 # complete rather than quietly short.
 corpus:
 	@python3 tools/corpus_table.py
 
+# add_descriptor.py is the way a descriptor gets into the corpus, and its reader used
+# to drop whole lines of a dump without saying so. A short descriptor does not fail to
+# build either - it parses cleanly and describes a device nobody owns. Cheap to check
+# and it needs nothing outside the repo, so unlike check-constants there is no skip.
 check-parse:
 	@python3 tools/add_descriptor.py --selftest
 

@@ -48,7 +48,7 @@ Pico SDK submodule populated in the target tree, and skips rather than fails wit
 | `make check-parse` | does `add_descriptor.py` still read every dump shape without dropping bytes? |
 | `make test-sleepwake` | does the BOOTSEL emulator debounce and deliver Sleep/Wake safely? |
 | `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `check-parse`, `check-constants`, `test-sleepwake` |
-| `make findings` | the four bounds checks, run for their numbers |
+| `make findings` | `fuzz`, `truncate`, `shortreport` and `dispatch`, run for their numbers |
 | `make corpus` | regenerate the table in `CORPUS.md` from `descriptors.h` and the case tables |
 | `make all` | build everything without running it |
 
@@ -118,7 +118,7 @@ each entry and what the reconstructions got wrong.
 | declaring system control | 25 |
 | carrying report IDs | 63 |
 | whole interfaces with more than one top-level collection | 40 |
-| with hand-written decode cases | mouse 28 devices, keyboard 40, consumer 9 |
+| with hand-written decode cases | mouse 29 devices, keyboard 40, consumer 9 |
 
 [CORPUS.md](CORPUS.md) lists every entry: the device, where the bytes came from, the tool
 that read them, and what each has caught.

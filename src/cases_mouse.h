@@ -15,8 +15,8 @@
 
 typedef struct {
     const char *what;
-    /* 12, not 8: the Bolt receiver's mouse report is nine bytes - a report ID, a
-       16-bit button field, 16-bit X and Y, then wheel and pan. */
+    /* 12, not 8: the Scimitar's mouse report is eleven bytes, and the Bolt receiver's
+       nine - a report ID, a 16-bit button field, 16-bit X and Y, then wheel and pan. */
     uint8_t     report[12];
     int         len;
     int32_t     x, y, wheel, pan, buttons;
@@ -235,13 +235,14 @@ static const mouse_case_t m_boot_protocol_cases[] = {
 
 
 /* Microsoft Sculpt Ergonomic Mouse receiver, interface 1 (issue #367). Every report
-   below is one the reporter captured with usbhid-dump, so the expected values are
-   read off the wire rather than derived. Layout is [0x1A][5 buttons + 3 pad][X 16]
-   [Y 16][wheel 16][pan 16], ten bytes. The wheel reads 12 per notch in the capture
-   because the Linux host had set the Resolution Multiplier feature; a host that never
-   touches that feature gets the device default instead. Decoding the bytes is one
-   question and routing the report is another: 0x1A is 26, above MAX_REPORTS, so see
-   dispatchtest for what happens to the report before any of this runs. */
+   below but the synthetic extremes row is one the reporter captured with usbhid-dump, so
+   the expected values are read off the wire rather than derived. Layout is [0x1A]
+   [5 buttons + 3 pad][X 16][Y 16][wheel 16][pan 16], ten bytes. The wheel reads 12 per
+   notch in the capture because the Linux host had set the Resolution Multiplier feature; a
+   host that never touches that feature gets the device default instead. Decoding the bytes
+   is one question and routing the report is another: 0x1A is 26, above the 24-slot table
+   upstream had before ce8abb6, so see dispatchtest for what happened to the report before
+   any of this ran. */
 static const mouse_case_t m_sculpt_cases[] = {
     {"move left  (X -1)",       {0x1A, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 10,  -1,  0,   0,  0, 0},
     {"move right (X +1)",       {0x1A, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 10,   1,  0,   0,  0, 0},

@@ -22,12 +22,12 @@
  * dropped to it being handed to the consumer or system receiver. The rows below
  * measure that on the real devices in the corpus rather than arguing it.
  *
- * A second cause, found later: on main the table is indexed by the report ID and has
- * MAX_REPORTS slots, so an ID of 24 or more is never bound and its reports are
- * dropped in report protocol too. The sculpt rows measure that one.
+ * A second cause, found later: before ce8abb6 upstream indexed the table by the report
+ * ID with MAX_REPORTS slots, so an ID of 24 or more was never bound and its reports
+ * were dropped in report protocol too. The sculpt rows measure that one.
  *
- * This target FAILS on firmware that has either bug, which is every tree measured
- * so far; DeskHop Extended fixed the routing and not the table.
+ * This target FAILS on firmware that has either bug. Upstream main fixed the table and
+ * still routes boot protocol by the first byte; DeskHop Extended fixed both and passes.
  * It belongs in `make findings`, not `make test`, for the same reason truncate and
  * shortreport do: its exit status is the finding.
  */
@@ -126,9 +126,9 @@ static const route_case_t cases[] = {
 
 /* ---- report IDs above MAX_REPORTS: report protocol, nothing exotic on the wire -- */
 /* Microsoft Sculpt receiver 045e:07a5 (issue #367). Its mouse lives on report ID
-   0x1A, which is 26; on main the handler table has MAX_REPORTS (24) slots indexed by
-   the ID itself, so no receiver is ever bound and the report is dropped whichever
-   bInterfaceProtocol the interface carries. The keyboard and the consumer/system
+   0x1A, which is 26; before ce8abb6 the handler table had MAX_REPORTS (24) slots indexed
+   by the ID itself, so no receiver was ever bound and the report was dropped whichever
+   bInterfaceProtocol the interface carried. The keyboard and the consumer/system
    interfaces of the same receiver use IDs 0, 7 and 3 and route normally. */
 {"sculpt rx mouse on ID 0x1A, itf mouse", D(sculpt_rx_mouse),   MSE, R, {0x1A,0x00,0x01,0x00}, 10,
                                        process_mouse_report, NULL},

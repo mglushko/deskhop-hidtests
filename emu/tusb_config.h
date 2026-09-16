@@ -39,7 +39,7 @@
 #define CFG_TUD_MIDI            0
 #define CFG_TUD_VENDOR          0
 
-/* Must hold the largest report plus its ID byte. The 8BitDo's NKRO collections
-   are 16 payload bytes + 1; the Gameball's trackball report is 5; the Sculpt's
-   mouse report is 9 + 1. */
+/* Must hold the largest report plus its ID byte. The Ultra-Link's NKRO report is
+   20 payload bytes + 1, the largest here; the 8BitDo's NKRO collections are 16 + 1;
+   the Gameball's trackball report is 5; the Sculpt's mouse report is 9 + 1. */
 #define CFG_TUD_HID_EP_BUFSIZE  64

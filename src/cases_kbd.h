@@ -6,11 +6,11 @@
  * report, without being written twice.
  *
  * Every case carries up to four expectations, each naming a tree: `keys` is what main
- * produces, `keys_fixed` what a parser keeping every NKRO block produces, `keys_multi`
- * what a parser holding one keyboard_t per collection produces, and `keys_wide` what a
- * parser keeping a usage range wider than its block produces. The right one is selected
- * at compile time from what the Makefile finds in the target, so one unmodified file
- * asserts correctly against every one of them.
+ * produced before #359, `keys_fixed` what a parser keeping every NKRO block produces,
+ * `keys_multi` what a parser holding one keyboard_t per collection produces, and
+ * `keys_wide` what a parser keeping a usage range wider than its block produces. The right
+ * one is selected at compile time from what the Makefile finds in the target, so one
+ * unmodified file asserts correctly against every one of them.
  */
 #pragma once
 
@@ -53,7 +53,7 @@ typedef struct {
     uint8_t     report[REPORT_MAX];
     int         len;
     uint8_t     modifier;
-    uint8_t     keys[6];       /* expected on main */
+    uint8_t     keys[6];       /* expected on main before #359 */
     uint8_t     keys_fixed[6]; /* expected once every NKRO block is kept */
 
     /* A third state, for the devices whose answer moves again once an interface can
@@ -141,8 +141,8 @@ static const kbd_case_t k_keyboardio_cases[] = {
     {"shift + a",          {[0] = 0x02, [8] = 0x10}, 36,            0x02, {4}, {4}},
 };
 
-/* Logitech G Pro Superlight 2 receiver, [#215]. Three blocks; main keeps only
-   the first, because only that one clears the size > 32 filter. Usages 4 to 115
+/* Logitech G Pro Superlight 2 receiver, [#215]. Three blocks; main before #359 kept
+   only the first, because only that one cleared the size > 32 filter. Usages 4 to 115
    work either way. Usage 135 is the first of the Japanese and Korean IME keys
    that live in the second block, and it is the case that separates the two. */
 static const kbd_case_t k_superlight2_cases[] = {
@@ -431,8 +431,9 @@ static const kbd_case_t k_scimitar_kbd_cases[] = {
 
 /* Logi Bolt receiver at bcdDevice 5.01, interface 0, [#47]: the Superlight 2 receiver's
    three key ranges with no report ID, [modifier][112 bits][5 bits][3 bits], sixteen
-   bytes. main keeps the first range only, so usages 4 to 115 work and the IME keys in
-   the other two come out as nothing; a tree keeping every block returns them. */
+   bytes. Before #359 main kept the first range only, so usages 4 to 115 worked and the
+   IME keys in the other two came out as nothing; a tree keeping every block returns
+   them. */
 static const kbd_case_t k_bolt_v501_cases[] = {
     {"usage 4 (a)",                   {[1] = 0x01}, 16,             0x00, {4}, {4}},
     {"usage 115, end of block 0",     {[14] = 0x80}, 16,            0x00, {115}, {115}},
@@ -499,7 +500,7 @@ static const kbd_case_t k_qmk_shared_cases[] = {
 /* Keychron 2.4 GHz dongle, interface 2, [#211]: a 6KRO keyboard on report ID 1 and an NKRO
    keyboard on report ID 12 whose bitmap declares 153 usages over 152 bits, the Ultra-Link's
    off-by-one. The two 6KRO rows are reports the reporter typed, ten bytes with a padding
-   byte on the end, and they decode correctly on every tree - on main by luck: the
+   byte on the end, and they decode correctly on every tree - before #359 by luck: the
    collapsed keyboard_t is flagged NKRO, but _extract_kbd_nkro rejects the wide range and
    falls through to _extract_kbd_other, whose key_array the NKRO block never overwrote.
 

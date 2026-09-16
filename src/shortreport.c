@@ -31,7 +31,7 @@
  * dispatch() is, and carry the same risk of going stale. Unlike dispatch() they
  * are load bearing: raising a floor hides a real finding and lowering one invents
  * a false one. Re-check them against keyboard.c and mouse.c when touching either.
- * Last checked against main at 59577cc.
+ * Last checked against upstream c220d0c and DeskHop Extended 637b985.
  */
 #include "main.h"
 #include "cases_mouse.h"

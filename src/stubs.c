@@ -3,11 +3,13 @@
    bodies are enough to link.
 
    What the tests actually use is their addresses. extract_data() binds one of these
-   to each report ID, and dump.c reads the table back to print which receiver each ID
-   got wired to, the handlers: line. So
-   these have to stay four distinguishable functions: aliasing them, or routing them
-   through one shared implementation, would make those addresses compare equal and
-   the handler column would quietly become meaningless.
+   to each report ID, and four programs read the table back: dump prints the handlers:
+   line, cctest asserts the report ID under test is bound to the receiver it drives,
+   kbdtest's slot check resolves every keyboard binding, and dispatchtest compares what
+   the routing returns against them. So these have to stay four distinguishable
+   functions: aliasing them, or routing them through one shared implementation, would
+   make those addresses compare equal and every one of those checks would quietly
+   become meaningless.
 
    Four identical empty bodies are the kind of thing -fipa-icf exists to merge, and
    that pass is on by default at -O2 and -Os. Measured on GCC 15 it does not fire

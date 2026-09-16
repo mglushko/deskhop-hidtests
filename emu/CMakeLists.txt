@@ -1,13 +1,20 @@
-# Builds one UF2 per emulated device:
+# Builds one UF2 per emulated device, and four more for the Gameball:
 #
-#   bitdo-emu.uf2      8BitDo Retro Mechanical Keyboard, hrvach/deskhop#57
-#   ultralink-emu.uf2  Keychron Ultra-Link 8K 3434:d028, hrvach/deskhop#324
-#   gameball-emu.uf2   Gameball trackball 0782:001B, hrvach/deskhop#332
-#   sculpt-emu.uf2     Microsoft Sculpt receiver 045e:07a5, hrvach/deskhop#367
-#   sleepwake-emu.uf2  BOOTSEL-triggered System Sleep/Wake, deskhop-extended#22/#25
+#   bitdo-emu.uf2           8BitDo Retro Mechanical Keyboard, hrvach/deskhop#57
+#   ultralink-emu.uf2       Keychron Ultra-Link 8K 3434:d028, hrvach/deskhop#324
+#   gameball-emu.uf2        Gameball trackball 0782:001B, hrvach/deskhop#332
+#   gameball-min-emu.uf2      the trackball interface alone, bytes as dumped
+#   gameball-c0-emu.uf2       trackball alone, End Collection rewritten to 0xC0
+#   gameball-fixed-emu.uf2    trackball alone, both descriptor repairs
+#   gameball-full-emu.uf2     all three interfaces, both repairs: the #332 test
+#   sculpt-emu.uf2          Microsoft Sculpt receiver 045e:07a5, hrvach/deskhop#367
+#   sleepwake-emu.uf2       BOOTSEL-triggered System Sleep/Wake, deskhop-extended#22/#25
 #
-#   cmake -B build -G Ninja -DPICO_SDK_PATH=$HOME/deskhop-extended/pico-sdk
-#   cmake --build build
+# From the harness root:
+#
+#   cmake -S emu -B emu/build -DPICO_SDK_PATH=$HOME/deskhop-extended/pico-sdk \
+#       -DPICO_BOARD=pico -DCMAKE_BUILD_TYPE=Release
+#   cmake --build emu/build
 #
 # Report descriptors are regenerated from ../descriptors.h on every build, so an
 # emulator and the host harness can never disagree about the device. Each target

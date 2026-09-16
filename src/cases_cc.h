@@ -7,9 +7,9 @@
  * exactly such a change.
  *
  * #358 adds no macro, so unlike cases_kbd.h there is nothing to #ifdef on. Each
- * case therefore carries BOTH answers - what main produces and what #358 produces -
- * and src/cctest.c reports which one the branch under test matched, failing only if
- * it matches neither. The verdict line at the end of a run says "behaves like main"
+ * case therefore carries BOTH answers - what pre-#358 main produces and what #358
+ * produces - and src/cctest.c reports which one the branch under test matched, failing
+ * only if it matches neither. The verdict line at the end of a run says "behaves like main"
  * or "behaves like #358", which is the question compare answers wrongly.
  *
  * Every cc_array value below was read out of `make dump D=<device>`, not derived by
@@ -29,9 +29,9 @@ typedef struct {
     uint8_t     report[8];
     int         len;
 
-    /* Expected on main, and once #358 is applied. `sent` is whether anything
+    /* Expected on main before #358, and once it is applied. `sent` is whether anything
        reached the send path at all: process_system_report can drop a report
-       outright, and on main it does. */
+       outright, and before #358 it did. */
     bool    sent_main;
     uint8_t want_main[4];
     bool    sent_fixed;
@@ -124,7 +124,7 @@ static const cc_case_t system_no_rid_cases[] = {
     {"power down",           {0x01}, 1, false, {0},                     true,  {0x01}},
     {"sleep",                {0x02}, 1, false, {0},                     true,  {0x02}},
     {"wake up",              {0x04}, 1, false, {0},                     true,  {0x04}},
-    /* even an empty report differs: dropped on main, delivered as zero on #358 */
+    /* even an empty report differs: dropped before #358, delivered as zero with it */
     {"nothing held",         {0x00}, 1, false, {0},                     true,  {0x00}},
 };
 

@@ -129,9 +129,9 @@ typedef struct TU_ATTR_PACKED {
 
    Nothing checks this copy the way `make check-constants` checks the constants
    above; check_constants.py compares macros, not struct fields. Re-read structs.h
-   when a decode result looks off. Last checked against main at 59577cc:
+   when a decode result looks off. Last checked against upstream c220d0c:
    mouse_buttons int16_t (structs.h:110), active_output and board_role uint8_t
-   (structs.h:101-102). */
+   (structs.h:101-102); DeskHop Extended 637b985 has the same widths. */
 typedef struct {
     int16_t mouse_buttons;
     uint8_t active_output;

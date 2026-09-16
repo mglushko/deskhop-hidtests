@@ -21,13 +21,13 @@
  *   nkro_keyboard           _extract_kbd_nkro, one 240-bit block
  *   keyboardio_keyboard     an NKRO block starting at bit 68, four bits into a
  *                           byte - the shape [#216] blames for shifted keys
- *   superlight2_rx_keyboard three blocks, of which main keeps the first
- *   wooting_keyboard        four blocks, of which main keeps the last
+ *   superlight2_rx_keyboard three blocks, of which main before #359 kept the first
+ *   wooting_keyboard        four blocks, of which main before #359 kept the last
  *   ultralink_nkro_keyboard a usage range one wider than the block it covers,
  *                           which every tree before this one threw away
  *
  * Those decode differently depending on the branch under test, so a case carries
- * up to four expectations, each naming a tree: `keys` is what main produces,
+ * up to four expectations, each naming a tree: `keys` is what main produced before #359,
  * `keys_fixed` what a parser keeping every NKRO block produces, `keys_multi` what
  * a parser holding one keyboard_t per collection produces, and `keys_wide` what a
  * parser keeping a usage range wider than its block produces. The right one is
@@ -67,7 +67,7 @@ static void print_keys(const uint8_t *k) {
  * keyboard_t and whichever was parsed second has written over the first.
  *
  * This is what the two multi-collection devices demonstrate case by case, stated once
- * over all 47 descriptors instead. It needs no expectations and no knowledge of any
+ * over the whole corpus instead. It needs no expectations and no knowledge of any
  * particular device, so it holds for descriptors added later, which is the part the
  * hand-written cases cannot do. Gated because it is false by construction on a tree
  * where get_keyboard() short-circuits.

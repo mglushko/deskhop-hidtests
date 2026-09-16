@@ -2,7 +2,7 @@
  *
  * The harness compiles the firmware's own parser and feeds it real bytes, which
  * is enough to say what the code does with a report but never enumerates
- * anything. These builds close that gap for two devices whose bugs were found
+ * anything. These builds close that gap for four devices whose bugs were found
  * on the host and had no way to be seen on a desk. CMake builds them all.
  *
  *============================================================================
@@ -68,6 +68,16 @@
  * device's descriptor, not a simplification.
  *
  *============================================================================
+ * EMU_ULTRALINK - Keychron Ultra-Link 8K 3434:d028, hrvach/deskhop#324
+ *============================================================================
+ *
+ * Interface 1 carries a 6KRO keyboard on report ID 7 and an NKRO keyboard on
+ * report ID 0x11 whose bitmap declares 153 usages over 152 bits. A parser that
+ * demands one usage per bit exactly never records that block, so every key typed
+ * through the NKRO report vanishes; the width arm sent upstream as
+ * hrvach/deskhop#366 keeps it. The rig runs the 8BitDo's script on this device's
+ * IDs and lengths, with the tail typed through the NKRO collection as the
+ * control.
  *
  *============================================================================
  * EMU_SCULPT - Microsoft Sculpt receiver 045e:07a5, hrvach/deskhop#367

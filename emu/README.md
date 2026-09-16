@@ -8,8 +8,12 @@ confirmed on real hardware rather than only on the host. One per UF2:
 | `bitdo-emu.uf2` | 8BitDo Retro Mechanical Keyboard `2dc8:5201` | [#57] | three keyboard collections on one interface |
 | `ultralink-emu.uf2` | Keychron Ultra-Link 8K `3434:d028` | [#324] | an NKRO usage range one wider than its block |
 | `gameball-emu.uf2` | Gameball trackball `0782:001B` | [#332] | Report Counts of 256, 1024 and 2048 against a 128 entry array |
-| `sculpt-emu.uf2` | Microsoft Sculpt receiver `045e:07a5` | [#367] | a mouse on report ID 26, above the handler table |
+| `sculpt-emu.uf2` | Microsoft Sculpt receiver `045e:07a5` | [#367] | a mouse on report ID 26, above the handler table upstream had before `ce8abb6` |
 | `sleepwake-emu.uf2` | BOOTSEL System Control rig `cafe:4025` | [extended #22][extended-22] / [#25][extended-25] | press BOOTSEL to send Sleep or Wake |
+
+The Gameball also builds as four variants, `gameball-min`, `gameball-c0`, `gameball-fixed`
+and `gameball-full`; the table under *Which build to flash* in its section says what each
+isolates.
 
 Every report descriptor is pulled out of `../descriptors.h` by `gen_desc.py` at build
 time rather than checked in twice, so an emulator and the corpus cannot drift apart.
@@ -165,9 +169,12 @@ pinned too, as `k_bitdo_boot_cases`.
 
 ## Build
 
-```
-cmake -B build -G Ninja -DPICO_SDK_PATH=$HOME/deskhop-extended/pico-sdk
-cmake --build build
+The same invocation as the Sleep/Wake rig above, without `--target`, from the harness root:
+
+```sh
+cmake -S emu -B emu/build -DPICO_SDK_PATH="$HOME/deskhop-extended/pico-sdk" \
+    -DPICO_BOARD=pico -DCMAKE_BUILD_TYPE=Release
+cmake --build emu/build --parallel 4
 ```
 
 Produces every UF2 in the table above, every time.
@@ -176,7 +183,7 @@ Produces every UF2 in the table above, every time.
 
 1. Hold **BOOTSEL** on the spare RP2040, plug it into your PC, release. It mounts
    as `RPI-RP2`.
-2. Copy `build/bitdo-emu.uf2` onto it. It reboots as the emulated keyboard.
+2. Copy `emu/build/bitdo-emu.uf2` onto it. It reboots as the emulated keyboard.
 3. Unplug it from the PC and plug it into the **deskhop board's USB-A host port**,
    the one a keyboard normally goes in. If `enforce_ports` is on it has to be the
    keyboard port specifically.
@@ -259,10 +266,10 @@ Cut it to 8 and the overflow stays; leave it alone and cut the three 8-bit count
 
 Interface 0 is what you watch. `bInterfaceProtocol` is deliberately `MOUSE`: the
 trackball descriptor declares no report ID, so an interface presenting as `NONE` would
-make `report_carries_id()` false and drop `pick_receiver()` into the
-`report_handler[report[0]]` branch, where `report[0]` is the button byte and the
-pointer gets routed by which buttons are held. `MOUSE` takes the direct branch, which
-is both correct and what a real trackball does.
+send `pick_receiver()` down the handler-table branch with the ID held at zero, and the
+report would arrive through `report_handler[0]` rather than by the interface's protocol.
+It reaches the mouse receiver either way. `MOUSE` takes the direct branch, which is both
+correct and what a real trackball does.
 
 Interface 2 is presented and never used. It declares eight modifier bits, 48 bits of
 padding and no key array at all, so it could only ever report modifiers, which would
@@ -439,10 +446,11 @@ accord.
 # Microsoft Sculpt receiver, report ID 26
 
 [#367] is a Sculpt Ergonomic Mouse that neither moves the pointer nor clicks. Its
-receiver puts the mouse on report ID 0x1A, which is 26, and `main` binds receivers in a
-table of `MAX_REPORTS` (24) slots indexed by the ID, so nothing is ever bound and every
-report is dropped before decode. The parser has the layout right all along, which the
-host harness shows; this rig shows the drop, and the fix, on a board.
+receiver puts the mouse on report ID 0x1A, which is 26, and upstream bound receivers in a
+table of `MAX_REPORTS` (24) slots indexed by the ID until `ce8abb6`, so nothing was ever
+bound and every report was dropped before decode. The parser had the layout right all
+along, which the host harness shows; this rig shows the drop on a tree before the fix, and
+the fix, on a board.
 
 ## What it presents
 
@@ -618,10 +626,7 @@ off VID or PID, so change them in `usb_descriptors.c` if a cloned ID upsets a
 host's device cache. The USB strings say `deskhop-hidtests` and `8BitDo Retro
 emulator`, so a bus scan distinguishes it from the real hardware.
 
-[57]: https://github.com/hrvach/deskhop/issues/57
 [#57]: https://github.com/hrvach/deskhop/issues/57
-[#211]: https://github.com/hrvach/deskhop/issues/211
-[#295]: https://github.com/hrvach/deskhop/issues/295
 [#324]: https://github.com/hrvach/deskhop/issues/324
 
 [#332]: https://github.com/hrvach/deskhop/issues/332

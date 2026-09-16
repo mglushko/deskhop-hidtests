@@ -7,8 +7,8 @@
  *
  * This is the target that closes the gap the README used to describe: `compare`
  * diffs the *parse*, so a change confined to keyboard.c is invisible to it. PR
- * [#358] is exactly that change, and compare prints `identical parse` on all 45
- * descriptors including cherry_kc6000_consumer, the device it fixes.
+ * [#358] is exactly that change, and compare prints `identical parse` on every
+ * descriptor, including cherry_kc6000_consumer, the device it fixes.
  *
  * WHICH BRANCH AM I LOOKING AT
  *
