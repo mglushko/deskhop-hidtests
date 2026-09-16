@@ -146,16 +146,27 @@ static int run_device(const kbd_device_t *dev) {
         const kbd_case_t         *c = &dev->cases[i];
         hid_keyboard_report_t out;
 
-        /* Which tree's answer applies. A wide-range row that also needs its own
-           keyboard_t gets keys_wide only where both fixes are present: with the width
-           arm alone, report 0x11 still resolves to the collapsed slot and yields
-           nothing, which is what keys_fixed and keys say. */
-        bool multi = ONE_KEYBOARD_PER_COLLECTION && c->has_multi;
-        bool wide  = ACCEPTS_WIDE_USAGE_RANGE && c->has_wide &&
-                     (!c->has_multi || ONE_KEYBOARD_PER_COLLECTION);
-        const uint8_t *want = wide  ? c->keys_wide
-                            : multi ? c->keys_multi
-                            : KEEPS_EVERY_BLOCK ? c->keys_fixed : c->keys;
+        /* Which tree's answer applies, and which fix the row credits when it passes.
+           One chain decides both, so the tag can never name a fix the assertion did
+           not use. A wide-range row takes keys_wide on any tree with the width arm:
+           the block lands in whichever keyboard_t the collection resolved to, its own
+           or the collapsed one, and decodes from there either way. */
+        const uint8_t *want;
+        const char    *tag = "";
+
+        if (ACCEPTS_WIDE_USAGE_RANGE && c->has_wide) {
+            want = c->keys_wide;
+            tag  = "   <- wide usage range";
+        } else if (ONE_KEYBOARD_PER_COLLECTION && c->has_multi) {
+            want = c->keys_multi;
+            tag  = "   <- multi-keyboard";
+        } else if (KEEPS_EVERY_BLOCK) {
+            want = c->keys_fixed;
+            if (memcmp(c->keys, c->keys_fixed, KEYS_IN_USB_REPORT))
+                tag = "   <- multi-block";
+        } else {
+            want = c->keys;
+        }
 
         /* a len past the end of the array would overread the struct below */
         if (c->len < 0 || (size_t)c->len > sizeof(c->report)) {
@@ -183,13 +194,7 @@ static int run_device(const kbd_device_t *dev) {
         print_keys(out.keycode);
 
         if (ok) {
-            /* flag the rows a fix is responsible for, and only on a tree that has it */
-            printf("ok%s\n", wide  ? "   <- wide usage range"
-                            : multi ? "   <- multi-keyboard"
-                            : (KEEPS_EVERY_BLOCK &&
-                               memcmp(c->keys, c->keys_fixed, KEYS_IN_USB_REPORT))
-                                    ? "   <- multi-block"
-                                    : "");
+            printf("ok%s\n", tag);
         } else {
             printf("MISMATCH, wanted mod 0x%02X ", c->modifier);
             print_keys(want);
