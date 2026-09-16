@@ -215,7 +215,7 @@ int main(void) {
                ? "one keyboard_t per collection (get_or_add_keyboard present)"
                : "all collections on one interface share keyboard_t");
     printf("              %s\n\n", ACCEPTS_WIDE_USAGE_RANGE
-               ? "a usage range wider than its block is kept (is_key_bitmap present)"
+               ? "a usage range wider than its block is kept (width arm present)"
                : "a usage range wider than its block is rejected");
 
     for (unsigned i = 0; i < ARRAY_SIZE(kbd_devices); i++) {

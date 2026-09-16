@@ -138,12 +138,14 @@ KBD_BOUNDED := $(shell grep -q 'byte_index >= len' $(SRC)/src/hid_report.c 2>/de
 # instead of demanding one usage per bit exactly? Unlike every other probe here there is
 # nothing that IS the compile prerequisite: the change is a predicate inside
 # handle_keyboard_descriptor_values, with no symbol this harness links against, so this is
-# a proxy and cannot be anything else. It greps the identifier the rule introduces rather
-# than the expression, because an identifier survives reformatting and line-wrapping where
-# `range >= size` would not. A tree that renames it reads here as "not fixed", the Keychron
-# rows then assert the old zeros, and it fails as MISMATCH with the report bytes printed -
-# loudly, which is the opposite of the silent skip c6d0264 was written to get rid of.
-KBD_WIDE := $(shell grep -q 'is_key_bitmap' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_WIDE_USAGE_RANGE)
+# a proxy and cannot be anything else. It greps either spelling of the rule: the
+# is_key_bitmap identifier the fix introduced on the #359 chain, or the width arm
+# `size >= NKRO_MIN_BITS`, which is all that names it once the test moved into upstream's
+# maps_usage_to_bitmap_bits() helper (896e903). A tree that spells it a third way reads
+# here as "not fixed", the Keychron rows then assert the old zeros, and it fails as
+# MISMATCH with the report bytes printed - loudly, which is the opposite of the silent
+# skip c6d0264 was written to get rid of.
+KBD_WIDE := $(shell grep -qE 'is_key_bitmap|size >= NKRO_MIN_BITS' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_WIDE_USAGE_RANGE)
 
 # Does _extract_kbd_other stop at the bytes that arrived? Its key_array loop is indexed by
 # byte offset from the descriptor, and a keyboard whose report comes up one byte short of
@@ -152,6 +154,11 @@ KBD_WIDE := $(shell grep -q 'is_key_bitmap' $(SRC)/src/hid_report.c 2>/dev/null 
 # but not this loop, so the two need separate probes. Expression rather than identifier,
 # because the guard is one more clause in an existing loop and introduces no name.
 KBD_OTHER_BOUNDED := $(shell grep -q 'i < MAX_KEYS && i < len' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_BOUNDED_KEY_ARRAY)
+
+# Which names does nkro_block_t give a block's position and width? #359 called them offset
+# and size; upstream's readability pass (896e903) renamed them offset_bits and size_bits.
+# Only dump prints them, so this is a display concern, not a decode one.
+NKRO_BITS_FIELDS := $(shell grep -q 'offset_bits' $(SRC)/src/include/hid_parser.h 2>/dev/null && echo -DHARNESS_NKRO_BITS_FIELDS)
 
 $(GEN)/lifted_kbd.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 	@python3 tools/lift.py $< $@ $(KBD_LIFT)
@@ -233,7 +240,7 @@ $(GEN)/hid_parser_instr.c: $(PARSER) tools/instrument.py | $(GEN)
 # ---- binaries ----------------------------------------------------------------
 
 $(OUT)/dump: src/dump.c src/handlers.h descriptors.h $(HDRS) $(CORE) | $(GEN)
-	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/dump.c $(CORE)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(NKRO_BITS_FIELDS) -o $@ src/dump.c $(CORE)
 
 $(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
@@ -241,7 +248,7 @@ $(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/dispatch.h src/handlers.
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries
 $(OUT)/kbdtest: src/kbdtest.c src/cases_kbd.h src/handlers.h descriptors.h $(HDRS) $(CORE) | $(GEN)
-	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_MULTI) $(KBD_BOUNDED) $(KBD_WIDE) $(KBD_OTHER_BOUNDED) -o $@ src/kbdtest.c $(CORE)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_MULTI) $(KBD_BOUNDED) $(KBD_WIDE) $(KBD_OTHER_BOUNDED) $(NKRO_BITS_FIELDS) -o $@ src/kbdtest.c $(CORE)
 
 $(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/exhaust.c $(CORE)
@@ -274,7 +281,7 @@ $(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h src/handlers.h descriptor
 # truncate already counts.
 $(OUT)/shortreport: src/shortreport.c src/cases_mouse.h src/cases_kbd.h descriptors.h $(HDRS) \
                     $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
-	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_BOUNDED) $(KBD_OTHER_BOUNDED) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/shortreport.c \
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_BOUNDED) $(KBD_OTHER_BOUNDED) $(NKRO_BITS_FIELDS) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/shortreport.c \
 	    $(GEN)/lifted_mouse.c $(CORE)
 
 # no ASan: this one is a stopwatch, and the fuzzer clamps rather than faults

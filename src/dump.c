@@ -11,6 +11,17 @@
 #include "descriptors.h"
 #include "handlers.h"
 
+/* nkro_block_t names a block's position and width offset/size on the #359 chain and
+   offset_bits/size_bits after upstream's readability pass (896e903); the Makefile probes
+   the header and sets the flag. */
+#ifdef HARNESS_NKRO_BITS_FIELDS
+#define NKRO_OFFSET(b) ((b).offset_bits)
+#define NKRO_SIZE(b)   ((b).size_bits)
+#else
+#define NKRO_OFFSET(b) ((b).offset)
+#define NKRO_SIZE(b)   ((b).size)
+#endif
+
 static void dump_val(const char *label, report_val_t *v) {
     printf("    %-10s off=%-5u idx=%-4u size=%-3u usage=0x%04X page=0x%04X gusage=0x%04X "
            "rid=%-3u umin=%-6d umax=%-6d %s %s\n",
@@ -50,8 +61,8 @@ static void dump_iface(hid_interface_t *iface) {
 #ifdef MAX_NKRO_BLOCKS
         printf("      nkro_count=%u\n", kb->nkro_count);
         for (int j = 0; j < kb->nkro_count && j < MAX_NKRO_BLOCKS; j++)
-            printf("      nkro[%d] off=%u size=%u umin=%u umax=%u\n", j, kb->nkro[j].offset,
-                   kb->nkro[j].size, kb->nkro[j].usage_min, kb->nkro[j].usage_max);
+            printf("      nkro[%d] off=%u size=%u umin=%u umax=%u\n", j, NKRO_OFFSET(kb->nkro[j]),
+                   NKRO_SIZE(kb->nkro[j]), kb->nkro[j].usage_min, kb->nkro[j].usage_max);
 #else
         dump_val("nkro", &kb->nkro);
 #endif
