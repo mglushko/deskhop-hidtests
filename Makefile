@@ -172,14 +172,15 @@ KBD_BOUNDED := $(call probe,hid_report.c,byte_index >= (len|report_length),HARNE
 # instead of demanding one usage per bit exactly? Unlike every other probe here there is
 # nothing that IS the compile prerequisite: the change is a predicate inside
 # handle_keyboard_descriptor_values, with no symbol this harness links against, so this is
-# a proxy and cannot be anything else. It greps either spelling of the rule: the
-# is_key_bitmap identifier the fix introduced on the #359 chain, or the width arm
+# a proxy and cannot be anything else. It greps any of three spellings of the rule: the
+# is_key_bitmap identifier the fix introduced on the #359 chain; the width arm
 # `size >= NKRO_MIN_BITS`, which is all that names it once the test moved into upstream's
-# maps_usage_to_bitmap_bits() helper (896e903). A tree that spells it a third way reads
-# here as "not fixed", the Keychron rows then assert the old zeros, and it fails as
-# MISMATCH with the report bytes printed - loudly, which is the opposite of the silent
-# skip c6d0264 was written to get rid of.
-KBD_WIDE := $(call probe,hid_report.c,is_key_bitmap|size >= NKRO_MIN_BITS,HARNESS_WIDE_USAGE_RANGE)
+# maps_usage_to_bitmap_bits() helper (896e903); or `key_bits >= NKRO_MIN_BITS`, the same
+# arm as Hrvoje merged it into is_nkro_key_field() (e5f8ae8), which the fork follows from
+# 28dd847. A tree that spells it a fourth way reads here as "not fixed", the Keychron rows
+# then assert the old zeros, and it fails as MISMATCH with the report bytes printed:
+# loudly, which is the opposite of the silent skip c6d0264 was written to get rid of.
+KBD_WIDE := $(call probe,hid_report.c,is_key_bitmap|(size|key_bits) >= NKRO_MIN_BITS,HARNESS_WIDE_USAGE_RANGE)
 
 # Does _extract_kbd_other stop at the bytes that arrived? Its key_array loop is indexed by
 # byte offset from the descriptor, and a keyboard whose report comes up one byte short of
