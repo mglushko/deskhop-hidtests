@@ -1,7 +1,11 @@
 /* Feed every truncation of every report to the decode path.
  *
- *   ./shortreport                    every case at every length, print a summary
- *   ./shortreport <device> <n> <len> run one case in process, ASan report visible
+ *   ./shortreport                         every case at every length, print a summary
+ *   ./shortreport <device>[#k] <n> <len>  run one case in process, ASan report visible
+ *
+ * Five names sit in both case tables or twice in one, so a bare name selects the first
+ * entry carrying it in table order and <device>#2 the second. The repro line at the end
+ * of a sweep prints whichever form names its entry exactly.
  *
  * The mirror image of truncate.c. That one truncates the *descriptor*, which a
  * device supplies once at enumeration; this one truncates the *report*, which a
@@ -36,10 +40,7 @@
 #include "main.h"
 #include "cases_mouse.h"
 #include "cases_kbd.h"
-
-#include <fcntl.h>
-#include <sys/wait.h>
-#include <unistd.h>
+#include "support.h"
 
 /* process_mouse_report hands whatever arrived straight to extract_report_values */
 #define MOUSE_MIN_LEN 1
@@ -75,12 +76,7 @@ static void decode_prefix(path_e path, const void *dev_v, unsigned case_idx, int
     parse_report_descriptor(&iface, desc, desc_len);
 
     /* exact size: a static buffer would leave the overread inside valid memory */
-    uint8_t *report = malloc((size_t)n);
-    if (!report) {
-        fprintf(stderr, "shortreport: out of memory\n");
-        _exit(3);
-    }
-    memcpy(report, bytes, (size_t)n);
+    uint8_t *report = dup_exact("shortreport", bytes, n);
 
     if (path == PATH_MOUSE) {
         device_t       state = {0};
@@ -95,29 +91,22 @@ static void decode_prefix(path_e path, const void *dev_v, unsigned case_idx, int
     free(report);
 }
 
+typedef struct {
+    path_e      path;
+    const void *dev;
+    unsigned    case_idx;
+    int         n;
+} decode_job_t;
+
+static void decode_prefix_job(const void *arg) {
+    const decode_job_t *job = arg;
+    decode_prefix(job->path, job->dev, job->case_idx, job->n);
+}
+
 /* Returns 0 if the child came back clean, otherwise its exit status. */
 static int run_isolated(path_e path, const void *dev, unsigned case_idx, int n, int quiet) {
-    fflush(stdout);
-
-    pid_t pid = fork();
-    if (pid == 0) {
-        if (quiet) {
-            int null = open("/dev/null", O_WRONLY);
-            if (null >= 0) {
-                dup2(null, 2);
-                dup2(null, 1);
-            }
-        }
-        decode_prefix(path, dev, case_idx, n);
-        _exit(0);
-    }
-
-    int status = 0;
-    waitpid(pid, &status, 0);
-
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
-        return 0;
-    return WIFSIGNALED(status) ? 128 + WTERMSIG(status) : WEXITSTATUS(status);
+    decode_job_t job = {path, dev, case_idx, n};
+    return run_forked("shortreport", decode_prefix_job, &job, quiet);
 }
 
 /* Uniform view over the two case tables, so the driver below is written once. */
@@ -141,6 +130,64 @@ static const char *case_what(const entry_t *e, unsigned i) {
     return ((const kbd_device_t *)e->dev)->cases[i].what;
 }
 
+/* How many bytes a case's report[] can hold. mousetest and kbdtest refuse a len past it;
+   this checks the same thing, so a mistyped case is reported rather than read past the
+   struct in the one binary whose job is catching overreads. */
+static int case_cap(const entry_t *e) {
+    if (e->path == PATH_MOUSE)
+        return (int)sizeof(((const mouse_case_t *)0)->report);
+    return (int)sizeof(((const kbd_case_t *)0)->report);
+}
+
+/* Five names sit in both tables or twice in one, so a name alone can be ambiguous. The
+   k-th entry carrying a name, counted from 1 in table order, is selected as `name#k`;
+   a bare name is `name#1`. */
+static int name_count(const entry_t *entries, unsigned num, const char *name) {
+    int n = 0;
+
+    for (unsigned i = 0; i < num; i++)
+        if (strcmp(entries[i].name, name) == 0)
+            n++;
+    return n;
+}
+
+/* NULL when nothing matches; *matches says how many entries carry the name, or -1 when
+   the #k suffix itself was malformed and parse_arg has already said so. */
+static const entry_t *find_entry(const entry_t *entries, unsigned num, const char *spec,
+                                 int *matches) {
+    const char *hash = strchr(spec, '#');
+    size_t      len  = hash ? (size_t)(hash - spec) : strlen(spec);
+    long        want = 1;
+
+    *matches = -1;
+    if (hash && parse_arg("shortreport", "entry", hash + 1, 1, LONG_MAX, &want))
+        return NULL;
+
+    *matches = 0;
+    const entry_t *found = NULL;
+    for (unsigned i = 0; i < num; i++) {
+        if (strncmp(entries[i].name, spec, len) != 0 || entries[i].name[len] != '\0')
+            continue;
+        if (++*matches == want)
+            found = &entries[i];
+    }
+    return found;
+}
+
+/* The form of an entry's name that selects exactly it on the command line. */
+static void print_entry_name(const entry_t *entries, unsigned num, const entry_t *e) {
+    if (name_count(entries, num, e->name) == 1) {
+        printf("%s", e->name);
+        return;
+    }
+
+    int k = 0;
+    for (const entry_t *p = entries; p <= e; p++)
+        if (strcmp(p->name, e->name) == 0)
+            k++;
+    printf("%s#%d", e->name, k);
+}
+
 static unsigned build_entries(entry_t *out, unsigned cap) {
     unsigned n = 0;
 
@@ -161,50 +208,54 @@ int main(int argc, char **argv) {
 
     /* single case, in process, so the ASan report lands on the terminal */
     if (argc == 4) {
-        const entry_t *e = NULL;
-        for (unsigned i = 0; i < num; i++)
-            if (strcmp(entries[i].name, argv[1]) == 0) {
-                e = &entries[i];
-                break;
-            }
+        int            matches;
+        const entry_t *e = find_entry(entries, num, argv[1], &matches);
         if (!e) {
-            fprintf(stderr, "shortreport: no device named '%s' has decode cases\n", argv[1]);
+            if (matches == 0)
+                fprintf(stderr, "shortreport: no device named '%s' has decode cases\n", argv[1]);
+            else if (matches > 0)
+                fprintf(stderr, "shortreport: '%s' names %d entries; pick one with #1..#%d\n",
+                        argv[1], matches, matches);
             return 2;
         }
 
-        int idx = atoi(argv[2]);
-        if (idx < 0 || (unsigned)idx >= e->count) {
-            fprintf(stderr, "shortreport: case must be 0..%u for %s\n", e->count - 1, e->name);
+        long idx;
+        if (parse_arg("shortreport", "case", argv[2], 0, (long)e->count - 1, &idx))
             return 2;
-        }
 
         int full = case_len(e, (unsigned)idx);
-        int n    = atoi(argv[3]);
-        if (n < e->min_len || n > full) {
-            fprintf(stderr, "shortreport: length must be %d..%d for that case\n", e->min_len, full);
+        if (full < 0 || full > case_cap(e)) {
+            fprintf(stderr,
+                    "shortreport: case %ld of %s has len %d, past its report[%d] - fix the case\n",
+                    idx, e->name, full, case_cap(e));
             return 2;
         }
 
-        printf("%s case %d (%s): first %d of %d report bytes\n", e->name, idx,
+        long n;
+        if (parse_arg("shortreport", "length", argv[3], e->min_len, full, &n))
+            return 2;
+
+        printf("%s case %ld (%s): first %ld of %d report bytes\n", e->name, idx,
                case_what(e, (unsigned)idx), n, full);
-        decode_prefix(e->path, e->dev, (unsigned)idx, n);
+        decode_prefix(e->path, e->dev, (unsigned)idx, (int)n);
         printf("clean\n");
         return 0;
     }
 
     if (argc != 1) {
-        fprintf(stderr, "usage: shortreport [<device> <case> <len>]\n");
+        fprintf(stderr, "usage: shortreport [<device>[#k] <case> <len>]\n");
         return 2;
     }
 
-    printf("  %-24s %6s %8s %10s   %s\n", "DEVICE", "path", "lengths", "failures",
+    printf("  %-27s %6s %8s %10s   %s\n", "DEVICE", "path", "lengths", "failures",
            "first failing case, length");
     printf("  ");
-    for (int i = 0; i < 78; i++)
+    for (int i = 0; i < 81; i++)
         printf("-");
     printf("\n");
 
     long           total = 0, total_bad = 0;
+    int            bad_cases = 0;
     const entry_t *worst = NULL;
     unsigned       worst_case = 0;
     int            worst_len = 0;
@@ -216,6 +267,13 @@ int main(int argc, char **argv) {
 
         for (unsigned c = 0; c < e->count; c++) {
             int full = case_len(e, c);
+
+            if (full < 0 || full > case_cap(e)) {
+                printf("  %-27s %6s   case %u: len %d past its report[%d] - fix the case\n",
+                       e->name, e->path == PATH_MOUSE ? "mouse" : "kbd", c, full, case_cap(e));
+                bad_cases++;
+                continue;
+            }
 
             for (int n = e->min_len; n <= full; n++) {
                 tried++;
@@ -237,10 +295,10 @@ int main(int argc, char **argv) {
         }
 
         if (first_case >= 0)
-            printf("  %-24s %6s %8ld %10ld   case %d at %d bytes\n", e->name,
+            printf("  %-27s %6s %8ld %10ld   case %d at %d bytes\n", e->name,
                    e->path == PATH_MOUSE ? "mouse" : "kbd", tried, bad, first_case, first_len);
         else
-            printf("  %-24s %6s %8ld %10s   -\n", e->name,
+            printf("  %-27s %6s %8ld %10s   -\n", e->name,
                    e->path == PATH_MOUSE ? "mouse" : "kbd", tried, "0");
     }
 
@@ -248,15 +306,22 @@ int main(int argc, char **argv) {
 
     int rc = 0;
     if (worst) {
-        printf("\n  reproducing the first failure: %s case %u at %d bytes\n\n", worst->name,
-               worst_case, worst_len);
+        printf("\n  reproducing the first failure: ");
+        print_entry_name(entries, num, worst);
+        printf(" case %u at %d bytes\n\n", worst_case, worst_len);
         fflush(stdout);
         run_isolated(worst->path, worst->dev, worst_case, worst_len, 0);
-        printf("\n  repeat it directly with: ./shortreport %s %u %d\n", worst->name, worst_case,
-               worst_len);
+        printf("\n  repeat it directly with: ./shortreport ");
+        print_entry_name(entries, num, worst);
+        printf(" %u %d\n", worst_case, worst_len);
         rc = 1;
     } else {
         printf("  every truncated report decoded without reading outside the buffer\n");
+    }
+
+    if (bad_cases) {
+        printf("\n  %d case(s) were not replayed: fix them in the case tables\n", bad_cases);
+        rc = 2;
     }
 
     /* Both tables' gates, since this binary replays both; the denominator above is

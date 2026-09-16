@@ -53,8 +53,8 @@ typedef struct {
     uint8_t     report[REPORT_MAX];
     int         len;
     uint8_t     modifier;
-    uint8_t     keys[6];       /* expected on main before #359 */
-    uint8_t     keys_fixed[6]; /* expected once every NKRO block is kept */
+    uint8_t     keys[KEYS_IN_USB_REPORT];       /* expected on main before #359 */
+    uint8_t     keys_fixed[KEYS_IN_USB_REPORT]; /* expected once every NKRO block is kept */
 
     /* A third state, for the devices whose answer moves again once an interface can
        hold more than one keyboard_t. MAX_NKRO_BLOCKS stopped separating the trees on
@@ -62,14 +62,14 @@ typedef struct {
        without the multi-keyboard fix. Opt in per case, because an omitted array would
        otherwise read as "expects no keys" rather than "no third answer". */
     bool        has_multi;
-    uint8_t     keys_multi[6];
+    uint8_t     keys_multi[KEYS_IN_USB_REPORT];
 
     /* A fourth, for the collections whose bitmap is only kept once a usage range wider
        than its block is accepted. Independent of has_multi: a device can need one, the
        other, both or neither, and the Keychron's NKRO collection parsed on its own needs
        only this one, because there is nothing there for a second keyboard_t to hold. */
     bool        has_wide;
-    uint8_t     keys_wide[6];
+    uint8_t     keys_wide[KEYS_IN_USB_REPORT];
 } kbd_case_t;
 
 typedef struct {

@@ -29,6 +29,7 @@
  */
 #include "main.h"
 #include "dispatch.h"
+#include "support.h"
 
 /* Routing comes from src/dispatch.h, shared with dispatchtest, so the two cannot
    disagree about what usb.c does. Here it stays display only - printed in each
@@ -71,10 +72,10 @@ static int run_device(const mouse_device_t *dev) {
                dispatch(&iface, HID_ITF_PROTOCOL_NONE, dev->cases[0].report));
     }
 
-    printf("  %-26s %-24s %6s %6s %6s %6s %4s\n", "movement", "raw report", "X", "Y", "wheel",
+    printf("  %-34s %-24s %6s %6s %6s %6s %4s\n", "movement", "raw report", "X", "Y", "wheel",
            "pan", "btn");
     printf("  ");
-    for (int i = 0; i < 91; i++)
+    for (int i = 0; i < 99; i++)
         printf("-");
     printf("\n");
 
@@ -82,13 +83,13 @@ static int run_device(const mouse_device_t *dev) {
     for (unsigned i = 0; i < dev->count; i++) {
         const mouse_case_t  *c = &dev->cases[i];
         mouse_values_t v = {0};
-        char           hex[3 * sizeof(c->report) + 1];
+        char           hex[3 * sizeof(c->report) + 1] = "";
         int            n = 0;
 
         /* A len past the end of the array would overread the struct here and
            overflow hex[] below, in the one file whose job is catching that. */
         if (c->len < 0 || (size_t)c->len > sizeof(c->report)) {
-            printf("  %-26s len %d exceeds report[%zu] - fix the case\n", c->what, c->len,
+            printf("  %-34s len %d exceeds report[%zu] - fix the case\n", c->what, c->len,
                    sizeof(c->report));
             failures++;
             continue;
@@ -96,8 +97,7 @@ static int run_device(const mouse_device_t *dev) {
 
         /* exact-size allocation: an overread lands in ASan's redzone, not in the
            next case's bytes */
-        uint8_t *report = malloc(c->len);
-        memcpy(report, c->report, c->len);
+        uint8_t *report = dup_exact("mousetest", c->report, c->len);
 
         extract_report_values(report, c->len, &state, &v, &iface);
 
@@ -111,7 +111,7 @@ static int run_device(const mouse_device_t *dev) {
         if (!ok)
             failures++;
 
-        printf("  %-26s %-24s %6d %6d %6d %6d %4d   %s\n", c->what, hex, v.move_x, v.move_y,
+        printf("  %-34s %-24s %6d %6d %6d %6d %4d   %s\n", c->what, hex, v.move_x, v.move_y,
                v.wheel, v.pan, v.buttons, ok ? "ok" : "MISMATCH");
     }
 
@@ -188,8 +188,7 @@ static int run_button_fallback(void) {
         state.mouse_buttons = c->union_;
 
         /* exact-size allocation, as above */
-        uint8_t *report = malloc(c->len);
-        memcpy(report, c->report, c->len);
+        uint8_t *report = dup_exact("mousetest", c->report, c->len);
         extract_report_values(report, c->len, &state, &v, &iface);
         free(report);
 

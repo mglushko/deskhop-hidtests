@@ -18,17 +18,13 @@
  */
 #include "main.h"
 #include "descriptors.h"
-
-#include <fcntl.h>
-#include <sys/wait.h>
-#include <unistd.h>
+#include "support.h"
 
 static void parse_prefix(const descriptor_t *d, int n) {
     static hid_interface_t iface;
 
     /* exact size: a static buffer would leave the overread inside valid memory */
-    uint8_t *buf = malloc((size_t)n);
-    memcpy(buf, d->bytes, (size_t)n);
+    uint8_t *buf = dup_exact("truncate", d->bytes, n);
 
     memset(&iface, 0, sizeof(iface));
     iface.protocol = HID_PROTOCOL_REPORT;
@@ -38,29 +34,20 @@ static void parse_prefix(const descriptor_t *d, int n) {
     free(buf);
 }
 
+typedef struct {
+    const descriptor_t *d;
+    int                 n;
+} prefix_job_t;
+
+static void parse_prefix_job(const void *arg) {
+    const prefix_job_t *job = arg;
+    parse_prefix(job->d, job->n);
+}
+
 /* Returns 0 if the child came back clean, otherwise its exit status. */
 static int run_isolated(const descriptor_t *d, int n, int quiet) {
-    fflush(stdout);
-
-    pid_t pid = fork();
-    if (pid == 0) {
-        if (quiet) {
-            int null = open("/dev/null", O_WRONLY);
-            if (null >= 0) {
-                dup2(null, 2);
-                dup2(null, 1);
-            }
-        }
-        parse_prefix(d, n);
-        _exit(0);
-    }
-
-    int status = 0;
-    waitpid(pid, &status, 0);
-
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
-        return 0;
-    return WIFSIGNALED(status) ? 128 + WTERMSIG(status) : WEXITSTATUS(status);
+    prefix_job_t job = {d, n};
+    return run_forked("truncate", parse_prefix_job, &job, quiet);
 }
 
 int main(int argc, char **argv) {
@@ -71,20 +58,23 @@ int main(int argc, char **argv) {
             fprintf(stderr, "truncate: no descriptor named '%s'\n", argv[1]);
             return 2;
         }
-        int n = atoi(argv[2]);
-        if (n < 1 || n > d->len) {
-            fprintf(stderr, "truncate: length must be 1..%d\n", d->len);
+        long n;
+        if (parse_arg("truncate", "length", argv[2], 1, d->len, &n))
             return 2;
-        }
-        printf("parsing first %d of %d bytes of %s\n", n, d->len, d->name);
-        parse_prefix(d, n);
+        printf("parsing first %ld of %d bytes of %s\n", n, d->len, d->name);
+        parse_prefix(d, (int)n);
         printf("clean\n");
         return 0;
     }
 
-    printf("  %-22s %8s %10s   %s\n", "DESCRIPTOR", "lengths", "failures", "first failing length");
+    if (argc != 1) {
+        fprintf(stderr, "usage: truncate [<descriptor> <length>]\n");
+        return 2;
+    }
+
+    printf("  %-27s %8s %10s   %s\n", "DESCRIPTOR", "lengths", "failures", "first failing length");
     printf("  ");
-    for (int i = 0; i < 68; i++)
+    for (int i = 0; i < 73; i++)
         printf("-");
     printf("\n");
 
@@ -112,9 +102,9 @@ int main(int argc, char **argv) {
         }
 
         if (first_bad >= 0)
-            printf("  %-22s %8d %10d   %d\n", d->name, d->len, bad, first_bad);
+            printf("  %-27s %8d %10d   %d\n", d->name, d->len, bad, first_bad);
         else
-            printf("  %-22s %8d %10s   -\n", d->name, d->len, "0");
+            printf("  %-27s %8d %10s   -\n", d->name, d->len, "0");
     }
 
     printf("\n  %ld of %ld truncations failed\n", total_bad, total);

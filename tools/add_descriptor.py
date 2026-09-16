@@ -305,12 +305,24 @@ def main():
 
     if sys.argv[1] == "--selftest":
         return selftest()
+    if sys.argv[1].startswith("-"):
+        raise SystemExit(__doc__)
 
     name = sys.argv[1]
+    if not re.fullmatch(r"[A-Za-z_]\w*", name):
+        print("add_descriptor.py: '%s' is not a C identifier, and d_%s would not compile"
+              % (name, name), file=sys.stderr)
+        return 2
+
     text = open(sys.argv[2]).read() if len(sys.argv) > 2 else sys.stdin.read()
 
     notes = []
     b = parse_hex(text, notes)
+    if not b:
+        for note in notes:
+            print("WARNING: %s" % note, file=sys.stderr)
+        print("add_descriptor.py: no hex bytes found, nothing to add", file=sys.stderr)
+        return 1
     notes += sanity(b)
 
     dup = duplicate_of(b, existing())
@@ -338,7 +350,7 @@ def main():
 
     for note in notes:
         print("WARNING: %s" % note, file=sys.stderr)
-    return 1 if any("no hex" in n for n in notes) else 0
+    return 0
 
 
 if __name__ == "__main__":

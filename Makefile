@@ -261,24 +261,24 @@ $(GEN)/hid_parser_instr.c: $(PARSER) tools/instrument.py | $(GEN)
 $(OUT)/dump: src/dump.c src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(NKRO_BITS_FIELDS) -o $@ src/dump.c $(CORE)
 
-$(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/kept_out.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
+$(OUT)/mousetest: src/mousetest.c src/support.h src/cases_mouse.h src/kept_out.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
 
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries
-$(OUT)/kbdtest: src/kbdtest.c src/cases_kbd.h src/kept_out.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
+$(OUT)/kbdtest: src/kbdtest.c src/support.h src/cases_kbd.h src/kept_out.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_MULTI) $(KBD_BOUNDED) $(KBD_WIDE) $(KBD_OTHER_BOUNDED) $(NKRO_BITS_FIELDS) -o $@ src/kbdtest.c $(CORE)
 
 $(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/exhaust.c $(CORE)
 
-$(OUT)/truncate: src/truncate.c descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
+$(OUT)/truncate: src/truncate.c src/support.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/truncate.c $(CORE)
 
 # The one target that does NOT link src/stubs.c's consumer and system stubs:
 # -DHARNESS_LIFT_CC keeps them out, and $(GEN)/lifted_cc.c supplies the real bodies
 # from the branch under test. src/recorders.c supplies what those bodies reach for.
-$(OUT)/cctest: src/cctest.c src/cases_cc.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) \
+$(OUT)/cctest: src/cctest.c src/support.h src/cases_cc.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) \
                $(GEN)/lifted_cc.c src/recorders.c | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -DHARNESS_LIFT_CC -o $@ src/cctest.c \
 	    $(GEN)/lifted_cc.c src/recorders.c $(CORE)
@@ -298,7 +298,7 @@ $(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h src/handlers.h descriptor
 # it the 8BitDo would be in one binary and not the other, which is a confusing thing to
 # debug later; the coverage it would add here on an unbounded tree is the same overread
 # truncate already counts.
-$(OUT)/shortreport: src/shortreport.c src/cases_mouse.h src/cases_kbd.h src/kept_out.h descriptors.h $(HDRS) $(DEPS) \
+$(OUT)/shortreport: src/shortreport.c src/support.h src/cases_mouse.h src/cases_kbd.h src/kept_out.h descriptors.h $(HDRS) $(DEPS) \
                     $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_BOUNDED) $(KBD_OTHER_BOUNDED) $(NKRO_BITS_FIELDS) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/shortreport.c \
 	    $(GEN)/lifted_mouse.c $(CORE)
@@ -308,7 +308,7 @@ $(OUT)/shortreport: src/shortreport.c src/cases_mouse.h src/cases_kbd.h src/kept
 $(OUT)/timing: src/timing.c $(HDRS) $(DEPS) $(CORE) | $(GEN)
 	$(CC) -O2 $(WARN) $(INCS) $(HANDLER_LOOKUP) $(HANDLER_MAP) -o $@ src/timing.c $(CORE)
 
-$(OUT)/fuzz: src/fuzz.c $(HDRS) $(DEPS) $(GEN)/hid_parser_instr.c $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c | $(GEN)
+$(OUT)/fuzz: src/fuzz.c src/support.h $(HDRS) $(DEPS) $(GEN)/hid_parser_instr.c $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c | $(GEN)
 	$(CC) $(CFLAGS) $(INCS) -o $@ src/fuzz.c $(GEN)/hid_parser_instr.c $(REPORT) \
 	    src/stubs.c $(GEN)/lifted_kbd.c
 

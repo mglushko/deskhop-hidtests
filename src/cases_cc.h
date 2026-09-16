@@ -9,8 +9,8 @@
  * #358 adds no macro, so unlike cases_kbd.h there is nothing to #ifdef on. Each
  * case therefore carries BOTH answers - what pre-#358 main produces and what #358
  * produces - and src/cctest.c reports which one the branch under test matched, failing
- * only if it matches neither. The verdict line at the end of a run says "behaves like main"
- * or "behaves like #358", which is the question compare answers wrongly.
+ * only if it matches neither. The verdict line at the end of a run says "behaves like
+ * pre-#358 main" or "behaves like #358", which is the question compare answers wrongly.
  *
  * Every cc_array value below was read out of `make dump D=<device>`, not derived by
  * hand. That column of dump's output only became visible as part of this work - it
@@ -37,6 +37,12 @@ typedef struct {
     bool    sent_fixed;
     uint8_t want_fixed[4];
 } cc_case_t;
+
+/* cctest compares payload_len() bytes out of those arrays. A tree that widened either
+   constant would turn every comparison into a read past the case rather than a compile
+   error, so say it here. */
+_Static_assert(CONSUMER_CONTROL_LENGTH <= 4 && SYSTEM_CONTROL_LENGTH <= 4,
+               "want_main and want_fixed hold four bytes");
 
 typedef struct {
     const char     *name;

@@ -142,8 +142,14 @@ def main():
 
     harness_path, tusb_path, sources = sys.argv[1], sys.argv[2], sys.argv[3:]
 
-    harness, harness_unresolved = parse(open(harness_path).read())
-    tusb, tusb_unresolved = parse(open(tusb_path).read())
+    def read_or_die(path):
+        try:
+            return open(path).read()
+        except OSError as e:
+            raise SystemExit("check_constants.py: cannot read %s (%s)" % (path, e.strerror))
+
+    harness, harness_unresolved = parse(read_or_die(harness_path))
+    tusb, tusb_unresolved = parse(read_or_die(tusb_path))
 
     used, unreadable = set(), []
     for path in sources:

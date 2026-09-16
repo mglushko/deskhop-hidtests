@@ -12,9 +12,7 @@
  * fuzzer, it is trying to hit the usage array hard.
  */
 #include "main.h"
-
-#include <errno.h>
-#include <limits.h>
+#include "support.h"
 
 static long touches, out_of_bounds, highest, lowest;
 static int  this_descriptor_went_out;
@@ -23,7 +21,7 @@ void dbg_touch(parser_state_t *parser, long abs_idx) {
     (void)parser;
 
     touches++;
-    if (abs_idx > highest)
+    if (touches == 1 || abs_idx > highest)
         highest = abs_idx;
     if (touches == 1 || abs_idx < lowest)
         lowest = abs_idx;
@@ -109,38 +107,20 @@ static int generate(uint8_t *d, int cap) {
     return n;
 }
 
-/* strtol, not atol: atol("abc") is 0 and indistinguishable from an explicit 0,
-   and both used to run zero descriptors and then report that every access stayed
-   in bounds. Returns 0 on success. */
-static int parse_arg(const char *s, const char *make_var, long lo, long hi, long *out) {
-    char *end;
-
-    errno = 0;
-    long v = strtol(s, &end, 0);
-
-    if (end == s || *end != '\0' || errno == ERANGE || v < lo || v > hi) {
-        fprintf(stderr, "fuzz: %s=%s is not a number in %ld..%ld\n", make_var, s, lo, hi);
-        return 1;
-    }
-
-    *out = v;
-    return 0;
-}
-
 int main(int argc, char **argv) {
     static hid_interface_t iface;
     uint8_t desc[8192];
 
     long count = 40000, seed = 1;
 
-    if (argc > 1 && parse_arg(argv[1], "N", 1, LONG_MAX, &count))
+    if (argc > 1 && parse_arg("fuzz", "N", argv[1], 1, LONG_MAX, &count))
         return 2;
 
     /* Seed 0 is the fixed point of xorshift: rnd() returns 0 for ever, generate()
        emits the same four-usage descriptor every time, and the run reports a clean
        pass on a parser that overflows to index 4564. Reject it rather than remap
        it, so `make fuzz SEED=0` cannot silently mean something else. */
-    if (argc > 2 && parse_arg(argv[2], "SEED", 1, UINT32_MAX, &seed))
+    if (argc > 2 && parse_arg("fuzz", "SEED", argv[2], 1, UINT32_MAX, &seed))
         return 2;
 
     rng_state = (uint32_t)seed;

@@ -42,7 +42,6 @@ typedef struct {
     uint8_t          itf_protocol;  /* what bInterfaceProtocol says */
     uint8_t          protocol;      /* iface->protocol: REPORT or BOOT */
     uint8_t          report[8];
-    int              len;
     process_report_f want;
     const char      *note;          /* set when a row passes for the wrong reason */
 } route_case_t;
@@ -55,62 +54,62 @@ typedef struct {
 #define D(x) d_##x, (int)sizeof(d_##x)
 
 static const route_case_t cases[] = {
-{"BOOTSEL rig, sleep on report ID 3",  D(sleepwake_emu),        NON, R, {0x03,0x82}, 2,
+{"BOOTSEL rig, sleep on report ID 3",  D(sleepwake_emu),        NON, R, {0x03,0x82},
                                        process_system_report, NULL},
-{"BOOTSEL rig, wake on report ID 3",   D(sleepwake_emu),        NON, R, {0x03,0x83}, 2,
+{"BOOTSEL rig, wake on report ID 3",   D(sleepwake_emu),        NON, R, {0x03,0x83},
                                        process_system_report, NULL},
-{"BOOTSEL rig, release on ID 3",       D(sleepwake_emu),        NON, R, {0x03,0x00}, 2,
+{"BOOTSEL rig, release on ID 3",       D(sleepwake_emu),        NON, R, {0x03,0x00},
                                        process_system_report, NULL},
 /* ---- report protocol: the control group, all of this must keep working ------ */
-{"boot_keyboard, no report ID",        D(boot_keyboard),        KBD, R, {0x00,0x00,0x04}, 8,
+{"boot_keyboard, no report ID",        D(boot_keyboard),        KBD, R, {0x00,0x00,0x04},
                                        process_keyboard_report, NULL},
-{"nkro_keyboard on report ID 1",       D(nkro_keyboard),        KBD, R, {0x01,0x00,0x10}, 32,
+{"nkro_keyboard on report ID 1",       D(nkro_keyboard),        KBD, R, {0x01,0x00,0x10},
                                        process_keyboard_report, NULL},
-{"superlight2 rx on report ID 1",      D(superlight2_rx_keyboard), KBD, R, {0x01,0x00,0x01}, 17,
+{"superlight2 rx on report ID 1",      D(superlight2_rx_keyboard), KBD, R, {0x01,0x00,0x01},
                                        process_keyboard_report, NULL},
-{"gameball trackball, no report ID",   D(gameball_trackball),   MSE, R, {0x00,0x14,0x00}, 5,
+{"gameball trackball, no report ID",   D(gameball_trackball),   MSE, R, {0x00,0x14,0x00},
                                        process_mouse_report, NULL},
-{"hires_mouse on report ID 1",         D(hires_mouse),          MSE, R, {0x01,0x00,0x00}, 8,
+{"hires_mouse on report ID 1",         D(hires_mouse),          MSE, R, {0x01,0x00,0x00},
                                        process_mouse_report, NULL},
-{"bolt iface1, mouse on ID 2",         D(bolt_rx_iface1),       NON, R, {0x02,0x00,0x00}, 9,
+{"bolt iface1, mouse on ID 2",         D(bolt_rx_iface1),       NON, R, {0x02,0x00,0x00},
                                        process_mouse_report, NULL},
-{"bolt iface1, consumer on ID 3",      D(bolt_rx_iface1),       NON, R, {0x03,0xE9,0x00}, 5,
+{"bolt iface1, consumer on ID 3",      D(bolt_rx_iface1),       NON, R, {0x03,0xE9,0x00},
                                        process_consumer_report, NULL},
-{"bolt iface1, system on ID 4",        D(bolt_rx_iface1),       NON, R, {0x04,0x01}, 2,
+{"bolt iface1, system on ID 4",        D(bolt_rx_iface1),       NON, R, {0x04,0x01},
                                        process_system_report, NULL},
-{"KC6000 consumer, no report ID",      D(cherry_kc6000_consumer), NON, R, {0x01,0x00}, 2,
+{"KC6000 consumer, no report ID",      D(cherry_kc6000_consumer), NON, R, {0x01,0x00},
                                        process_consumer_report, NULL},
 
 /* ---- boot protocol: the device sends [modifier][reserved][6 keys], no ID ----- */
-{"boot_keyboard in boot protocol",     D(boot_keyboard),        KBD, B, {0x00,0x00,0x04}, 8,
+{"boot_keyboard in boot protocol",     D(boot_keyboard),        KBD, B, {0x00,0x00,0x04},
                                        process_keyboard_report,
                                        "descriptor declares no report ID, so the else-if branch runs"},
 
 /* the same three real devices, now in boot protocol. report[0] is the modifier. */
-{"gameball kbd, boot, no modifier",    D(gameball_keyboard),    KBD, B, {0x00,0x00,0x04}, 8,
+{"gameball kbd, boot, no modifier",    D(gameball_keyboard),    KBD, B, {0x00,0x00,0x04},
                                        process_keyboard_report, NULL},
-{"nkro_keyboard, boot, no modifier",   D(nkro_keyboard),        KBD, B, {0x00,0x00,0x04}, 8,
+{"nkro_keyboard, boot, no modifier",   D(nkro_keyboard),        KBD, B, {0x00,0x00,0x04},
                                        process_keyboard_report, NULL},
-{"nkro_keyboard, boot, Left Ctrl",     D(nkro_keyboard),        KBD, B, {0x01,0x00,0x04}, 8,
+{"nkro_keyboard, boot, Left Ctrl",     D(nkro_keyboard),        KBD, B, {0x01,0x00,0x04},
                                        process_keyboard_report,
                                        "arrives only because modifier 0x01 equals a bound report ID"},
-{"ultralink kbd, boot, no modifier",   D(ultralink_keyboard),   KBD, B, {0x00,0x00,0x04}, 8,
+{"ultralink kbd, boot, no modifier",   D(ultralink_keyboard),   KBD, B, {0x00,0x00,0x04},
                                        process_keyboard_report, NULL},
-{"ultralink kbd, boot, Ctrl+Shift+Alt",D(ultralink_keyboard),   KBD, B, {0x07,0x00,0x04}, 8,
+{"ultralink kbd, boot, Ctrl+Shift+Alt",D(ultralink_keyboard),   KBD, B, {0x07,0x00,0x04},
                                        process_keyboard_report,
                                        "arrives only because modifier 0x07 equals its report ID"},
-{"superlight2 rx, boot, no modifier",  D(superlight2_rx_keyboard), KBD, B, {0x00,0x00,0x04}, 8,
+{"superlight2 rx, boot, no modifier",  D(superlight2_rx_keyboard), KBD, B, {0x00,0x00,0x04},
                                        process_keyboard_report, NULL},
-{"superlight2 rx, boot, Ctrl+Shift",   D(superlight2_rx_keyboard), KBD, B, {0x03,0x00,0x04}, 8,
+{"superlight2 rx, boot, Ctrl+Shift",   D(superlight2_rx_keyboard), KBD, B, {0x03,0x00,0x04},
                                        process_keyboard_report, NULL},
-{"superlight2 rx, boot, Alt",          D(superlight2_rx_keyboard), KBD, B, {0x04,0x00,0x04}, 8,
+{"superlight2 rx, boot, Alt",          D(superlight2_rx_keyboard), KBD, B, {0x04,0x00,0x04},
                                        process_keyboard_report, NULL},
 
 /* the same mistake on the mouse side, where report[0] is the button byte. Reached
    through force_mouse_boot_mode rather than force_kbd_boot_protocol. */
-{"hires_mouse, boot, no button",       D(hires_mouse),          MSE, B, {0x00,0x0A,0x00}, 5,
+{"hires_mouse, boot, no button",       D(hires_mouse),          MSE, B, {0x00,0x0A,0x00},
                                        process_mouse_report, NULL},
-{"hires_mouse, boot, button 1",        D(hires_mouse),          MSE, B, {0x01,0x0A,0x00}, 5,
+{"hires_mouse, boot, button 1",        D(hires_mouse),          MSE, B, {0x01,0x0A,0x00},
                                        process_mouse_report,
                                        "arrives only because button 1 sets bit 0, matching report ID 1"},
 
@@ -118,9 +117,9 @@ static const route_case_t cases[] = {
    Class_03 SubClass_01 Prot_02 - a boot-capable mouse - so force_mouse_boot_mode
    (config field 71) reaches it on real hardware. Its mouse sits on report ID 1, so
    in boot protocol the pointer is dead unless the left button is held. */
-{"ultralink mouse, boot, no button",   D(ultralink_mouse),      MSE, B, {0x00,0x14,0x00}, 4,
+{"ultralink mouse, boot, no button",   D(ultralink_mouse),      MSE, B, {0x00,0x14,0x00},
                                        process_mouse_report, NULL},
-{"ultralink mouse, boot, left held",   D(ultralink_mouse),      MSE, B, {0x01,0x14,0x00}, 4,
+{"ultralink mouse, boot, left held",   D(ultralink_mouse),      MSE, B, {0x01,0x14,0x00},
                                        process_mouse_report,
                                        "arrives only because the left button sets bit 0, matching report ID 1"},
 
@@ -130,36 +129,36 @@ static const route_case_t cases[] = {
    by the ID itself, so no receiver was ever bound and the report was dropped whichever
    bInterfaceProtocol the interface carried. The keyboard and the consumer/system
    interfaces of the same receiver use IDs 0, 7 and 3 and route normally. */
-{"sculpt rx mouse on ID 0x1A, itf mouse", D(sculpt_rx_mouse),   MSE, R, {0x1A,0x00,0x01,0x00}, 10,
+{"sculpt rx mouse on ID 0x1A, itf mouse", D(sculpt_rx_mouse),   MSE, R, {0x1A,0x00,0x01,0x00},
                                        process_mouse_report, NULL},
-{"sculpt rx mouse on ID 0x1A, itf none",  D(sculpt_rx_mouse),   NON, R, {0x1A,0x00,0x01,0x00}, 10,
+{"sculpt rx mouse on ID 0x1A, itf none",  D(sculpt_rx_mouse),   NON, R, {0x1A,0x00,0x01,0x00},
                                        process_mouse_report, NULL},
-{"sculpt rx keyboard, no report ID",   D(sculpt_rx_keyboard),   KBD, R, {0x00,0x00,0x04}, 8,
+{"sculpt rx keyboard, no report ID",   D(sculpt_rx_keyboard),   KBD, R, {0x00,0x00,0x04},
                                        process_keyboard_report, NULL},
-{"sculpt rx consumer on ID 7",         D(sculpt_rx_consumer),   NON, R, {0x07,0xE9,0x00}, 8,
+{"sculpt rx consumer on ID 7",         D(sculpt_rx_consumer),   NON, R, {0x07,0xE9,0x00},
                                        process_consumer_report, NULL},
-{"sculpt rx system on ID 3",           D(sculpt_rx_consumer),   NON, R, {0x03,0x82}, 2,
+{"sculpt rx system on ID 3",           D(sculpt_rx_consumer),   NON, R, {0x03,0x82},
                                        process_system_report, NULL},
 
 /* The same receiver after force_mouse_boot_mode: the wire now carries [buttons][x][y]
    with no ID, so report[0] is the button byte. On a tree that reads it as a report
    ID anyway, no button means slot 0 and the left button means slot 1, neither bound;
    on a tree that routes boot protocol by the interface the pointer arrives. */
-{"sculpt rx mouse, boot, no button",   D(sculpt_rx_mouse),      MSE, B, {0x00,0x01,0x00}, 3,
+{"sculpt rx mouse, boot, no button",   D(sculpt_rx_mouse),      MSE, B, {0x00,0x01,0x00},
                                        process_mouse_report, NULL},
-{"sculpt rx mouse, boot, left held",   D(sculpt_rx_mouse),      MSE, B, {0x01,0x01,0x00}, 3,
+{"sculpt rx mouse, boot, left held",   D(sculpt_rx_mouse),      MSE, B, {0x01,0x01,0x00},
                                        process_mouse_report, NULL},
 
 /* Apple A2520 (issue #157): keys on report 1 route everywhere; media keys on 0x52, which
    is 82, only on a table keyed by value; the 64-byte vendor report 0x3F and interface 0's
    battery report 0x90 must reach nobody, and do. */
-{"a2520 keys on report 1",             D(apple_a2520_iface1),   KBD, R, {0x01,0x00,0x00,0x14}, 10,
+{"a2520 keys on report 1",             D(apple_a2520_iface1),   KBD, R, {0x01,0x00,0x00,0x14},
                                        process_keyboard_report, NULL},
-{"a2520 media keys on report 0x52",    D(apple_a2520_iface1),   KBD, R, {0x52,0x01}, 2,
+{"a2520 media keys on report 0x52",    D(apple_a2520_iface1),   KBD, R, {0x52,0x01},
                                        process_consumer_report, NULL},
-{"a2520 vendor report 0x3F, dropped",  D(apple_a2520_iface1),   KBD, R, {0x3F,0x00}, 8,
+{"a2520 vendor report 0x3F, dropped",  D(apple_a2520_iface1),   KBD, R, {0x3F,0x00},
                                        NULL, NULL},
-{"a2520 iface0 battery 0x90, dropped", D(apple_a2520_iface0),   NON, R, {0x90,0x03,0x63}, 3,
+{"a2520 iface0 battery 0x90, dropped", D(apple_a2520_iface0),   NON, R, {0x90,0x03,0x63},
                                        NULL, NULL},
 };
 
@@ -245,13 +244,17 @@ int main(void) {
                "  change the modifier or the button held and they stop arriving\n", accidents);
 
     if (failures) {
-        printf("\n  %d MISROUTED. Two causes are known. A device in boot protocol sends no report\n",
+        printf("\n  %d MISROUTED. A device in boot protocol sends no report ID, but usb.c still\n",
                failures);
-        printf("  ID, but usb.c still reads report[0] as one, because iface->uses_report_id comes\n");
-        printf("  from the descriptor and is never revised; a keyboard's modifier byte and a\n");
-        printf("  mouse's button byte are looked up as report IDs. And a table indexed by the\n");
-        printf("  report ID never binds an ID of MAX_REPORTS or more, so those reports are\n");
-        printf("  dropped in report protocol as well.\n");
+        printf("  reads report[0] as one, because iface->uses_report_id comes from the\n");
+        printf("  descriptor and is never revised; a keyboard's modifier byte and a mouse's\n");
+        printf("  button byte are looked up as report IDs.\n");
+#if !defined(HARNESS_HANDLER_MAP) && !defined(HARNESS_HANDLER_LOOKUP)
+        /* Only where it is true: the map and the keyed lookup bind any 8-bit ID. */
+        printf("  This tree also indexes its handler table by the report ID with MAX_REPORTS\n");
+        printf("  slots, so an ID of 24 or more is never bound and its reports are dropped in\n");
+        printf("  report protocol as well.\n");
+#endif
         return 1;
     }
 

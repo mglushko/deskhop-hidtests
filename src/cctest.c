@@ -29,12 +29,13 @@
 #include "main.h"
 #include "cases_cc.h"
 #include "handlers.h"
+#include "support.h"
 
 typedef enum { R_MAIN, R_FIXED, R_AGREED, R_NEITHER } verdict_e;
 
 static const char *verdict_name(verdict_e v) {
     switch (v) {
-        case R_MAIN:   return "main";
+        case R_MAIN:   return "pre-#358";
         case R_FIXED:  return "#358";
         case R_AGREED: return "agreed";
         default:       return "NEITHER";
@@ -65,12 +66,7 @@ static sent_t run_once(const cc_device_t *dev, const cc_case_t *c, hid_interface
 
     harness_sent_reset();
 
-    uint8_t *report = malloc((size_t)c->len);
-    if (!report) {
-        fprintf(stderr, "cctest: out of memory\n");
-        exit(3);
-    }
-    memcpy(report, c->report, (size_t)c->len);
+    uint8_t *report = dup_exact("cctest", c->report, c->len);
 
     if (dev->path == CC_SYSTEM)
         process_system_report(report, c->len, 0, iface);
@@ -94,7 +90,10 @@ static void print_payload(const sent_t *s, int n) {
         printf(" ");
 }
 
-static int run_device(const cc_device_t *dev, verdict_e *seen) {
+/* Returns the number of cases that failed. A report ID not bound to the receiver under
+   test is counted through *routing_failures instead, so the per-device tally stays a
+   count of cases. */
+static int run_device(const cc_device_t *dev, int *seen, int *routing_failures) {
     static hid_interface_t iface;
 
     memset(&iface, 0, sizeof(iface));
@@ -104,7 +103,7 @@ static int run_device(const cc_device_t *dev, verdict_e *seen) {
     printf("%s (%d bytes)\n", dev->name, dev->desc_len);
     printf("  uses_report_id = %d, %s: rid=%u var=%d arr=%d\n", iface.uses_report_id,
            dev->path == CC_SYSTEM ? "system" : "consumer",
-           dev->path == CC_SYSTEM ? iface.system.report_id : iface.consumer.report_id,
+           (unsigned)(dev->path == CC_SYSTEM ? iface.system.report_id : iface.consumer.report_id),
            dev->path == CC_SYSTEM ? iface.system.is_variable : iface.consumer.is_variable,
            dev->path == CC_SYSTEM ? iface.system.is_array : iface.consumer.is_array);
 
@@ -120,7 +119,7 @@ static int run_device(const cc_device_t *dev, verdict_e *seen) {
         printf("  ROUTING: report %u is not bound to %s - reports would never arrive\n",
                dev->expect_report_id, dev->path == CC_SYSTEM ? "process_system_report"
                                                              : "process_consumer_report");
-        failures++;
+        (*routing_failures)++;
     } else {
         printf("  routing: report %u -> %s\n", dev->expect_report_id,
                dev->path == CC_SYSTEM ? "process_system_report" : "process_consumer_report");
@@ -181,7 +180,7 @@ static int run_device(const cc_device_t *dev, verdict_e *seen) {
         if (!ok) {
             printf("   MISMATCH\n");
             if (v == R_NEITHER) {
-                printf("%28swanted main ", "");
+                printf("%28swanted pre-#358 ", "");
                 if (!c->sent_main) printf("(nothing sent)");
                 else for (int b = 0; b < n; b++) printf("%02X ", c->want_main[b]);
                 printf(" or #358 ");
@@ -206,28 +205,31 @@ static int run_device(const cc_device_t *dev, verdict_e *seen) {
 }
 
 int main(void) {
-    int       failures = 0, total = 0;
-    verdict_e seen[R_NEITHER];
+    int failures = 0, routing = 0, total = 0;
+    int seen[R_NEITHER];
 
     memset(seen, 0, sizeof(seen));
 
     for (unsigned i = 0; i < ARRAY_SIZE(cc_devices); i++) {
-        failures += run_device(&cc_devices[i], seen);
+        failures += run_device(&cc_devices[i], seen, &routing);
         total += cc_devices[i].count;
     }
 
     printf("%d/%d cases across %u devices\n", total - failures, total,
            (unsigned)ARRAY_SIZE(cc_devices));
+    if (routing)
+        printf("  %d device(s) whose report ID is not bound to the receiver under test\n",
+               routing);
 
     /* The whole point of the target. Rows where the two branches agree say nothing
        about which one this is; only the separating rows do. */
-    printf("\n  separating rows: %d behave like main, %d like #358\n", seen[R_MAIN],
+    printf("\n  separating rows: %d behave like pre-#358 main, %d like #358\n", seen[R_MAIN],
            seen[R_FIXED]);
 
     if (failures)
         printf("  VERDICT: cannot classify - %d case(s) matched neither branch\n", failures);
     else if (seen[R_MAIN] && seen[R_FIXED])
-        printf("  VERDICT: INCONSISTENT - some rows behave like main, some like #358\n");
+        printf("  VERDICT: INCONSISTENT - some rows behave like pre-#358 main, some like #358\n");
     else if (seen[R_FIXED])
         printf("  VERDICT: this branch has the #358 fix\n");
     else if (seen[R_MAIN])
@@ -242,5 +244,5 @@ int main(void) {
     if (!failures && ((seen[R_MAIN] && seen[R_FIXED]) || (!seen[R_MAIN] && !seen[R_FIXED])))
         return 1;
 
-    return failures ? 1 : 0;
+    return (failures || routing) ? 1 : 0;
 }

@@ -135,4 +135,5 @@ def main():
     print("gen_desc.py: " + ", ".join(summary) + " bytes")
 
 
-main()
+if __name__ == "__main__":
+    main()

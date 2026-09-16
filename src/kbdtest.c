@@ -41,11 +41,12 @@
 #include "main.h"
 #include "cases_kbd.h"
 #include "handlers.h"
+#include "support.h"
 
 static void print_keys(const uint8_t *k) {
     int printed = 0;
 
-    for (int i = 0; i < 6; i++)
+    for (int i = 0; i < KEYS_IN_USB_REPORT; i++)
         if (k[i])
             printed += printf("%s%u", printed ? "," : "", k[i]);
 
@@ -57,7 +58,7 @@ static void print_keys(const uint8_t *k) {
         printf(" ");
 }
 
-
+#if ONE_KEYBOARD_PER_COLLECTION
 /* A corpus-wide structural check, rather than two devices with hand-written answers.
  *
  * On a tree that gives each collection its own keyboard_t, one property has to hold for
@@ -127,6 +128,7 @@ static int check_keyboard_slots(void) {
 
     return broken;
 }
+#endif
 
 static int run_device(const kbd_device_t *dev) {
     static hid_interface_t iface;
@@ -140,9 +142,9 @@ static int run_device(const kbd_device_t *dev) {
     printf("  num_keyboards = %u, uses_report_id = %d, is_nkro = %d\n\n",
            iface.num_keyboards, iface.uses_report_id, iface.keyboards[0].is_nkro);
 
-    printf("  %-32s %4s   %8s   %-17s %s\n", "keys held", "mod", "returned", "decoded", "");
+    printf("  %-47s %4s   %8s   %-17s %s\n", "keys held", "mod", "returned", "decoded", "");
     printf("  ");
-    for (int i = 0; i < 78; i++)
+    for (int i = 0; i < 93; i++)
         printf("-");
     printf("\n");
 
@@ -158,7 +160,7 @@ static int run_device(const kbd_device_t *dev) {
 
         /* a len past the end of the array would overread the struct below */
         if (c->len < 0 || (size_t)c->len > sizeof(c->report)) {
-            printf("  %-32s len %d exceeds report[%zu] - fix the case\n", c->what, c->len,
+            printf("  %-47s len %d exceeds report[%zu] - fix the case\n", c->what, c->len,
                    sizeof(c->report));
             failures++;
             continue;
@@ -166,35 +168,37 @@ static int run_device(const kbd_device_t *dev) {
 
         /* exact-size allocation: an overread lands in ASan's redzone rather than
            in the next case's bytes */
-        uint8_t *report = malloc(c->len);
-        memcpy(report, c->report, c->len);
+        uint8_t *report = dup_exact("kbdtest", c->report, c->len);
 
         memset(&out, 0, sizeof(out));
         int32_t ret = extract_kbd_data(report, c->len, 0, &iface, &out);
 
         free(report);
 
-        int ok = out.modifier == c->modifier && memcmp(out.keycode, want, 6) == 0;
+        int ok = out.modifier == c->modifier &&
+                 memcmp(out.keycode, want, KEYS_IN_USB_REPORT) == 0;
         if (!ok)
             failures++;
 
-        printf("  %-32s 0x%02X   %8d   ", c->what, out.modifier, ret);
+        printf("  %-47s 0x%02X   %8d   ", c->what, out.modifier, ret);
         print_keys(out.keycode);
 
         if (ok) {
-            /* flag the rows the multi-block fix is responsible for */
+            /* flag the rows a fix is responsible for, and only on a tree that has it */
             printf("ok%s\n", (ACCEPTS_WIDE_USAGE_RANGE && c->has_wide)
                                  ? "   <- wide usage range"
                              : (ONE_KEYBOARD_PER_COLLECTION && c->has_multi)
                                  ? "   <- multi-keyboard"
-                             : memcmp(c->keys, c->keys_fixed, 6) ? "   <- multi-block"
-                                                                 : "");
+                             : (KEEPS_EVERY_BLOCK &&
+                                memcmp(c->keys, c->keys_fixed, KEYS_IN_USB_REPORT))
+                                 ? "   <- multi-block"
+                                 : "");
         } else {
             printf("MISMATCH, wanted mod 0x%02X ", c->modifier);
             print_keys(want);
             /* the input matters more than the output when a case fails, and the
                NKRO reports are too long to work out from the case name */
-            printf("\n%38sfrom ", "");
+            printf("\n%53sfrom ", "");
             for (int b = 0; b < c->len; b++)
                 printf("%02X%s", c->report[b], b + 1 < c->len ? " " : "\n");
         }
@@ -210,7 +214,7 @@ int main(void) {
 
     printf("expectations: %s\n", KEEPS_EVERY_BLOCK
                ? "parser keeps every NKRO block (MAX_NKRO_BLOCKS defined)"
-               : "parser keeps one NKRO block (main)");
+               : "parser keeps one NKRO block (before #359)");
     printf("              %s\n", ONE_KEYBOARD_PER_COLLECTION
                ? "one keyboard_t per collection (get_or_add_keyboard present)"
                : "all collections on one interface share keyboard_t");
