@@ -230,5 +230,7 @@ int main(void) {
     failures += check_keyboard_slots();
 #endif
 
+    print_kept_out(kbd_kept_out, "");
+
     return failures ? 1 : 0;
 }

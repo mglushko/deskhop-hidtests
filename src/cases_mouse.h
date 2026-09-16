@@ -11,6 +11,7 @@
 #pragma once
 
 #include "descriptors.h"
+#include "kept_out.h"
 
 typedef struct {
     const char *what;
@@ -539,3 +540,14 @@ static const mouse_device_t mouse_devices[] = {
 };
 
 #undef DEV
+
+/* The closed form of each gate above, printed as the run's last line. */
+static const kept_out_t mouse_kept_out[] = {
+#ifndef HARNESS_FIELD_32
+    {"scimitar_iface0", "target cannot read a 32-bit field"},
+#endif
+#ifndef HARNESS_BOUNDED_USAGES
+    {"magic_trackpad_mouse", "target does not stop the usage cursor at the end of usages[]"},
+#endif
+    {NULL, NULL},
+};

@@ -223,5 +223,7 @@ int main(void) {
     printf("target has no per-interface mouse buttons, button fallback cases skipped\n");
 #endif
 
+    print_kept_out(mouse_kept_out, "");
+
     return failures ? 1 : 0;
 }

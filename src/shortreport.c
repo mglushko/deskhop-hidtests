@@ -246,6 +246,7 @@ int main(int argc, char **argv) {
 
     printf("\n  %ld of %ld truncated reports failed\n", total_bad, total);
 
+    int rc = 0;
     if (worst) {
         printf("\n  reproducing the first failure: %s case %u at %d bytes\n\n", worst->name,
                worst_case, worst_len);
@@ -253,9 +254,16 @@ int main(int argc, char **argv) {
         run_isolated(worst->path, worst->dev, worst_case, worst_len, 0);
         printf("\n  repeat it directly with: ./shortreport %s %u %d\n", worst->name, worst_case,
                worst_len);
-        return 1;
+        rc = 1;
+    } else {
+        printf("  every truncated report decoded without reading outside the buffer\n");
     }
 
-    printf("  every truncated report decoded without reading outside the buffer\n");
-    return 0;
+    /* Both tables' gates, since this binary replays both; the denominator above is
+       only as complete as these lines say. */
+    if (mouse_kept_out[0].device || kbd_kept_out[0].device)
+        printf("\n");
+    print_kept_out(mouse_kept_out, "  ");
+    print_kept_out(kbd_kept_out, "  ");
+    return rc;
 }

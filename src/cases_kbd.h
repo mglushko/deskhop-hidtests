@@ -15,6 +15,7 @@
 #pragma once
 
 #include "descriptors.h"
+#include "kept_out.h"
 
 /* Most cases have no third or fourth answer, so they stop at keys_fixed and leave the
    later columns off the end. That is the normal shape here, not an oversight: an omitted
@@ -599,5 +600,16 @@ static const kbd_device_t kbd_devices[] = {
 };
 
 #undef DEV
+
+/* The closed form of each gate above, printed as the run's last line. */
+static const kept_out_t kbd_kept_out[] = {
+#ifndef HARNESS_BOUNDED_BITMAP
+    {"bitdo_retro_iface2", "target does not bound the bitmap walk by the report length"},
+#endif
+#ifndef HARNESS_BOUNDED_KEY_ARRAY
+    {"areson_trackball", "target's key array loop does not stop at the bytes that arrived"},
+#endif
+    {NULL, NULL},
+};
 
 #pragma GCC diagnostic pop
