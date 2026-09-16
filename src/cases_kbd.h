@@ -72,6 +72,13 @@ typedef struct {
     uint8_t     keys_wide[KEYS_IN_USB_REPORT];
 } kbd_case_t;
 
+/* kbdtest compares KEYS_IN_USB_REPORT bytes of out.keycode, the TinyUSB struct copied
+   into include/harness.h with six slots. A target that widened the constant would read
+   past that struct rather than fail to compile, so say it here, as cases_cc.h does for
+   the control lengths. */
+_Static_assert(KEYS_IN_USB_REPORT == sizeof(((hid_keyboard_report_t *)0)->keycode),
+               "the keys_* arrays and hid_keyboard_report_t.keycode must be the same width");
+
 typedef struct {
     const char    *name;
     const uint8_t *desc;
@@ -205,11 +212,14 @@ static const kbd_case_t k_ultralink_kbd_cases[] = {
    on its own. The two entries exist side by side precisely so they can be compared, and
    once the collapse is fixed they agree.
 
-   The last row is report 0x11 on the same interface, and it is the only case here that
-   needs both fixes at once. Without the collapse fix it resolves to the report ID 7 slot;
-   with it, to a slot whose bitmap is still rejected for declaring 153 usages over 152
-   bits. Both give nothing, which is why keys, keys_fixed and keys_multi all say so and
-   only keys_wide carries the answer. */
+   The three report 0x11 rows are the NKRO collection on the same interface, and a
+   keycode comes out of them on the width arm alone: without it the bitmap is rejected
+   for declaring 153 usages over 152 bits, whether it landed in its own keyboard_t or in
+   the collapsed one, and with it the block decodes from whichever keyboard_t holds it.
+   So only keys_wide carries a keycode. The first two rows say nothing on every other
+   tree, and has_multi is left false because the collapse fix does not move them; the
+   Enter row is the exception, since the collapse alone turns its bit into ErrorRollOver
+   and the collapse fix takes that away again. */
 static const kbd_case_t k_ultralink_iface1_cases[] = {
     {"a",                       {0x07, 0x00, 0x04}, 8,              0x00, {0}, {0},
                                                                     true, {4}},
@@ -219,10 +229,10 @@ static const kbd_case_t k_ultralink_iface1_cases[] = {
                                                                     0x00, {5, 6, 7, 8, 9}, {5, 6, 7, 8, 9},
                                                                     true, {4, 5, 6, 7, 8, 9}},
     {"usage 4 (a), NKRO collection", {0x11, 0x00, 0x10}, 21,        0x00, {0}, {0},
-                                                                    true, {0}, true, {4}},
+                                                                    false, {0}, true, {4}},
     {"rig: ,./ on the NKRO collection", {0x11, 0x00, [8] = 0xC0, [9] = 0x01}, 21,
                                                                     0x00, {0}, {0},
-                                                                    true, {0}, true, {54, 55, 56}},
+                                                                    false, {0}, true, {54, 55, 56}},
     /* Enter is the one rig report whose bit lands inside the six bytes the collapsed
        key_array covers, so on a tree that collapses the two collections it comes back as
        ErrorRollOver rather than as nothing. In the fifth key slot, not the first: the
@@ -513,12 +523,12 @@ static const kbd_case_t k_keychron_dongle_cases[] = {
     {"k d f j, as typed",   {0x01, 0x00, 0x00, 0x0E, 0x07, 0x09, 0x0D, 0x00, 0x00, 0x00}, 10,
                                                                     0x00, {0x0E, 0x07, 0x09, 0x0D}, {0x0E, 0x07, 0x09, 0x0D}},
     {"usage 4 on the NKRO collection", {0x0C, 0x00, 0x10}, 21,      0x00, {0}, {0},
-                                                                    true, {0}, true, {4}},
+                                                                    false, {0}, true, {4}},
     {"shift + a on the NKRO collection", {0x0C, 0x02, 0x10}, 21,    0x02, {0}, {0},
-                                                                    true, {0}, true, {4}},
+                                                                    false, {0}, true, {4}},
     {"highest usage, 151, NKRO collection", {0x0C, 0x00, [20] = 0x80}, 21,
                                                                     0x00, {0}, {0},
-                                                                    true, {0}, true, {151}},
+                                                                    false, {0}, true, {151}},
 };
 
 /* The Areson trackball's keyboard collection, [#23]: no report ID of its own on an

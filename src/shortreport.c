@@ -158,7 +158,7 @@ static const entry_t *find_entry(const entry_t *entries, unsigned num, const cha
     long        want = 1;
 
     *matches = -1;
-    if (hash && parse_arg("shortreport", "entry", hash + 1, 1, LONG_MAX, &want))
+    if (hash && parse_arg("shortreport", "entry", hash + 1, 10, 1, LONG_MAX, &want))
         return NULL;
 
     *matches = 0;
@@ -218,7 +218,7 @@ int main(int argc, char **argv) {
         }
 
         long idx;
-        if (parse_arg("shortreport", "case", argv[2], 0, (long)e->count - 1, &idx))
+        if (parse_arg("shortreport", "case", argv[2], 10, 0, (long)e->count - 1, &idx))
             return 2;
 
         int full = case_len(e, (unsigned)idx);
@@ -230,7 +230,7 @@ int main(int argc, char **argv) {
         }
 
         long n;
-        if (parse_arg("shortreport", "length", argv[3], e->min_len, full, &n))
+        if (parse_arg("shortreport", "length", argv[3], 10, e->min_len, full, &n))
             return 2;
 
         printf("%s case %ld (%s): first %ld of %d report bytes\n", e->name, idx,
@@ -314,9 +314,11 @@ int main(int argc, char **argv) {
         printf("  every truncated report decoded without reading outside the buffer\n");
     }
 
+    /* A table fault fails the run the way it does in mousetest and kbdtest, with the
+       status an overread gets; 2 stays the answer to a bad command line. */
     if (bad_cases) {
         printf("\n  %d case(s) were not replayed: fix them in the case tables\n", bad_cases);
-        rc = 2;
+        rc = 1;
     }
 
     /* Both tables' gates, since this binary replays both; the denominator above is

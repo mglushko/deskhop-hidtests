@@ -25,23 +25,27 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-/* Exact-size copy. An allocation failure is the host's problem, not a finding: exit 3,
-   the status cctest and shortreport already used for it. */
+/* Exact-size copy: len bytes and not one more, so ASan's redzone begins right after the
+   last byte of the report. That holds at len 0 too, where malloc(0) under ASan is a
+   region no read may touch; every caller has bounded len below already. An allocation
+   failure is the host's problem, not a finding: exit 3, the status cctest and
+   shortreport already used for it. */
 static inline uint8_t *dup_exact(const char *prog, const uint8_t *src, int len) {
-    uint8_t *copy = malloc(len > 0 ? (size_t)len : 1);
+    uint8_t *copy = malloc((size_t)len);
 
     if (!copy) {
         fprintf(stderr, "%s: out of memory\n", prog);
         exit(3);
     }
-    if (len > 0)
-        memcpy(copy, src, (size_t)len);
+    memcpy(copy, src, (size_t)len);
     return copy;
 }
 
 /* Run fn(arg) in a forked child. Returns 0 if the child exited clean, its exit status if
-   not, and 128 + the signal if it was killed, which is what an ASan abort looks like from
-   outside. quiet sends the child's output to /dev/null. */
+   not, and 128 + the signal if it was killed. A sanitizer report is the first kind, not
+   the second: under the options the Makefile sets, ASan and UBSan end the child with a
+   plain status of 1, so a finding arrives like any other non-zero exit and the signal
+   branch is for a real crash. quiet sends the child's output to /dev/null. */
 static inline int run_forked(const char *prog, void (*fn)(const void *), const void *arg,
                              int quiet) {
     fflush(stdout);
@@ -76,13 +80,15 @@ static inline int run_forked(const char *prog, void (*fn)(const void *), const v
 /* strtol, not atol: atol("abc") is 0 and indistinguishable from an explicit 0, and a fuzz
    run given that once ran zero descriptors and reported every access in bounds. `what` is
    the argument's name as the user knows it: N or SEED for fuzz, case or length for the
-   replay tools. Returns 0 on success. */
-static inline int parse_arg(const char *prog, const char *what, const char *s, long lo,
-                            long hi, long *out) {
+   replay tools. `base` is strtol's: 10 for the case indices, lengths and entry numbers
+   the replay tools print in decimal, where base 0 would read 010 as 8 and refuse 08;
+   0 for fuzz, so a seed can still be given in hex. Returns 0 on success. */
+static inline int parse_arg(const char *prog, const char *what, const char *s, int base,
+                            long lo, long hi, long *out) {
     char *end;
 
     errno = 0;
-    long v = strtol(s, &end, 0);
+    long v = strtol(s, &end, base);
 
     if (end == s || *end != '\0' || errno == ERANGE || v < lo || v > hi) {
         fprintf(stderr, "%s: %s=%s is not a number in %ld..%ld\n", prog, what, s, lo, hi);

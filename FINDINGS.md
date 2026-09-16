@@ -143,7 +143,7 @@ answers and `cctest` **classifies** the branch rather than assuming it, ending i
 verdict line:
 
 ```
-  separating rows: 7 behave like main, 0 like #358
+  separating rows: 7 behave like pre-#358 main, 0 like #358
   VERDICT: this branch does NOT have the #358 fix
 ```
 

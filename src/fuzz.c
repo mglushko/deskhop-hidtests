@@ -113,14 +113,14 @@ int main(int argc, char **argv) {
 
     long count = 40000, seed = 1;
 
-    if (argc > 1 && parse_arg("fuzz", "N", argv[1], 1, LONG_MAX, &count))
+    if (argc > 1 && parse_arg("fuzz", "N", argv[1], 0, 1, LONG_MAX, &count))
         return 2;
 
     /* Seed 0 is the fixed point of xorshift: rnd() returns 0 for ever, generate()
        emits the same four-usage descriptor every time, and the run reports a clean
        pass on a parser that overflows to index 4564. Reject it rather than remap
        it, so `make fuzz SEED=0` cannot silently mean something else. */
-    if (argc > 2 && parse_arg("fuzz", "SEED", argv[2], 1, UINT32_MAX, &seed))
+    if (argc > 2 && parse_arg("fuzz", "SEED", argv[2], 0, 1, UINT32_MAX, &seed))
         return 2;
 
     rng_state = (uint32_t)seed;

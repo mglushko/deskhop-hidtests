@@ -209,7 +209,9 @@ typedef struct {
 } burst_t;
 
 /* One line per cycle. The first burst is the discriminator: abcdef where the 6KRO
-   collection decodes on its own, gmovw3 where it has collapsed onto a bitmap. The
+   collection decodes on its own. Where the collections have collapsed the two rigs
+   fail differently: the 8BitDo's six bytes are walked as a bitmap and come out as
+   gmovw3, while the Ultra-Link loses its first key slot and types bcdef. The
    second and third go through the NKRO collection and are chosen to be invisible in
    boot protocol, so a run that cannot tell fixed from broken says so by losing its
    tail rather than by typing something plausible: a usage lands in the report at
@@ -219,9 +221,9 @@ typedef struct {
    ErrorRollOver instead - also a tell, just a louder one. Keep every NKRO usage at
    48 or above for the first part of that to hold. */
 static const burst_t script[] = {
-    {RID_6KRO, {0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 6},  /* abcdef / gmovw3 */
-    {RID_NKRO, {0x36, 0x37, 0x38},                   3},  /* ,./             */
-    {RID_NKRO, {0x28},                               1},  /* Enter           */
+    {RID_6KRO, {0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 6},  /* abcdef, or gmovw3 / bcdef */
+    {RID_NKRO, {0x36, 0x37, 0x38},                   3},  /* ,./                       */
+    {RID_NKRO, {0x28},                               1},  /* Enter                     */
 };
 
 #define SCRIPT_LEN (sizeof(script) / sizeof(script[0]))

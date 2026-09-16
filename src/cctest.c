@@ -237,6 +237,9 @@ int main(void) {
 
     if (failures)
         printf("  VERDICT: cannot classify - %d case(s) matched neither branch\n", failures);
+    else if (routing)
+        printf("  VERDICT: cannot classify - %d device(s) whose report ID is not bound to the "
+               "receiver under test\n", routing);
     else if (seen[R_MAIN] && seen[R_FIXED])
         printf("  VERDICT: INCONSISTENT - some rows behave like pre-#358 main, some like #358\n");
     else if (seen[R_FIXED])
