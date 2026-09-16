@@ -356,10 +356,10 @@ counts. The four distinct causes, each reproducible on its own:
 
 ```sh
 make shortreport                          # the table
-./build/<target>/shortreport mx518_mouse 0 5        # 1
-./build/<target>/shortreport kensington_expert_mouse 0 1  # 2
-./build/<target>/shortreport nkro_keyboard 0 8      # 3
-./build/<target>/shortreport boot_mouse 0 1         # 4
+./build/<target>/shortreport mouse/mx518_mouse 0 5              # 1
+./build/<target>/shortreport mouse/kensington_expert_mouse 0 1  # 2
+./build/<target>/shortreport kbd/nkro_keyboard 0 8              # 3
+./build/<target>/shortreport mouse/boot_mouse/boot 0 1          # 4
 ```
 
 1. **`get_report_value()` reads `report[len]`.** The loop tests `byte_offset`

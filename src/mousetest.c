@@ -79,10 +79,11 @@ static int run_device(const mouse_device_t *dev) {
         mouse_values_t v = {0};
 
         /* A len past the end of the array would overread the struct here, in the one
-           file whose job is catching that. */
-        if (c->len < 0 || (size_t)c->len > sizeof(c->report)) {
-            printf("  %-34s len %d exceeds report[%zu] - fix the case\n", c->what, c->len,
-                   sizeof(c->report));
+           file whose job is catching that; one below the receiver's floor would assert
+           an input the firmware never delivers. */
+        if (!case_len_ok(c->len, MOUSE_MIN_LEN, sizeof(c->report))) {
+            printf("  %-34s len %d outside %d..%zu - fix the case\n", c->what, c->len,
+                   MOUSE_MIN_LEN, sizeof(c->report));
             failures++;
             continue;
         }
@@ -172,6 +173,14 @@ static int run_button_fallback(void) {
 
         iface.mouse_buttons = c->stored;
         state.mouse_buttons = c->union_;
+
+        /* the same bounds as the main loop, for the same reasons */
+        if (!case_len_ok(c->len, MOUSE_MIN_LEN, sizeof(c->report))) {
+            printf("  %-34s len %d outside %d..%zu - fix the case\n", c->name, c->len,
+                   MOUSE_MIN_LEN, sizeof(c->report));
+            failures++;
+            continue;
+        }
 
         /* exact-size allocation, as above */
         uint8_t *report = dup_exact("mousetest", c->report, c->len);

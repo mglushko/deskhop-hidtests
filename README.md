@@ -46,8 +46,9 @@ Pico SDK submodule populated in the target tree, and skips rather than fails wit
 | `make timing` | how long does a large but legal Report Count take to parse? |
 | `make check-constants` | do the constants `harness.h` copies still match TinyUSB's? |
 | `make check-parse` | does `add_descriptor.py` still read every dump shape without dropping bytes? |
+| `make check-cli` | do the replay tools still answer their command lines as documented? |
 | `make test-sleepwake` | does the BOOTSEL emulator debounce and deliver Sleep/Wake safely? |
-| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `check-parse`, `check-constants`, `test-sleepwake` |
+| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `check-parse`, `check-cli`, `check-constants`, `test-sleepwake` |
 | `make findings` | `fuzz`, `truncate`, `shortreport` and `dispatch`, run for their numbers |
 | `make corpus` | regenerate the table in `CORPUS.md` from `descriptors.h` and the case tables |
 | `make all` | build everything without running it |

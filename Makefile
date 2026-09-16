@@ -20,9 +20,10 @@
 #   make timing                      cost per element vs report count
 #   make check-constants             harness.h against the vendored TinyUSB header
 #   make check-parse                 add_descriptor.py's reader against every dump shape
+#   make check-cli                   the replay tools' command lines, at full length only
 #   make test-sleepwake              the BOOTSEL rig's gesture logic, on the host
 #   make test                        the regression gate: mouse, kbd, consumer, check-parse,
-#                                    check-constants and test-sleepwake
+#                                    check-cli, check-constants and test-sleepwake
 #   make findings                    the four that fail by design, for their numbers
 #   make corpus                      regenerate the table in CORPUS.md
 #   make all                         build everything without running it
@@ -112,7 +113,7 @@ BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/kbdtest $(OUT)/fuzz $(OUT)/exhaust \
 .PHONY: corpus all dump compare mouse kbd consumer fuzz exhaust timing truncate shortreport \
         dispatch clean \
         check-target \
-        check-constants check-parse
+        check-constants check-parse check-cli
 
 all: check-target $(BINS)
 	@echo "built against $(SRC) -> $(OUT)/"
@@ -448,11 +449,12 @@ endif  # compare in MAKECMDGOALS
 # this permanently red and worth nothing. Their exit status is the finding, not a
 # regression. `make findings` runs those, and reports rather than gates.
 #
-# check-constants sits after the decode suites: it is the only one needing the Pico
-# SDK submodule populated, and it skips cleanly when it is not. test-sleepwake closes
-# the list; it needs only gcc.
+# check-cli runs the replay tools' command lines at full length only, so it holds on any
+# tree the decode suites hold on. check-constants sits after it: it is the only one
+# needing the Pico SDK submodule populated, and it skips cleanly when it is not.
+# test-sleepwake closes the list; it needs only gcc.
 .PHONY: test findings
-test: mouse kbd consumer check-parse check-constants test-sleepwake
+test: mouse kbd consumer check-parse check-cli check-constants test-sleepwake
 	@echo
 	@echo "known good decode unchanged against $(SRC)"
 
@@ -508,6 +510,12 @@ corpus:
 # and it needs nothing outside the repo, so unlike check-constants there is no skip.
 check-parse:
 	@python3 tools/add_descriptor.py --selftest
+
+# The replay tools' command lines: the entry selector, the decimal argument parse and the
+# usage paths, at full length only, so this holds on any tree the decode suites hold on.
+# A truncated replay stays out for the reason fuzz and truncate do.
+check-cli: $(OUT)/shortreport $(OUT)/truncate $(OUT)/dump
+	@bash tools/check_cli.sh $(OUT)
 
 clean:
 	rm -rf $(B)

@@ -19,6 +19,17 @@
 #include "constants.h"
 #include "packet.h"
 
+/* harness.h's hid_keyboard_report_t is a hand copy of TinyUSB's, and hid_report.c fills
+   it by these two constants: a memcpy and a memset of KBD_REPORT_LENGTH bytes, keycode
+   writes bounded by KEYS_IN_USB_REPORT. A target that changed either would overrun the
+   copy on the host in every binary that decodes a keyboard, so say so here, where both
+   sides are first in view. The mouse struct has no such pair: hid_mouse_report_t is the
+   boot protocol's five bytes, and the packet constants describe the UART packet. */
+_Static_assert(sizeof(hid_keyboard_report_t) == KBD_REPORT_LENGTH,
+               "hid_keyboard_report_t in harness.h must be KBD_REPORT_LENGTH bytes");
+_Static_assert(KEYS_IN_USB_REPORT == sizeof(((hid_keyboard_report_t *)0)->keycode),
+               "hid_keyboard_report_t.keycode in harness.h must hold KEYS_IN_USB_REPORT keys");
+
 #include "hid_parser.h"
 #include "hid_report.h"
 

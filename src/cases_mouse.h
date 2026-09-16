@@ -13,6 +13,14 @@
 #include "descriptors.h"
 #include "kept_out.h"
 
+/* The shortest report the firmware hands to the decoder: process_mouse_report has no
+   length guard, so one byte reaches extract_report_values. mousetest refuses a row below
+   this and shortreport starts its truncations here; either would otherwise measure an
+   input no device can deliver. A hand copy of firmware logic, so re-check it against
+   mouse.c when touching either; last checked against upstream c220d0c and DeskHop
+   Extended 637b985. */
+#define MOUSE_MIN_LEN 1
+
 typedef struct {
     const char *what;
     /* 12, not 8: the Scimitar's mouse report is eleven bytes, and the Bolt receiver's
