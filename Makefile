@@ -70,9 +70,11 @@ B := build
 #
 # TAG must depend on the target, or switching DESKHOP silently reuses binaries
 # built against the previous one: make only compares timestamps, and a freshly
-# created worktree looks older than the last build.
+# created worktree looks older than the last build. The basename alone is not
+# enough either, since two checkouts called deskhop in different places would
+# share a directory, so a short hash of the absolute path goes on the end.
 SRC ?= $(DESKHOP)
-TAG ?= $(notdir $(patsubst %/,%,$(DESKHOP)))
+TAG ?= $(notdir $(patsubst %/,%,$(DESKHOP)))-$(shell printf '%s' '$(abspath $(DESKHOP))' | md5sum | cut -c1-7)
 
 OUT := $(B)/$(TAG)
 GEN := $(OUT)/gen
@@ -120,6 +122,10 @@ check-target:
 	  echo "no hid_parser.c under $(SRC)."; \
 	  echo "point DESKHOP at a deskhop checkout, e.g. make DESKHOP=~/deskhop"; \
 	  exit 1; }
+	@for f in $(PROBED); do test -f $(SRC)/src/$$f || { \
+	  echo "no $$f under $(SRC)/src, so every probe that reads it answered 'absent'."; \
+	  echo "The tree is incomplete or the file moved; fix that rather than trust this run."; \
+	  exit 1; }; done
 
 $(GEN):
 	@mkdir -p $(GEN)
@@ -131,11 +137,19 @@ $(GEN)/%.h: $(SRC)/src/include/%.h | $(GEN)
 
 # ---- generated sources -------------------------------------------------------
 
+# Every probe below is one grep over one file of the target tree, answered as a -D flag
+# for the case tables: `has` is the grep, `probe` the flag. Both read as "absent" when
+# the file is missing, so check-target insists every probed file exists before anything
+# is built, and the list of probed files is kept here beside them.
+has   = $(shell grep -qE '$(2)' $(SRC)/src/$(1) 2>/dev/null && echo y)
+probe = $(if $(call has,$(1),$(2)),-D$(3))
+PROBED := hid_parser.c hid_report.c keyboard.c usb.c include/hid_parser.h
+
 # get_or_add_keyboard exists only on a tree that separates parse-time allocation from
 # decode-time lookup. Lift it where it is there; where it is not, the target's own
 # hid_report.c does not reference it either, so leaving it out is correct rather than
 # a gap - and lift.py would fail loudly if this guessed wrong.
-HAS_MULTI_KBD := $(shell grep -q 'get_or_add_keyboard' $(SRC)/src/keyboard.c 2>/dev/null && echo y)
+HAS_MULTI_KBD := $(call has,keyboard.c,get_or_add_keyboard)
 KBD_LIFT      := get_keyboard $(if $(HAS_MULTI_KBD),get_or_add_keyboard)
 
 # The same answer, as a flag for the decode tests. MAX_NKRO_BLOCKS no longer separates the
@@ -151,7 +165,7 @@ KBD_MULTI := $(if $(HAS_MULTI_KBD),-DHARNESS_MULTI_KEYBOARD)
 # spellings: #359 wrote `byte_index >= len`, and upstream's readability pass (896e903)
 # renamed the parameter to report_length, which the fork follows from 637b985. Either
 # string is the fix; a tree with neither reads as unbounded and the 8BitDo stays out.
-KBD_BOUNDED := $(shell grep -qE 'byte_index >= (len|report_length)' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_BOUNDED_BITMAP)
+KBD_BOUNDED := $(call probe,hid_report.c,byte_index >= (len|report_length),HARNESS_BOUNDED_BITMAP)
 
 # Does the target keep a bitmap whose usage range is wider than the block has bits for,
 # instead of demanding one usage per bit exactly? Unlike every other probe here there is
@@ -164,7 +178,7 @@ KBD_BOUNDED := $(shell grep -qE 'byte_index >= (len|report_length)' $(SRC)/src/h
 # here as "not fixed", the Keychron rows then assert the old zeros, and it fails as
 # MISMATCH with the report bytes printed - loudly, which is the opposite of the silent
 # skip c6d0264 was written to get rid of.
-KBD_WIDE := $(shell grep -qE 'is_key_bitmap|size >= NKRO_MIN_BITS' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_WIDE_USAGE_RANGE)
+KBD_WIDE := $(call probe,hid_report.c,is_key_bitmap|size >= NKRO_MIN_BITS,HARNESS_WIDE_USAGE_RANGE)
 
 # Does _extract_kbd_other stop at the bytes that arrived? Its key_array loop is indexed by
 # byte offset from the descriptor, and a keyboard whose report comes up one byte short of
@@ -172,12 +186,12 @@ KBD_WIDE := $(shell grep -qE 'is_key_bitmap|size >= NKRO_MIN_BITS' $(SRC)/src/hi
 # guards the loop with the report length; PR #359 bounds the bitmap walk (the flag above)
 # but not this loop, so the two need separate probes. Expression rather than identifier,
 # because the guard is one more clause in an existing loop and introduces no name.
-KBD_OTHER_BOUNDED := $(shell grep -q 'i < MAX_KEYS && i < len' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_BOUNDED_KEY_ARRAY)
+KBD_OTHER_BOUNDED := $(call probe,hid_report.c,i < MAX_KEYS && i < len,HARNESS_BOUNDED_KEY_ARRAY)
 
 # Which names does nkro_block_t give a block's position and width? #359 called them offset
 # and size; upstream's readability pass (896e903) renamed them offset_bits and size_bits.
 # Only dump prints them, so this is a display concern, not a decode one.
-NKRO_BITS_FIELDS := $(shell grep -q 'offset_bits' $(SRC)/src/include/hid_parser.h 2>/dev/null && echo -DHARNESS_NKRO_BITS_FIELDS)
+NKRO_BITS_FIELDS := $(call probe,include/hid_parser.h,offset_bits,HARNESS_NKRO_BITS_FIELDS)
 
 $(GEN)/lifted_kbd.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 	@python3 tools/lift.py $< $@ $(KBD_LIFT)
@@ -196,7 +210,7 @@ $(GEN)/lifted_mouse.c: $(SRC)/src/mouse.c tools/lift.py | $(GEN)
 # silently, with mousetest's last line then saying something false about the target. A
 # tree that has the field but kept the old fallback is not a concern here, since that
 # fails loudly as MISMATCH rather than quietly as a skip.
-MOUSE_IFACE_BTN := $(shell grep -q 'mouse_buttons' $(SRC)/src/include/hid_parser.h 2>/dev/null && echo -DHARNESS_IFACE_MOUSE_BUTTONS)
+MOUSE_IFACE_BTN := $(call probe,include/hid_parser.h,mouse_buttons,HARNESS_IFACE_MOUSE_BUTTONS)
 
 # Does the parser stop advancing its usage cursor once usages[] is full? The bound has
 # two spellings. PR #361 introduced usages_left() for it, and upstream 1e31d10 rewrote
@@ -207,7 +221,7 @@ MOUSE_IFACE_BTN := $(shell grep -q 'mouse_buttons' $(SRC)/src/include/hid_parser
 # one usage walks the parser out of its own state, which is the Gameball's shape, so a
 # device that declares one, the Magic Trackpad's mouse interface, is kept out of
 # mousetest and shortreport on such a tree rather than taking the run down.
-PARSER_BOUNDED := $(shell grep -qE 'usages_left|usages \+ HID_MAX_USAGES' $(SRC)/src/hid_parser.c 2>/dev/null && echo -DHARNESS_BOUNDED_USAGES)
+PARSER_BOUNDED := $(call probe,hid_parser.c,usages_left|usages \+ HID_MAX_USAGES,HARNESS_BOUNDED_USAGES)
 
 # Can get_report_value() read a field 32 bits wide? No tree can yet: both compute
 # (1u << size) - 1, which is undefined at 32, so UBSan aborts the run on the first such
@@ -215,7 +229,7 @@ PARSER_BOUNDED := $(shell grep -qE 'usages_left|usages \+ HID_MAX_USAGES' $(SRC)
 # rows wait behind this flag. The grep is a guess at what the fix will look like - a
 # width test before the shift - so a fix spelled differently reads as "not fixed" and
 # keeps the device out, which fails safe: nothing is asserted rather than something wrong.
-FIELD_32 := $(shell grep -q 'size >= 32' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_FIELD_32)
+FIELD_32 := $(call probe,hid_report.c,size >= 32,HARNESS_FIELD_32)
 
 # The two receivers PR #358 changes. Lifted rather than reimplemented for the same
 # reason as everything else here: a hand copy would answer the question "does this
@@ -231,16 +245,16 @@ $(GEN)/lifted_cc.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 # A target whose handler table is keyed by value reads it through get_report_handler();
 # src/handlers.h picks the matching accessor so dump, cctest, kbdtest and the dispatch
 # model measure either shape.
-HANDLER_LOOKUP := $(shell grep -q 'get_report_handler' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_HANDLER_LOOKUP)
+HANDLER_LOOKUP := $(call probe,hid_report.c,get_report_handler,HARNESS_HANDLER_LOOKUP)
 CFLAGS += $(HANDLER_LOOKUP)
 
 # Upstream ce8abb6 answers the same finding a third way: a 256-entry map of receiver ids
 # per interface, resolved through report_receivers[] in hid_report.c, so a uint8_t ID can
 # never miss the table. The table's name is the grep, and src/handlers.h reads through it.
-HANDLER_MAP := $(shell grep -q 'report_receivers' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_HANDLER_MAP)
+HANDLER_MAP := $(call probe,hid_report.c,report_receivers,HARNESS_HANDLER_MAP)
 CFLAGS += $(HANDLER_MAP)
 
-LIFTABLE_DISPATCH := $(shell grep -l 'process_report_f pick_receiver' $(SRC)/src/usb.c 2>/dev/null)
+LIFTABLE_DISPATCH := $(call has,usb.c,process_report_f pick_receiver)
 
 ifneq ($(LIFTABLE_DISPATCH),)
 DISPATCH_SRC  := $(GEN)/lifted_dispatch.c
@@ -258,36 +272,36 @@ $(GEN)/hid_parser_instr.c: $(PARSER) tools/instrument.py | $(GEN)
 
 # ---- binaries ----------------------------------------------------------------
 
-$(OUT)/dump: src/dump.c src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
+$(OUT)/dump: src/dump.c src/support.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(NKRO_BITS_FIELDS) -o $@ src/dump.c $(CORE)
 
-$(OUT)/mousetest: src/mousetest.c src/support.h src/cases_mouse.h src/kept_out.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
+$(OUT)/mousetest: src/mousetest.c src/support.h src/cases_mouse.h src/kept_out.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
 
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries
-$(OUT)/kbdtest: src/kbdtest.c src/support.h src/cases_kbd.h src/kept_out.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
+$(OUT)/kbdtest: src/kbdtest.c src/support.h src/cases_kbd.h src/kept_out.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_MULTI) $(KBD_BOUNDED) $(KBD_WIDE) $(KBD_OTHER_BOUNDED) $(NKRO_BITS_FIELDS) -o $@ src/kbdtest.c $(CORE)
 
-$(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
+$(OUT)/exhaust: src/exhaust.c src/support.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/exhaust.c $(CORE)
 
-$(OUT)/truncate: src/truncate.c src/support.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN)
+$(OUT)/truncate: src/truncate.c src/support.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/truncate.c $(CORE)
 
 # The one target that does NOT link src/stubs.c's consumer and system stubs:
 # -DHARNESS_LIFT_CC keeps them out, and $(GEN)/lifted_cc.c supplies the real bodies
 # from the branch under test. src/recorders.c supplies what those bodies reach for.
 $(OUT)/cctest: src/cctest.c src/support.h src/cases_cc.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) \
-               $(GEN)/lifted_cc.c src/recorders.c | $(GEN)
+               $(GEN)/lifted_cc.c src/recorders.c | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -DHARNESS_LIFT_CC -o $@ src/cctest.c \
 	    $(GEN)/lifted_cc.c src/recorders.c $(CORE)
 
 # Routing, not decode, so the only thing it needs out of $(CORE) is the four
 # distinguishable receiver addresses in src/stubs.c. $(DISPATCH_SRC) is the target's
 # own pick_receiver() where the target has one, and empty otherwise.
-$(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) \
-                     $(DISPATCH_SRC) | $(GEN)
+$(OUT)/dispatchtest: src/dispatchtest.c src/support.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) \
+                     $(DISPATCH_SRC) | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(DISPATCH_FLAG) -o $@ src/dispatchtest.c \
 	    $(DISPATCH_SRC) $(CORE)
 
@@ -299,16 +313,16 @@ $(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h src/handlers.h descriptor
 # debug later; the coverage it would add here on an unbounded tree is the same overread
 # truncate already counts.
 $(OUT)/shortreport: src/shortreport.c src/support.h src/cases_mouse.h src/cases_kbd.h src/kept_out.h descriptors.h $(HDRS) $(DEPS) \
-                    $(CORE) $(GEN)/lifted_mouse.c | $(GEN)
+                    $(CORE) $(GEN)/lifted_mouse.c | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_BOUNDED) $(KBD_OTHER_BOUNDED) $(NKRO_BITS_FIELDS) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/shortreport.c \
 	    $(GEN)/lifted_mouse.c $(CORE)
 
 # no ASan: this one is a stopwatch, and the fuzzer clamps rather than faults. -O2 in
 # place of CFLAGS, so the two probes CFLAGS carries are passed by hand.
-$(OUT)/timing: src/timing.c $(HDRS) $(DEPS) $(CORE) | $(GEN)
+$(OUT)/timing: src/timing.c $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
 	$(CC) -O2 $(WARN) $(INCS) $(HANDLER_LOOKUP) $(HANDLER_MAP) -o $@ src/timing.c $(CORE)
 
-$(OUT)/fuzz: src/fuzz.c src/support.h $(HDRS) $(DEPS) $(GEN)/hid_parser_instr.c $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c | $(GEN)
+$(OUT)/fuzz: src/fuzz.c src/support.h $(HDRS) $(DEPS) $(GEN)/hid_parser_instr.c $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c | $(GEN) check-target
 	$(CC) $(CFLAGS) $(INCS) -o $@ src/fuzz.c $(GEN)/hid_parser_instr.c $(REPORT) \
 	    src/stubs.c $(GEN)/lifted_kbd.c
 

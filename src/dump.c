@@ -10,6 +10,7 @@
 #include "main.h"
 #include "descriptors.h"
 #include "handlers.h"
+#include "support.h"
 
 /* nkro_block_t names a block's position and width offset/size on the #359 chain and
    offset_bits/size_bits after upstream's readability pass (896e903); the Makefile probes
@@ -132,11 +133,8 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    memset(&iface, 0, sizeof(iface));
-    iface.protocol = HID_PROTOCOL_REPORT;
-
     printf("%s (%d bytes)\n", d->name, d->len);
-    parse_report_descriptor(&iface, d->bytes, d->len);
+    parse_iface(&iface, d->bytes, d->len, HID_PROTOCOL_REPORT);
     dump_iface(&iface);
 
     return 0;

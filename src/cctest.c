@@ -55,6 +55,20 @@ static bool matches(const sent_t *got, bool want_sent, const uint8_t *want, int 
     return got->via != SENT_NOTHING && memcmp(got->payload, want, (size_t)n) == 0;
 }
 
+/* Which way a report should leave, and what it should carry. The active output sends
+   through send_*_control(); the other board queues a packet, and that packet's type and
+   length are what the receiving board decodes by, so a payload that is right but typed
+   or sized wrong is lost all the same. */
+static bool sent_right_way(const sent_t *got, cc_path_e path, bool local) {
+    if (got->via == SENT_NOTHING)
+        return true; /* matches() has already judged whether nothing was right */
+    if (local)
+        return got->via == (path == CC_SYSTEM ? SENT_SYSTEM_LOCAL : SENT_CONSUMER_LOCAL);
+    return got->via == SENT_QUEUED &&
+           got->packet_type == (path == CC_SYSTEM ? SYSTEM_CONTROL_MSG : CONSUMER_CONTROL_MSG) &&
+           got->len == payload_len(path);
+}
+
 /* Run one case once, with the board either being the active output or not. Returns
    what was recorded. */
 static sent_t run_once(const cc_device_t *dev, const cc_case_t *c, hid_interface_t *iface,
@@ -83,11 +97,7 @@ static void print_payload(const sent_t *s, int n) {
         return;
     }
 
-    int printed = 0;
-    for (int i = 0; i < n; i++)
-        printed += printf("%02X ", s->payload[i]);
-    for (int i = printed; i < 18; i++)
-        printf(" ");
+    print_hex(s->payload, n, 18);
 }
 
 /* Returns the number of cases that failed. A report ID not bound to the receiver under
@@ -96,9 +106,7 @@ static void print_payload(const sent_t *s, int n) {
 static int run_device(const cc_device_t *dev, int *seen, int *routing_failures) {
     static hid_interface_t iface;
 
-    memset(&iface, 0, sizeof(iface));
-    iface.protocol = HID_PROTOCOL_REPORT;
-    parse_report_descriptor(&iface, dev->desc, dev->desc_len);
+    parse_iface(&iface, dev->desc, dev->desc_len, HID_PROTOCOL_REPORT);
 
     printf("%s (%d bytes)\n", dev->name, dev->desc_len);
     printf("  uses_report_id = %d, %s: rid=%u var=%d arr=%d\n", iface.uses_report_id,
@@ -127,10 +135,7 @@ static int run_device(const cc_device_t *dev, int *seen, int *routing_failures) 
 
     printf("\n  %-24s %-14s %-18s %-18s %s\n", "keys held", "raw report", "sent (local)",
            "sent (remote)", "behaves like");
-    printf("  ");
-    for (int i = 0; i < 92; i++)
-        printf("-");
-    printf("\n");
+    print_rule(92);
 
     int n = payload_len(dev->path);
 
@@ -159,17 +164,18 @@ static int run_device(const cc_device_t *dev, int *seen, int *routing_failures) 
                              : remote.via != SENT_NOTHING &&
                                    memcmp(local.payload, remote.payload, (size_t)n) == 0;
 
-        bool ok = v != R_NEITHER && same_both && local.calls <= 1 && remote.calls <= 1;
+        bool right_way = sent_right_way(&local, dev->path, true) &&
+                         sent_right_way(&remote, dev->path, false);
+
+        bool ok = v != R_NEITHER && same_both && right_way && local.calls <= 1 &&
+                  remote.calls <= 1;
         if (!ok)
             failures++;
         else if (v != R_AGREED)
             seen[v]++;
 
         printf("  %-24s ", c->what);
-        for (int b = 0; b < c->len && b < 4; b++)
-            printf("%02X ", c->report[b]);
-        for (int b = c->len < 4 ? c->len : 4; b < 4; b++)
-            printf("   ");
+        print_hex(c->report, c->len < 4 ? c->len : 4, 12);
         printf("  ");
 
         print_payload(&local, n);
@@ -182,15 +188,18 @@ static int run_device(const cc_device_t *dev, int *seen, int *routing_failures) 
             if (v == R_NEITHER) {
                 printf("%28swanted pre-#358 ", "");
                 if (!c->sent_main) printf("(nothing sent)");
-                else for (int b = 0; b < n; b++) printf("%02X ", c->want_main[b]);
+                else print_hex(c->want_main, n, 0);
                 printf(" or #358 ");
                 if (!c->sent_fixed) printf("(nothing sent)");
-                else for (int b = 0; b < n; b++) printf("%02X ", c->want_fixed[b]);
+                else print_hex(c->want_fixed, n, 0);
                 printf("\n");
             }
             if (!same_both)
                 printf("%28slocal and remote payloads differ - the send path changed the data\n",
                        "");
+            if (!right_way)
+                printf("%28ssent by the wrong path, or queued with the wrong packet type or "
+                       "length\n", "");
             if (local.calls > 1 || remote.calls > 1)
                 printf("%28s%d/%d sends from one report - should be exactly one\n", "",
                        local.calls, remote.calls);

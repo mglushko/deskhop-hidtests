@@ -71,9 +71,7 @@ static void decode_prefix(path_e path, const void *dev_v, unsigned case_idx, int
         bytes = dev->cases[case_idx].report;
     }
 
-    memset(&iface, 0, sizeof(iface));
-    iface.protocol = protocol;
-    parse_report_descriptor(&iface, desc, desc_len);
+    parse_iface(&iface, desc, desc_len, protocol);
 
     /* exact size: a static buffer would leave the overread inside valid memory */
     uint8_t *report = dup_exact("shortreport", bytes, n);
@@ -249,10 +247,7 @@ int main(int argc, char **argv) {
 
     printf("  %-27s %6s %8s %10s   %s\n", "DEVICE", "path", "lengths", "failures",
            "first failing case, length");
-    printf("  ");
-    for (int i = 0; i < 81; i++)
-        printf("-");
-    printf("\n");
+    print_rule(81);
 
     long           total = 0, total_bad = 0;
     int            bad_cases = 0;

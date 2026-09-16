@@ -156,8 +156,9 @@ that read them, and what each has caught.
 - `check-constants` compares the constants hand-copied into `harness.h` against the
   vendored TinyUSB header. A wrong one would not fail to compile; it would shift an
   offset and make every target agree on a wrong answer.
-- Build output is keyed to the target directory name, so switching `DESKHOP` never
-  reuses binaries built against the previous tree.
+- Build output is keyed to the target's directory name and a hash of its path, so
+  switching `DESKHOP` never reuses binaries built against another tree, even one with
+  the same name elsewhere.
 
 ## Reference numbers
 

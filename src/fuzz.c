@@ -131,9 +131,7 @@ int main(int argc, char **argv) {
         int len = generate(desc, (int)sizeof(desc));
 
         this_descriptor_went_out = 0;
-        memset(&iface, 0, sizeof(iface));
-        iface.protocol = HID_PROTOCOL_REPORT;
-        parse_report_descriptor(&iface, desc, len);
+        parse_iface(&iface, desc, len, HID_PROTOCOL_REPORT);
 
         if (this_descriptor_went_out)
             bad_descriptors++;

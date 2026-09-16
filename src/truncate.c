@@ -26,10 +26,7 @@ static void parse_prefix(const descriptor_t *d, int n) {
     /* exact size: a static buffer would leave the overread inside valid memory */
     uint8_t *buf = dup_exact("truncate", d->bytes, n);
 
-    memset(&iface, 0, sizeof(iface));
-    iface.protocol = HID_PROTOCOL_REPORT;
-
-    parse_report_descriptor(&iface, buf, n);
+    parse_iface(&iface, buf, n, HID_PROTOCOL_REPORT);
 
     free(buf);
 }
@@ -73,10 +70,7 @@ int main(int argc, char **argv) {
     }
 
     printf("  %-27s %8s %10s   %s\n", "DESCRIPTOR", "lengths", "failures", "first failing length");
-    printf("  ");
-    for (int i = 0; i < 73; i++)
-        printf("-");
-    printf("\n");
+    print_rule(73);
 
     long total = 0, total_bad = 0;
     const descriptor_t *worst = NULL;

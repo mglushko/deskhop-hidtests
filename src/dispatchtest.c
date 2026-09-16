@@ -34,6 +34,7 @@
 #include "main.h"
 #include "descriptors.h"
 #include "dispatch.h"
+#include "support.h"
 
 typedef struct {
     const char      *what;
@@ -202,17 +203,12 @@ int main(void) {
              "this\n           describes the model, not the firmware");
 
     printf("  %-38s %-6s %-6s %-9s %-9s %s\n", "scenario", "itf", "proto", "reached", "wanted", "");
-    printf("  ");
-    for (int i = 0; i < 92; i++)
-        printf("-");
-    printf("\n");
+    print_rule(92);
 
     for (unsigned i = 0; i < ARRAY_SIZE(cases); i++) {
         const route_case_t *c = &cases[i];
 
-        memset(&iface, 0, sizeof(iface));
-        iface.protocol = c->protocol;
-        parse_report_descriptor(&iface, c->desc, c->desc_len);
+        parse_iface(&iface, c->desc, c->desc_len, c->protocol);
 
         /* iface->protocol is what the firmware would hold after
            tuh_hid_set_protocol_complete_cb; uses_report_id stays as the parser set

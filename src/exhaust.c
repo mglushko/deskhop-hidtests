@@ -9,6 +9,7 @@
  */
 #include "main.h"
 #include "descriptors.h"
+#include "support.h"
 
 /* n vendor usages spread over main items, then the boot mouse verbatim */
 static int build(uint8_t *d, int n) {
@@ -45,9 +46,7 @@ int main(void) {
     for (unsigned i = 0; i < ARRAY_SIZE(counts); i++) {
         int len = build(desc, counts[i]);
 
-        memset(&iface, 0, sizeof(iface));
-        iface.protocol = HID_PROTOCOL_REPORT;
-        parse_report_descriptor(&iface, desc, len);
+        parse_iface(&iface, desc, len, HID_PROTOCOL_REPORT);
 
         printf("  %10d  %8d  %10s  %8u  %8u\n", counts[i], len,
                iface.mouse.is_found ? "yes" : "NO", iface.mouse.move_x.offset,

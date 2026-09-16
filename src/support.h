@@ -7,9 +7,13 @@
  * remaining thousands, and a fork or wait that fails exits rather than scoring the case
  * clean, which is what a zero status from waitpid(-1) used to do. parse_arg is fuzz.c's
  * strtol wrapper, here so truncate and shortreport stop using atoi, whose "abc" is
- * indistinguishable from an explicit 0.
+ * indistinguishable from an explicit 0. parse_iface is the zeroed-interface parse every
+ * driver starts from, print_rule the dashed line under every table header, and print_hex
+ * the byte dump four of them had hand-rolled with their own padding constants.
  */
 #pragma once
+
+#include "main.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -87,4 +91,31 @@ static inline int parse_arg(const char *prog, const char *what, const char *s, l
 
     *out = v;
     return 0;
+}
+
+/* The parse every driver starts from: a zeroed interface at the given protocol, fed the
+   descriptor. iface is the caller's, usually static, because hid_interface_t is large. */
+static inline void parse_iface(hid_interface_t *iface, const uint8_t *desc, int len,
+                               uint8_t protocol) {
+    memset(iface, 0, sizeof(*iface));
+    iface->protocol = protocol;
+    parse_report_descriptor(iface, desc, len);
+}
+
+/* A table rule: two spaces of indent, then n dashes. */
+static inline void print_rule(int n) {
+    printf("  ");
+    for (int i = 0; i < n; i++)
+        printf("-");
+    printf("\n");
+}
+
+/* len bytes as "XX " each, padded with spaces to pad_to columns when that is wider. */
+static inline void print_hex(const uint8_t *b, int len, int pad_to) {
+    int printed = 0;
+
+    for (int i = 0; i < len; i++)
+        printed += printf("%02X ", b[i]);
+    for (; printed < pad_to; printed++)
+        printf(" ");
 }

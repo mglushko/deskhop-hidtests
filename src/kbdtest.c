@@ -92,9 +92,7 @@ static int check_keyboard_slots(void) {
     for (unsigned i = 0; i < ARRAY_SIZE(descriptors); i++) {
         const descriptor_t *d = &descriptors[i];
 
-        memset(&iface, 0, sizeof(iface));
-        iface.protocol = HID_PROTOCOL_REPORT;
-        parse_report_descriptor(&iface, d->bytes, d->len);
+        parse_iface(&iface, d->bytes, d->len, HID_PROTOCOL_REPORT);
 
         for (int rid = 0; rid < 256; rid++) {
             if (hid_handler(&iface, rid) != process_keyboard_report)
@@ -133,9 +131,7 @@ static int check_keyboard_slots(void) {
 static int run_device(const kbd_device_t *dev) {
     static hid_interface_t iface;
 
-    memset(&iface, 0, sizeof(iface));
-    iface.protocol = dev->protocol;
-    parse_report_descriptor(&iface, dev->desc, dev->desc_len);
+    parse_iface(&iface, dev->desc, dev->desc_len, dev->protocol);
 
     printf("%s (%d bytes)%s\n", dev->name, dev->desc_len,
            dev->protocol == HID_PROTOCOL_BOOT ? ", boot protocol" : "");
@@ -143,20 +139,23 @@ static int run_device(const kbd_device_t *dev) {
            iface.num_keyboards, iface.uses_report_id, iface.keyboards[0].is_nkro);
 
     printf("  %-47s %4s   %8s   %-17s %s\n", "keys held", "mod", "returned", "decoded", "");
-    printf("  ");
-    for (int i = 0; i < 93; i++)
-        printf("-");
-    printf("\n");
+    print_rule(93);
 
     int failures = 0;
     for (unsigned i = 0; i < dev->count; i++) {
         const kbd_case_t         *c = &dev->cases[i];
         hid_keyboard_report_t out;
-        const uint8_t        *want = (ACCEPTS_WIDE_USAGE_RANGE && c->has_wide)
-                                         ? c->keys_wide
-                                     : (ONE_KEYBOARD_PER_COLLECTION && c->has_multi)
-                                         ? c->keys_multi
-                                     : KEEPS_EVERY_BLOCK ? c->keys_fixed : c->keys;
+
+        /* Which tree's answer applies. A wide-range row that also needs its own
+           keyboard_t gets keys_wide only where both fixes are present: with the width
+           arm alone, report 0x11 still resolves to the collapsed slot and yields
+           nothing, which is what keys_fixed and keys say. */
+        bool multi = ONE_KEYBOARD_PER_COLLECTION && c->has_multi;
+        bool wide  = ACCEPTS_WIDE_USAGE_RANGE && c->has_wide &&
+                     (!c->has_multi || ONE_KEYBOARD_PER_COLLECTION);
+        const uint8_t *want = wide  ? c->keys_wide
+                            : multi ? c->keys_multi
+                            : KEEPS_EVERY_BLOCK ? c->keys_fixed : c->keys;
 
         /* a len past the end of the array would overread the struct below */
         if (c->len < 0 || (size_t)c->len > sizeof(c->report)) {
@@ -185,22 +184,20 @@ static int run_device(const kbd_device_t *dev) {
 
         if (ok) {
             /* flag the rows a fix is responsible for, and only on a tree that has it */
-            printf("ok%s\n", (ACCEPTS_WIDE_USAGE_RANGE && c->has_wide)
-                                 ? "   <- wide usage range"
-                             : (ONE_KEYBOARD_PER_COLLECTION && c->has_multi)
-                                 ? "   <- multi-keyboard"
-                             : (KEEPS_EVERY_BLOCK &&
-                                memcmp(c->keys, c->keys_fixed, KEYS_IN_USB_REPORT))
-                                 ? "   <- multi-block"
-                                 : "");
+            printf("ok%s\n", wide  ? "   <- wide usage range"
+                            : multi ? "   <- multi-keyboard"
+                            : (KEEPS_EVERY_BLOCK &&
+                               memcmp(c->keys, c->keys_fixed, KEYS_IN_USB_REPORT))
+                                    ? "   <- multi-block"
+                                    : "");
         } else {
             printf("MISMATCH, wanted mod 0x%02X ", c->modifier);
             print_keys(want);
             /* the input matters more than the output when a case fails, and the
                NKRO reports are too long to work out from the case name */
             printf("\n%53sfrom ", "");
-            for (int b = 0; b < c->len; b++)
-                printf("%02X%s", c->report[b], b + 1 < c->len ? " " : "\n");
+            print_hex(c->report, c->len, 0);
+            printf("\n");
         }
     }
 
