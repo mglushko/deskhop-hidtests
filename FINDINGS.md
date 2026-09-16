@@ -46,11 +46,12 @@ reported it.
 
 ## Upstream pull requests, measured
 
-The other two open parser PRs, and [#368], measured the same way:
+The parser PRs, measured the same way. All three have since closed, and each row ends
+with how:
 
 | PR | what `compare REF=main` shows |
 |---|---|
-| [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. |
+| [#359] keep all key sections | every keyboard parses differently, as it must; `wooting_keyboard` gains all four blocks and `superlight2_rx_keyboard` all three. Nothing else in the corpus moves. `make kbd` carries this the rest of the way: on `main`, holding shift and `a` on the Wooting yields modifier `0x02` and no keycode, and on this branch the same bytes yield modifier `0x02` and keycode 4. Merged upstream on 2026-09-15 as `bff4d0c`; the readability pass `896e903` that followed renamed what it added, and the fork carries that spelling since `637b985`. Upstream `main` now yields the keycode too. |
 | [#358] media keys without report IDs | identical parse on all 50 that parse at all, including `cherry_kc6000_consumer`, the device it fixes - which is the point, and why `make consumer` exists. `gameball_gesture` and `many_usages` crash on both sides, as they do on `main`. That target classifies it correctly: 7 separating rows, verdict "this branch has the #358 fix". Every report-ID device is unchanged. Merged upstream on 2026-09-11 as `6e10fa3` and simplified in `6124ef4`; the fork carries both, and upstream `main` now classifies as having the fix. |
 | [#368] receivers looked up by report ID value | identical parse on 48 of the 50 that parse at all; `sculpt_rx_mouse` gains `26:M 31:C` and `apple_a2520_iface1` gains `82:C`, the two devices with a collection above ID 23. `make dispatch` carries it the rest of the way: the Sculpt's report 0x1A and the Apple's report 0x52 go from dropped to their receivers, 23 of 33 with `main`'s routing and 33 of 33 with DeskHop Extended's. Compiled for the RP2040 it costs 22 bytes per interface, about 1 KB across `global_state`. Confirmed on the real receiver by #367's reporter. Closed on 2026-09-12 in favor of upstream's own fix, `ce8abb6`: a 256-entry map from report ID to receiver per interface, which binds any 8-bit ID with no guard at all, at 256 bytes per interface against this PR's 22. The fork carries that shape since `7dec931`. |
 
@@ -89,7 +90,10 @@ rule alone would drop; the width arm takes the Keychron. `ultralink_nkro_keyboar
 `11 00 10` to nothing before and to usage 4 after, and it and `ultralink_iface1` are the only
 two of the 47 whose parse moves. Upstream
 [#324](https://github.com/hrvach/deskhop/issues/324), sent as
-[#366](https://github.com/hrvach/deskhop/pull/366).
+[#366](https://github.com/hrvach/deskhop/pull/366), still open. With [#359] merged this is
+all that separates the two trees at parse time: `compare` between upstream `main` and
+DeskHop Extended differs on those two and on `keychron_dongle_keyboard`, which joined the
+corpus later with the same shape, and on nothing else in the 105.
 
 [#358] changes two functions, and in practice only one of them matters. Its consumer
 half fixes a real device, the Cherry KC6000. Its system half needs an interface with a
@@ -404,6 +408,15 @@ lowering one invents a false one. They are commented as such in `src/shortreport
 Present identically on `main` and on [#361]: 779 of 1191 either way. The [#332]
 work is in the parser, and all four of these are in the decode path.
 
+Cause 3 is half closed. [#359], merged upstream on 2026-09-15, bounds `extract_bit_variable`
+against the report length, and every keyboard row upstream decodes as a bitmap drops to
+zero. What upstream still fails is causes 1, 2 and 4 on the mouse path and the
+`_extract_kbd_other` loop, which runs to `MAX_KEYS` whatever length arrived: all seven
+keyboard rows left with failures, the 8BitDo among them now that the bounded walk admits it
+to the run, fault in that loop, at `hid_report.c:331` on `c220d0c`. DeskHop Extended guards
+it with the report length as well, which is the whole distance between its 0 of 3355 and
+upstream's 1372 of 3352 in the README table.
+
 **A keyboard in boot protocol is routed by its modifier byte.** `usb.c` picks between
 two branches on `iface->uses_report_id`, which the parser sets from the *descriptor* at
 enumeration and nothing ever revises. It never looks at `iface->protocol`. So when
@@ -544,7 +557,8 @@ tree that bounds the walk, and why `shortreport`, which replays reports rather t
 descriptors, is where the overread
 itself is counted.
 
-**Fixed in DeskHop Extended, and sent upstream as the fourth commit of [#359].**
+**Fixed in DeskHop Extended, and upstream since [#359] merged on 2026-09-15; the fix is its
+fourth commit, `fff129f`.**
 `get_keyboard()` is now lookup only and a parse-time `get_or_add_keyboard()` claims a slot
 per report ID, so an interface holds one `keyboard_t` per collection:
 

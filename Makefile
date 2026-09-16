@@ -131,8 +131,11 @@ KBD_MULTI := $(shell grep -q 'get_or_add_keyboard' $(SRC)/src/keyboard.c 2>/dev/
 # does not, feeding a 6KRO report to a collection wrongly flagged NKRO walks the bitmap
 # straight off the end and ASan aborts the whole run. That read is a real finding, and
 # truncate and shortreport already measure it across the corpus; kbdtest declines the one
-# case that would fault rather than taking the suite down with it.
-KBD_BOUNDED := $(shell grep -q 'byte_index >= len' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_BOUNDED_BITMAP)
+# case that would fault rather than taking the suite down with it. The bound has two
+# spellings: #359 wrote `byte_index >= len`, and upstream's readability pass (896e903)
+# renamed the parameter to report_length, which the fork follows from 637b985. Either
+# string is the fix; a tree with neither reads as unbounded and the 8BitDo stays out.
+KBD_BOUNDED := $(shell grep -qE 'byte_index >= (len|report_length)' $(SRC)/src/hid_report.c 2>/dev/null && echo -DHARNESS_BOUNDED_BITMAP)
 
 # Does the target keep a bitmap whose usage range is wider than the block has bits for,
 # instead of demanding one usage per bit exactly? Unlike every other probe here there is
