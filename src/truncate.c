@@ -56,7 +56,7 @@ int main(int argc, char **argv) {
             return 2;
         }
         long n;
-        if (parse_arg("truncate", "length", argv[2], 10, 1, d->len, &n))
+        if (parse_arg("truncate", "length", argv[2], 1, d->len, &n))
             return 2;
         printf("parsing first %ld of %d bytes of %s\n", n, d->len, d->name);
         parse_prefix(d, (int)n);

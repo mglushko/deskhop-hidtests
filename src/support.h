@@ -25,11 +25,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-/* Exact-size copy: len bytes and not one more, so ASan's redzone begins right after the
-   last byte of the report. That holds at len 0 too, where malloc(0) under ASan is a
-   region no read may touch; every caller has bounded len below already. An allocation
-   failure is the host's problem, not a finding: exit 3, the status cctest and
-   shortreport already used for it. */
+/* Exact-size copy, len bytes and not one more, so ASan's redzone begins right after the
+   last byte; the drivers refuse a case outside its floor and its report[] before this is
+   reached (case_len_ok below). An allocation failure is the host's problem, not a
+   finding: exit 3, the status cctest and shortreport already used for it. */
 static inline uint8_t *dup_exact(const char *prog, const uint8_t *src, int len) {
     uint8_t *copy = malloc((size_t)len);
 
@@ -41,11 +40,19 @@ static inline uint8_t *dup_exact(const char *prog, const uint8_t *src, int len) 
     return copy;
 }
 
+/* Whether a case can be replayed at all: its len is at least the receiver's floor, below
+   which the firmware never hands a report to the decoder, and no more than its report[]
+   holds. A row outside that is a fault in the table, refused by every driver in the same
+   words rather than read past the struct or asserted for an input no device can send. */
+static inline bool case_len_ok(int len, int min, size_t cap) {
+    return len >= min && (size_t)len <= cap;
+}
+
 /* Run fn(arg) in a forked child. Returns 0 if the child exited clean, its exit status if
-   not, and 128 + the signal if it was killed. A sanitizer report is the first kind, not
-   the second: under the options the Makefile sets, ASan and UBSan end the child with a
-   plain status of 1, so a finding arrives like any other non-zero exit and the signal
-   branch is for a real crash. quiet sends the child's output to /dev/null. */
+   not, and 128 + the signal if it was killed. A sanitizer report ends the child with exit
+   status 1, not a signal (-fno-sanitize-recover=all, and ASan reports a bad address
+   itself), so a finding arrives like any other failure; the signal branch is for abort()
+   or a kill from outside. quiet sends the child's output to /dev/null. */
 static inline int run_forked(const char *prog, void (*fn)(const void *), const void *arg,
                              int quiet) {
     fflush(stdout);
@@ -80,18 +87,18 @@ static inline int run_forked(const char *prog, void (*fn)(const void *), const v
 /* strtol, not atol: atol("abc") is 0 and indistinguishable from an explicit 0, and a fuzz
    run given that once ran zero descriptors and reported every access in bounds. `what` is
    the argument's name as the user knows it: N or SEED for fuzz, case or length for the
-   replay tools. `base` is strtol's: 10 for the case indices, lengths and entry numbers
-   the replay tools print in decimal, where base 0 would read 010 as 8 and refuse 08;
-   0 for fuzz, so a seed can still be given in hex. Returns 0 on success. */
-static inline int parse_arg(const char *prog, const char *what, const char *s, int base,
-                            long lo, long hi, long *out) {
+   replay tools. Decimal only: base 0 read 010 as 8 and refused 08, and every number these
+   tools print or document is decimal. Returns 0 on success. */
+static inline int parse_arg(const char *prog, const char *what, const char *s, long lo,
+                            long hi, long *out) {
     char *end;
 
     errno = 0;
-    long v = strtol(s, &end, base);
+    long v = strtol(s, &end, 10);
 
     if (end == s || *end != '\0' || errno == ERANGE || v < lo || v > hi) {
-        fprintf(stderr, "%s: %s=%s is not a number in %ld..%ld\n", prog, what, s, lo, hi);
+        fprintf(stderr, "%s: %s=%s is not a decimal number in %ld..%ld\n", prog, what, s, lo,
+                hi);
         return 1;
     }
 

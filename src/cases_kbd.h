@@ -48,6 +48,14 @@
 
 #define REPORT_MAX 40
 
+/* The shortest report the firmware hands to the decoder: process_keyboard_report returns
+   on length < KBD_REPORT_LENGTH before extract_kbd_data runs. kbdtest refuses a row below
+   this and shortreport starts its truncations here; a shorter row would assert an input
+   the receiver drops. A hand copy of firmware logic, so re-check it against keyboard.c
+   when touching either; last checked against upstream c220d0c and DeskHop Extended
+   637b985. */
+#define KBD_MIN_LEN KBD_REPORT_LENGTH
+
 typedef struct {
     const char *what;
     uint8_t     report[REPORT_MAX];
@@ -65,19 +73,14 @@ typedef struct {
     uint8_t     keys_multi[KEYS_IN_USB_REPORT];
 
     /* A fourth, for the collections whose bitmap is only kept once a usage range wider
-       than its block is accepted. Independent of has_multi: a device can need one, the
-       other, both or neither, and the Keychron's NKRO collection parsed on its own needs
-       only this one, because there is nothing there for a second keyboard_t to hold. */
+       than its block is accepted. A row can carry one flag, the other, both or neither,
+       and the Keychron's NKRO collection parsed on its own needs only this one, because
+       there is nothing there for a second keyboard_t to hold. The trees are not so free:
+       every width arm so far sits on a tree with one keyboard_t per collection, and the
+       columns model that lineage; kbdtest's banner says what a tree off it would do. */
     bool        has_wide;
     uint8_t     keys_wide[KEYS_IN_USB_REPORT];
 } kbd_case_t;
-
-/* kbdtest compares KEYS_IN_USB_REPORT bytes of out.keycode, the TinyUSB struct copied
-   into include/harness.h with six slots. A target that widened the constant would read
-   past that struct rather than fail to compile, so say it here, as cases_cc.h does for
-   the control lengths. */
-_Static_assert(KEYS_IN_USB_REPORT == sizeof(((hid_keyboard_report_t *)0)->keycode),
-               "the keys_* arrays and hid_keyboard_report_t.keycode must be the same width");
 
 typedef struct {
     const char    *name;

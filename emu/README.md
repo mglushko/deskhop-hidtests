@@ -204,6 +204,12 @@ To recover the board for reflashing, hold BOOTSEL while plugging it in.
 | `,./` alone | the 6KRO collection produced nothing, a third state worth reporting |
 | nothing | the rig is not reaching the PC, check the port, cable and active output |
 
+Doing it as an A/B is what makes it conclusive: flash the pre-fix image, confirm
+`gmovw3,./`, then flash the fixed one and confirm `abcdef,./` with nothing else
+changed. Run that way on 2026-08-19 it gave 11 lines of `gmovw3,./` on
+DeskHop Extended v1.04 and 48 of `abcdef,./` on DeskHop Extended v1.05, against
+7 lines of `abcdef,./` typed straight into a PC as the control.
+
 # Keychron Ultra-Link, the off-by-one usage range
 
 Same procedure, `ultralink-emu.uf2`, and the same three-burst line. Interface 1 as the
@@ -219,18 +225,12 @@ byte `2 + usage / 8`, so anything at 48 or above is outside it.
 |---|---|
 | `abcdef,./` and a newline | the 0x11 bitmap is being decoded, fix confirmed |
 | `abcdef` and nothing else | the bitmap was rejected, which is [#324] |
-| `abcdef` with a stray key before the newline | the collections collapsed as well, see [#57] |
+| `bcdef` and nothing else | the collections collapsed as well, see [#57]: the collapse clears the first key slot, the bitmap is still rejected, and the Enter burst decodes as ErrorRollOver rather than as Enter |
 | nothing | the rig is not reaching the PC, check the port, cable and active output |
 
 Every report this rig puts on the wire is pinned as a case row against
 `d_ultralink_iface1` in `../src/cases_kbd.h`, so the script cannot quietly stop meaning
 what this table says.
-
-Doing it as an A/B is what makes it conclusive: flash the pre-fix image, confirm
-`gmovw3,./`, then flash the fixed one and confirm `abcdef,./` with nothing else
-changed. Run that way on 2026-08-19 it gave 11 lines of `gmovw3,./` on
-DeskHop Extended v1.04 and 48 of `abcdef,./` on DeskHop Extended v1.05, against
-7 lines of `abcdef,./` typed straight into a PC as the control.
 
 # Gameball, the usages[] overflow
 

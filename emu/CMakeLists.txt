@@ -46,7 +46,7 @@ function(emu_device target defines)
   endif()
   # Anything written before the first keyword is never read, and a repair flag put there
   # would ship the unrepaired bytes under the repaired product string.
-  if(ARG_UNPARSED_ARGUMENTS)
+  if(DEFINED ARG_UNPARSED_ARGUMENTS)
     message(FATAL_ERROR "${target}: arguments before DESC are not read: ${ARG_UNPARSED_ARGUMENTS}")
   endif()
   if(NOT ARG_SOURCES)

@@ -168,10 +168,23 @@ static int run_device(const kbd_device_t *dev) {
             want = c->keys;
         }
 
-        /* a len past the end of the array would overread the struct below */
-        if (c->len < 0 || (size_t)c->len > sizeof(c->report)) {
-            printf("  %-47s len %d exceeds report[%zu] - fix the case\n", c->what, c->len,
-                   sizeof(c->report));
+        /* A len past the end of the array would overread the struct below; one below the
+           receiver's floor would assert an input process_keyboard_report drops. */
+        if (!case_len_ok(c->len, KBD_MIN_LEN, sizeof(c->report))) {
+            printf("  %-47s len %d outside %d..%zu - fix the case\n", c->what, c->len,
+                   KBD_MIN_LEN, sizeof(c->report));
+            failures++;
+            continue;
+        }
+
+        /* has_multi and has_wide each say "this fix moves the row's answer". A flag whose
+           column repeats the one before it would credit a fix for nothing, the tag this
+           table once carried on five rows, so it is a fault in the table too. */
+        if ((c->has_multi && memcmp(c->keys_multi, c->keys_fixed, KEYS_IN_USB_REPORT) == 0) ||
+            (c->has_wide && memcmp(c->keys_wide, c->has_multi ? c->keys_multi : c->keys_fixed,
+                                   KEYS_IN_USB_REPORT) == 0)) {
+            printf("  %-47s a flagged column repeats the one before it - fix the case\n",
+                   c->what);
             failures++;
             continue;
         }
@@ -220,9 +233,18 @@ int main(void) {
     printf("              %s\n", ONE_KEYBOARD_PER_COLLECTION
                ? "one keyboard_t per collection (get_or_add_keyboard present)"
                : "all collections on one interface share keyboard_t");
-    printf("              %s\n\n", ACCEPTS_WIDE_USAGE_RANGE
+    printf("              %s\n", ACCEPTS_WIDE_USAGE_RANGE
                ? "a usage range wider than its block is kept (width arm present)"
                : "a usage range wider than its block is rejected");
+    /* The columns model one lineage, in which the width arm has only ever sat on a tree
+       with one keyboard_t per collection. Off it the collapsed keyboard_t takes the wide
+       block and walks the 6KRO reports of the same interface as bitmap bits, an answer no
+       column holds, so say so rather than let the rows fail unexplained. */
+    if (ACCEPTS_WIDE_USAGE_RANGE && !ONE_KEYBOARD_PER_COLLECTION)
+        printf("              a width arm on a shared keyboard_t is a shape no tree has had: the\n"
+               "              6KRO rows of ultralink_iface1 and keychron_dongle_keyboard decode\n"
+               "              as bitmap bits here, and no column holds that answer\n");
+    printf("\n");
 
     for (unsigned i = 0; i < ARRAY_SIZE(kbd_devices); i++) {
         failures += run_device(&kbd_devices[i]);

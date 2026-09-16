@@ -1,11 +1,14 @@
 /* Feed every truncation of every report to the decode path.
  *
- *   ./shortreport                         every case at every length, print a summary
- *   ./shortreport <device>[#k] <n> <len>  run one case in process, ASan report visible
+ *   ./shortreport                    every case at every length, print a summary
+ *   ./shortreport <entry> <n> <len>  run one case in process, ASan report visible
  *
- * Five names sit in both case tables or twice in one, so a bare name selects the first
- * entry carrying it in table order and <device>#2 the second. The repro line at the end
- * of a sweep prints whichever form names its entry exactly.
+ * An entry is named by its table and its descriptor, mouse/<name> or kbd/<name>, with
+ * /boot on the end where the device is replayed in boot protocol: kbd/boot_keyboard/boot.
+ * Five descriptors sit in both tables or twice in one, which is why the name alone is
+ * not the entry; where it is unambiguous a bare <name> still selects it, as the repro
+ * lines in FINDINGS.md do. The sweep's table and its repro line print the full form,
+ * which names the same entry on every tree, whatever the HARNESS_* gates left out.
  *
  * The mirror image of truncate.c. That one truncates the *descriptor*, which a
  * device supplies once at enumeration; this one truncates the *report*, which a
@@ -26,27 +29,16 @@
  * the decode path, so the shortest report that can actually get through differs
  * per path. Replaying below that floor would report a bug no device can trigger,
  * which is worse than not testing at all - it would send someone upstream with a
- * patch for an unreachable case. The floors, read out of the receivers:
- *
- *   process_mouse_report     no guard at all         -> 1 byte
- *   process_keyboard_report  length < KBD_REPORT_LENGTH returns -> 8 bytes
- *
- * These are hand copies of firmware logic, in the same way mousetest.c's
- * dispatch() is, and carry the same risk of going stale. Unlike dispatch() they
- * are load bearing: raising a floor hides a real finding and lowering one invents
- * a false one. Re-check them against keyboard.c and mouse.c when touching either.
- * Last checked against upstream c220d0c and DeskHop Extended 637b985.
+ * patch for an unreachable case. The floors are MOUSE_MIN_LEN and KBD_MIN_LEN in
+ * the case tables' headers, beside the rows they bound, and mousetest and kbdtest
+ * refuse a row below them for the same reason. They are hand copies of firmware
+ * logic and load bearing: raising a floor hides a real finding and lowering one
+ * invents a false one.
  */
 #include "main.h"
 #include "cases_mouse.h"
 #include "cases_kbd.h"
 #include "support.h"
-
-/* process_mouse_report hands whatever arrived straight to extract_report_values */
-#define MOUSE_MIN_LEN 1
-
-/* process_keyboard_report returns early on length < KBD_REPORT_LENGTH */
-#define KBD_MIN_LEN   KBD_REPORT_LENGTH
 
 typedef enum { PATH_MOUSE, PATH_KBD } path_e;
 
@@ -107,11 +99,15 @@ static int run_isolated(path_e path, const void *dev, unsigned case_idx, int n, 
     return run_forked("shortreport", decode_prefix_job, &job, quiet);
 }
 
-/* Uniform view over the two case tables, so the driver below is written once. */
+/* Uniform view over the two case tables, so the driver below is written once. id is the
+   entry's name on the command line and in the table: mouse/<name> or kbd/<name>, with
+   /boot where the row is replayed in boot protocol. It is the row's own, not its
+   position, so it selects the same entry on every tree. */
 typedef struct {
     path_e      path;
     const void *dev;
     const char *name;
+    char        id[64];
     unsigned    count;
     int         min_len;
 } entry_t;
@@ -137,65 +133,71 @@ static int case_cap(const entry_t *e) {
     return (int)sizeof(((const kbd_case_t *)0)->report);
 }
 
-/* Five names sit in both tables or twice in one, so a name alone can be ambiguous. The
-   k-th entry carrying a name, counted from 1 in table order, is selected as `name#k`;
-   a bare name is `name#1`. */
-static int name_count(const entry_t *entries, unsigned num, const char *name) {
-    int n = 0;
+/* The entry a command line names: the full form exactly, or a bare descriptor name when
+   one entry alone carries it. Says why when nothing is selected. */
+static const entry_t *find_entry(const entry_t *entries, unsigned num, const char *spec) {
+    const entry_t *found = NULL;
+    int            bare  = 0;
 
     for (unsigned i = 0; i < num; i++)
-        if (strcmp(entries[i].name, name) == 0)
-            n++;
-    return n;
-}
+        if (strcmp(entries[i].id, spec) == 0)
+            return &entries[i];
 
-/* NULL when nothing matches; *matches says how many entries carry the name, or -1 when
-   the #k suffix itself was malformed and parse_arg has already said so. */
-static const entry_t *find_entry(const entry_t *entries, unsigned num, const char *spec,
-                                 int *matches) {
-    const char *hash = strchr(spec, '#');
-    size_t      len  = hash ? (size_t)(hash - spec) : strlen(spec);
-    long        want = 1;
-
-    *matches = -1;
-    if (hash && parse_arg("shortreport", "entry", hash + 1, 10, 1, LONG_MAX, &want))
-        return NULL;
-
-    *matches = 0;
-    const entry_t *found = NULL;
-    for (unsigned i = 0; i < num; i++) {
-        if (strncmp(entries[i].name, spec, len) != 0 || entries[i].name[len] != '\0')
-            continue;
-        if (++*matches == want)
+    for (unsigned i = 0; i < num; i++)
+        if (strcmp(entries[i].name, spec) == 0) {
             found = &entries[i];
+            bare++;
+        }
+    if (bare == 1)
+        return found;
+
+    if (bare == 0) {
+        fprintf(stderr, "shortreport: no entry named '%s' has decode cases\n", spec);
+        return NULL;
     }
-    return found;
+    fprintf(stderr, "shortreport: '%s' is %d entries; name one of", spec, bare);
+    for (unsigned i = 0; i < num; i++)
+        if (strcmp(entries[i].name, spec) == 0)
+            fprintf(stderr, " %s", entries[i].id);
+    fprintf(stderr, "\n");
+    return NULL;
 }
 
-/* The form of an entry's name that selects exactly it on the command line. */
-static void print_entry_name(const entry_t *entries, unsigned num, const entry_t *e) {
-    if (name_count(entries, num, e->name) == 1) {
-        printf("%s", e->name);
-        return;
-    }
-
-    int k = 0;
-    for (const entry_t *p = entries; p <= e; p++)
-        if (strcmp(p->name, e->name) == 0)
-            k++;
-    printf("%s#%d", e->name, k);
-}
-
+/* One entry per row of the two device tables, mouse first, named as entry_t says. Two
+   rows that would share a name are a table fault, refused here rather than left for the
+   sweep to report under one name. */
 static unsigned build_entries(entry_t *out, unsigned cap) {
     unsigned n = 0;
 
     for (unsigned i = 0; i < ARRAY_SIZE(mouse_devices) && n < cap; i++)
-        out[n++] = (entry_t){PATH_MOUSE, &mouse_devices[i], mouse_devices[i].name,
+        out[n++] = (entry_t){PATH_MOUSE, &mouse_devices[i], mouse_devices[i].name, "",
                              mouse_devices[i].count, MOUSE_MIN_LEN};
 
     for (unsigned i = 0; i < ARRAY_SIZE(kbd_devices) && n < cap; i++)
-        out[n++] = (entry_t){PATH_KBD, &kbd_devices[i], kbd_devices[i].name,
+        out[n++] = (entry_t){PATH_KBD, &kbd_devices[i], kbd_devices[i].name, "",
                              kbd_devices[i].count, KBD_MIN_LEN};
+
+    for (unsigned i = 0; i < n; i++) {
+        entry_t *e        = &out[i];
+        uint8_t  protocol = e->path == PATH_MOUSE
+                                ? ((const mouse_device_t *)e->dev)->protocol
+                                : ((const kbd_device_t *)e->dev)->protocol;
+        int      len      = snprintf(e->id, sizeof(e->id), "%s/%s%s",
+                                     e->path == PATH_MOUSE ? "mouse" : "kbd", e->name,
+                                     protocol == HID_PROTOCOL_BOOT ? "/boot" : "");
+
+        if (len < 0 || (size_t)len >= sizeof(e->id)) {
+            fprintf(stderr, "shortreport: %s does not fit an entry name of %zu bytes\n",
+                    e->name, sizeof(e->id) - 1);
+            exit(1);
+        }
+        for (unsigned j = 0; j < i; j++)
+            if (strcmp(out[j].id, e->id) == 0) {
+                fprintf(stderr, "shortreport: two entries named %s - fix the case tables\n",
+                        e->id);
+                exit(1);
+            }
+    }
 
     return n;
 }
@@ -206,34 +208,26 @@ int main(int argc, char **argv) {
 
     /* single case, in process, so the ASan report lands on the terminal */
     if (argc == 4) {
-        int            matches;
-        const entry_t *e = find_entry(entries, num, argv[1], &matches);
-        if (!e) {
-            if (matches == 0)
-                fprintf(stderr, "shortreport: no device named '%s' has decode cases\n", argv[1]);
-            else if (matches > 0)
-                fprintf(stderr, "shortreport: '%s' names %d entries; pick one with #1..#%d\n",
-                        argv[1], matches, matches);
+        const entry_t *e = find_entry(entries, num, argv[1]);
+        if (!e)
             return 2;
-        }
 
         long idx;
-        if (parse_arg("shortreport", "case", argv[2], 10, 0, (long)e->count - 1, &idx))
+        if (parse_arg("shortreport", "case", argv[2], 0, (long)e->count - 1, &idx))
             return 2;
 
         int full = case_len(e, (unsigned)idx);
-        if (full < 0 || full > case_cap(e)) {
-            fprintf(stderr,
-                    "shortreport: case %ld of %s has len %d, past its report[%d] - fix the case\n",
-                    idx, e->name, full, case_cap(e));
-            return 2;
+        if (!case_len_ok(full, e->min_len, (size_t)case_cap(e))) {
+            fprintf(stderr, "shortreport: case %ld of %s has len %d outside %d..%d - fix the case\n",
+                    idx, e->id, full, e->min_len, case_cap(e));
+            return 1;
         }
 
         long n;
-        if (parse_arg("shortreport", "length", argv[3], 10, e->min_len, full, &n))
+        if (parse_arg("shortreport", "length", argv[3], e->min_len, full, &n))
             return 2;
 
-        printf("%s case %ld (%s): first %ld of %d report bytes\n", e->name, idx,
+        printf("%s case %ld (%s): first %ld of %d report bytes\n", e->id, idx,
                case_what(e, (unsigned)idx), n, full);
         decode_prefix(e->path, e->dev, (unsigned)idx, (int)n);
         printf("clean\n");
@@ -241,11 +235,13 @@ int main(int argc, char **argv) {
     }
 
     if (argc != 1) {
-        fprintf(stderr, "usage: shortreport [<device>[#k] <case> <len>]\n");
+        fprintf(stderr, "usage: shortreport [<entry> <case> <len>]\n"
+                        "  <entry> is mouse/<name> or kbd/<name>, with /boot for a row in boot\n"
+                        "  protocol, or a bare <name> when one entry alone carries it\n");
         return 2;
     }
 
-    printf("  %-27s %6s %8s %10s   %s\n", "DEVICE", "path", "lengths", "failures",
+    printf("  %-32s %8s %10s   %s\n", "ENTRY", "lengths", "failures",
            "first failing case, length");
     print_rule(81);
 
@@ -263,9 +259,9 @@ int main(int argc, char **argv) {
         for (unsigned c = 0; c < e->count; c++) {
             int full = case_len(e, c);
 
-            if (full < 0 || full > case_cap(e)) {
-                printf("  %-27s %6s   case %u: len %d past its report[%d] - fix the case\n",
-                       e->name, e->path == PATH_MOUSE ? "mouse" : "kbd", c, full, case_cap(e));
+            if (!case_len_ok(full, e->min_len, (size_t)case_cap(e))) {
+                printf("  %-32s   case %u: len %d outside %d..%d - fix the case\n",
+                       e->id, c, full, e->min_len, case_cap(e));
                 bad_cases++;
                 continue;
             }
@@ -290,35 +286,31 @@ int main(int argc, char **argv) {
         }
 
         if (first_case >= 0)
-            printf("  %-27s %6s %8ld %10ld   case %d at %d bytes\n", e->name,
-                   e->path == PATH_MOUSE ? "mouse" : "kbd", tried, bad, first_case, first_len);
+            printf("  %-32s %8ld %10ld   case %d at %d bytes\n", e->id, tried, bad,
+                   first_case, first_len);
         else
-            printf("  %-27s %6s %8ld %10s   -\n", e->name,
-                   e->path == PATH_MOUSE ? "mouse" : "kbd", tried, "0");
+            printf("  %-32s %8ld %10s   -\n", e->id, tried, "0");
     }
 
     printf("\n  %ld of %ld truncated reports failed\n", total_bad, total);
+    /* A table fault fails the run the way it does in mousetest and kbdtest, with the
+       status an overread gets, and is named under the count it shrank; 2 stays the answer
+       to a bad command line. */
+    if (bad_cases)
+        printf("  %d case(s) were not replayed and are missing from that count: fix them in "
+               "the case tables\n", bad_cases);
 
-    int rc = 0;
+    int rc = bad_cases ? 1 : 0;
     if (worst) {
-        printf("\n  reproducing the first failure: ");
-        print_entry_name(entries, num, worst);
-        printf(" case %u at %d bytes\n\n", worst_case, worst_len);
+        printf("\n  reproducing the first failure: %s case %u at %d bytes\n\n", worst->id,
+               worst_case, worst_len);
         fflush(stdout);
         run_isolated(worst->path, worst->dev, worst_case, worst_len, 0);
-        printf("\n  repeat it directly with: ./shortreport ");
-        print_entry_name(entries, num, worst);
-        printf(" %u %d\n", worst_case, worst_len);
+        printf("\n  repeat it directly with: ./shortreport %s %u %d\n", worst->id, worst_case,
+               worst_len);
         rc = 1;
-    } else {
+    } else if (!bad_cases) {
         printf("  every truncated report decoded without reading outside the buffer\n");
-    }
-
-    /* A table fault fails the run the way it does in mousetest and kbdtest, with the
-       status an overread gets; 2 stays the answer to a bad command line. */
-    if (bad_cases) {
-        printf("\n  %d case(s) were not replayed: fix them in the case tables\n", bad_cases);
-        rc = 1;
     }
 
     /* Both tables' gates, since this binary replays both; the denominator above is
