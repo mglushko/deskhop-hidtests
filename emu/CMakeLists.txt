@@ -33,8 +33,21 @@ pico_sdk_init()
 
 set(CORPUS ${CMAKE_CURRENT_LIST_DIR}/../descriptors.h)
 
-# emu_device(<target> <define> <c_name>=<prefix> ...)
+# emu_device(<target> <defines> DESC <c_name>=<prefix> ... [--flag ...]
+#            [SOURCES <file> ...] [LIBS <lib> ...])
+#
+# One generated header per target, holding only that target's descriptors, then the
+# executable. SOURCES defaults to the two files the timed rigs share; the Sleep/Wake rig
+# brings its own, and the library its BOOTSEL sampler needs.
 function(emu_device target defines)
+  cmake_parse_arguments(ARG "" "" "DESC;SOURCES;LIBS" ${ARGN})
+  if(NOT ARG_DESC)
+    message(FATAL_ERROR "${target}: no DESC <c_name>=<prefix> given")
+  endif()
+  if(NOT ARG_SOURCES)
+    set(ARG_SOURCES main.c usb_descriptors.c)
+  endif()
+
   set(gendir ${CMAKE_CURRENT_BINARY_DIR}/gen/${target})
   set(header ${gendir}/emu_desc.h)
 
@@ -42,36 +55,40 @@ function(emu_device target defines)
     OUTPUT  ${header}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${gendir}
     COMMAND ${CMAKE_COMMAND} -E env python3
-            ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py ${CORPUS} ${header} ${ARGN}
-    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py ${CORPUS}
+            ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py ${CORPUS} ${header} ${ARG_DESC}
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py
+            ${CMAKE_CURRENT_LIST_DIR}/../tools/hiditems.py ${CORPUS}
     COMMENT "Extracting ${target} descriptors from the harness corpus"
     VERBATIM)
   add_custom_target(${target}_desc DEPENDS ${header})
 
-  add_executable(${target} main.c usb_descriptors.c)
+  add_executable(${target} ${ARG_SOURCES})
   add_dependencies(${target} ${target}_desc)
-  target_compile_definitions(${target} PRIVATE ${defines})
+  if(defines)
+    target_compile_definitions(${target} PRIVATE ${defines})
+  endif()
+  target_compile_options(${target} PRIVATE -Wall -Wextra)
   target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_LIST_DIR} ${gendir})
-  target_link_libraries(${target} pico_stdlib tinyusb_device)
+  target_link_libraries(${target} pico_stdlib tinyusb_device ${ARG_LIBS})
   pico_add_extra_outputs(${target})
 endfunction()
 
 emu_device(bitdo-emu "EMU_BITDO"
-  d_bitdo_retro_iface2=bitdo)
+  DESC d_bitdo_retro_iface2=bitdo)
 
 emu_device(ultralink-emu "EMU_ULTRALINK"
-  d_ultralink_iface1=ultralink)
+  DESC d_ultralink_iface1=ultralink)
 
 # All three interfaces of the receiver, in its order. Only the mouse is the test,
 # but the keyboard carries the positive control and the consumer interface is what
 # makes the endpoint layout the real one.
 emu_device(sculpt-emu "EMU_SCULPT"
-  d_sculpt_rx_keyboard=sculpt_keyboard
+  DESC d_sculpt_rx_keyboard=sculpt_keyboard
   d_sculpt_rx_mouse=sculpt_mouse
   d_sculpt_rx_consumer=sculpt_consumer)
 
 emu_device(gameball-emu "EMU_GAMEBALL"
-  d_gameball_trackball=gameball_trackball
+  DESC d_gameball_trackball=gameball_trackball
   d_gameball_gesture=gameball_gesture
   d_gameball_keyboard=gameball_keyboard)
 
@@ -79,14 +96,14 @@ emu_device(gameball-emu "EMU_GAMEBALL"
 # against this one isolates whether presenting the other two interfaces is what
 # stops the pointer moving.
 emu_device(gameball-min-emu "EMU_GAMEBALL;EMU_MINIMAL"
-  d_gameball_trackball=gameball_trackball)
+  DESC d_gameball_trackball=gameball_trackball)
 
 # Same again, but with End Collection rewritten to the well formed 0xC0. Every
 # Gameball descriptor in the corpus uses 0xC1 0x00, which is bSize 1 where the
 # spec says 0. This build is what tells you whether a strict host is refusing the
 # descriptor over that, rather than over anything the emulator is doing.
 emu_device(gameball-c0-emu "EMU_GAMEBALL;EMU_NORMALISED"
-  d_gameball_trackball=gameball_trackball --normalise-end-collection)
+  DESC d_gameball_trackball=gameball_trackball --normalise-end-collection)
 
 # Both repairs. On top of End Collection, the axes get a negative Logical
 # Minimum: the corpus descriptor never sets one, so the 0 left over from the
@@ -94,7 +111,7 @@ emu_device(gameball-c0-emu "EMU_GAMEBALL;EMU_NORMALISED"
 # that honours that throws away every negative delta and the pointer can only
 # travel right and down.
 emu_device(gameball-fixed-emu "EMU_GAMEBALL;EMU_FIXED"
-  d_gameball_trackball=gameball_trackball --normalise-end-collection --fix-signed-axes)
+  DESC d_gameball_trackball=gameball_trackball --normalise-end-collection --fix-signed-axes)
 
 # The one that tests #332. All three interfaces, both repairs, so the gesture
 # interface with its Report Counts of 256, 1024 and 2048 is actually presented to
@@ -103,25 +120,16 @@ emu_device(gameball-fixed-emu "EMU_GAMEBALL;EMU_FIXED"
 # evidence says they bring the bytes closer to what the real device sends rather
 # than further from it.
 emu_device(gameball-full-emu "EMU_GAMEBALL;EMU_FULLFIX"
-  d_gameball_trackball=gameball_trackball
+  DESC d_gameball_trackball=gameball_trackball
   d_gameball_gesture=gameball_gesture
   d_gameball_keyboard=gameball_keyboard
   --normalise-end-collection --fix-signed-axes)
 
-# An interactive rig with its own main loop. The timed device emulators above
-# retain their existing behavior. BOOTSEL sampling is specific to the RP2040.
-set(sleepwake_header ${CMAKE_CURRENT_BINARY_DIR}/gen/sleepwake-emu/emu_desc.h)
-add_custom_command(
-  OUTPUT ${sleepwake_header}
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/gen/sleepwake-emu
-  COMMAND ${CMAKE_COMMAND} -E env python3 ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py
-          ${CORPUS} ${sleepwake_header} d_sleepwake_emu=sleepwake
-  DEPENDS ${CORPUS} ${CMAKE_CURRENT_LIST_DIR}/gen_desc.py
-  VERBATIM)
-add_executable(sleepwake-emu sleepwake/main.c sleepwake/control.c
-               sleepwake/bootsel.c sleepwake/usb_descriptors.c ${sleepwake_header})
-target_include_directories(sleepwake-emu PRIVATE ${CMAKE_CURRENT_LIST_DIR}
-                           ${CMAKE_CURRENT_BINARY_DIR}/gen/sleepwake-emu)
-target_compile_options(sleepwake-emu PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(sleepwake-emu pico_stdlib tinyusb_device hardware_sync)
-pico_add_extra_outputs(sleepwake-emu)
+# An interactive rig with its own main loop and sources; BOOTSEL sampling is specific
+# to the RP2040. Same descriptor generation and build as the timed rigs above, plus
+# -Werror, which this rig has always been held to.
+emu_device(sleepwake-emu ""
+  DESC d_sleepwake_emu=sleepwake
+  SOURCES sleepwake/main.c sleepwake/control.c sleepwake/bootsel.c sleepwake/usb_descriptors.c
+  LIBS hardware_sync)
+target_compile_options(sleepwake-emu PRIVATE -Werror)

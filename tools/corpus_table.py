@@ -17,6 +17,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import add_descriptor as ad  # noqa: E402
+import hiditems  # noqa: E402
 
 ROOT = os.path.join(HERE, os.pardir)
 CORPUS_MD = os.path.join(ROOT, "CORPUS.md")
@@ -157,13 +158,11 @@ GD = {0x01: "pointer", 0x02: "mouse", 0x04: "joystick", 0x05: "gamepad", 0x06: "
 
 def collections(b):
     """Top-level collection kinds and every report ID, in declaration order."""
-    kinds, rids, depth, i, page, usage = [], [], 0, 0, None, None
-    while i < len(b):
-        pre = b[i]
-        size = pre & 3
-        size = 4 if size == 3 else size
-        tag = pre & 0xFC
-        data = int.from_bytes(bytes(b[i + 1:i + 1 + size]), "little") if size else 0
+    kinds, rids, depth, page, usage = [], [], 0, None, None
+    for item in hiditems.walk_items(b):
+        if item.typ == 3:
+            continue
+        tag, data = item.tag, item.value
         if tag == 0x04:
             page = data
         elif tag == 0x08:
@@ -188,7 +187,6 @@ def collections(b):
             depth += 1
         elif tag == 0xC0:
             depth -= 1
-        i += 1 + size
     return kinds, rids
 
 

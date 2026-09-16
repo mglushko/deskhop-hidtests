@@ -23,6 +23,8 @@ import os
 import re
 import sys
 
+import hiditems
+
 # a hex byte, optionally 0x prefixed, not part of a longer word
 TOKEN = re.compile(r"(?:\b0[xX])?([0-9A-Fa-f]{2})\b")
 
@@ -129,11 +131,7 @@ def existing(path=CORPUS):
             "  Refusing to continue: without it the duplicate check would pass "
             "everything." % (path, e.strerror))
 
-    out = {}
-    for name, body in re.findall(
-            r"static const uint8_t d_(\w+)\[\]\s*=\s*\{(.*?)\};", text, re.S):
-        out[name] = [int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", body)]
-    return out
+    return {name[len("d_"):]: b for name, b in hiditems.read_corpus(text).items()}
 
 
 def duplicate_of(b, corpus):
@@ -159,21 +157,20 @@ def sanity(b):
     if b[0] not in (0x05, 0x06):
         notes.append("does not start with a Usage Page item (05 or 06), check the paste")
 
-    depth, i, collections = 0, 0, 0
-    while i < len(b):
-        size = b[i] & 0x03
-        size = 4 if size == 3 else size
-        tag_type = b[i] & 0xFC
-        if tag_type == 0xA0:
+    depth, end, collections = 0, 0, 0
+    for item in hiditems.walk_items(b):
+        end = item.end
+        if item.typ == 3:
+            continue
+        if item.tag == 0xA0:
             depth += 1
             collections += 1
-        elif tag_type == 0xC0:
+        elif item.tag == 0xC0:
             depth -= 1
-        i += 1 + size
 
-    if i != len(b):
+    if end != len(b):
         notes.append("items do not land exactly on the end (%d vs %d), descriptor may be "
-                     "truncated" % (i, len(b)))
+                     "truncated" % (end, len(b)))
     if depth != 0:
         notes.append("collections unbalanced (%+d), descriptor may be incomplete" % depth)
 
