@@ -1,33 +1,24 @@
-/* The routing half of usb.c:tuh_hid_report_received_cb: given an interface and the
- * bytes that arrived, which receiver gets called.
+/* The routing half of usb.c:tuh_hid_report_received_cb: given an interface and the bytes
+ * that arrived, which receiver gets called. Two ways, and the harness prefers the first:
  *
- * Two ways to get that answer, and the harness prefers the first:
+ *   LIFTED. The callback itself cannot go through tools/lift.py (it reaches global_state
+ *   and the TinyUSB host API, and computes a device_idx nothing here needs), but its
+ *   decision is a pure function of iface, the interface protocol and report[0], so a
+ *   target that has factored it out as pick_receiver() hands the harness the real thing.
+ *   The Makefile detects that and lifts it.
  *
- *   LIFTED. tuh_hid_report_received_cb itself cannot go through tools/lift.py - it
- *   reaches global_state and the TinyUSB host API, and computes a device_idx nothing
- *   here needs. But the decision inside it is a pure function of iface, the interface
- *   protocol and report[0], and a target that has factored it out as pick_receiver()
- *   hands the harness the real thing. The Makefile detects that and lifts it.
+ *   MODELLED. With the routing still inlined in the callback there is nothing to lift, so
+ *   the copy below stands in, reproducing upstream at 59577cc. dispatchtest prints which
+ *   of the two it used, because a model can only report what it was written to say: the
+ *   boot-routing bug survived exactly that way, in a display-only copy of these rules
+ *   that mousetest carried and kept printing the old answer from.
  *
- *   MODELLED. On a target that still has the routing inlined in the callback there is
- *   nothing to lift, so the copy below stands in. It reproduces upstream at 59577cc.
- *   dispatchtest prints which of the two it used, because a model can only report what
- *   it was written to say - and that is exactly how the boot-protocol routing bug
- *   survived: mousetest carried a copy of these rules, display-only and documented as
- *   able to go stale, and it duly kept printing the old answer.
- *
- * KEEP THIS IN STEP WITH usb.c. Last checked against upstream c220d0c, which keeps this
- * shape and reads the table through a 256-entry map; at 59577cc the function read:
+ * KEEP THIS IN STEP WITH usb.c. Last checked against upstream e5f8ae8, which keeps this
+ * shape and reads the table through a 256-entry map. At 59577cc, in outline:
  *
  *     if (iface->uses_report_id || itf_protocol == HID_ITF_PROTOCOL_NONE) {
- *         uint8_t report_id = 0;
- *         if (iface->uses_report_id)
- *             report_id = report[0];
- *         if (report_id < MAX_REPORTS) {
- *             process_report_f receiver = iface->report_handler[report_id];
- *             if (receiver != NULL)
- *                 receiver((uint8_t *)report, len, device_idx, iface);
- *         }
+ *         report_id = iface->uses_report_id ? report[0] : 0;
+ *         if (report_id < MAX_REPORTS) receiver = iface->report_handler[report_id];
  *     }
  *     else if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD) process_keyboard_report(...);
  *     else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE)    process_mouse_report(...);
@@ -35,11 +26,9 @@
  * The `report_id < MAX_REPORTS` guard is what dropped sculpt_rx_mouse. A target keyed by
  * value reads the table through get_report_handler(), and upstream since ce8abb6 through
  * report_receivers[]; hid_handler() in src/handlers.h does the same on all three shapes,
- * so the model above needs no second copy for either fix.
- *
- * Note what this does NOT depend on: iface->protocol. Boot protocol changes what
- * the device puts on the wire, not which branch runs. That is the whole of the
- * boot-routing finding - see src/dispatchtest.c.
+ * so the model needs no second copy for either fix. Note what it does NOT depend on:
+ * iface->protocol. Boot protocol changes what the device puts on the wire, not which
+ * branch runs. That is the whole of the boot-routing finding, see src/dispatchtest.c.
  */
 #pragma once
 
@@ -66,13 +55,8 @@ static inline process_report_f hid_route(const hid_interface_t *iface, uint8_t i
 
 #define HID_ROUTE_IS_LIFTED 0
 
-/* Stand-in for a target whose usb.c still has the routing inlined in the callback,
-   where there is no function to lift. It reproduces the upstream logic at 59577cc, which
-   c220d0c keeps apart from the table's shape.
-   A model can only ever report what it was written to say, so dispatchtest prints
-   which of the two it used: a modelled result is not a measurement of the firmware.
-
-   `report` must hold at least one byte, as it does on any real transfer. */
+/* The routing inlined in usb.c at 59577cc, outlined above, for a target with nothing to
+   lift. `report` must hold at least one byte, as it does on any real transfer. */
 static inline process_report_f hid_route(const hid_interface_t *iface, uint8_t itf_protocol,
                                          const uint8_t *report) {
     if (iface->uses_report_id || itf_protocol == HID_ITF_PROTOCOL_NONE) {

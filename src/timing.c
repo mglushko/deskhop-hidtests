@@ -1,11 +1,9 @@
-/* Report Count is a 32-bit global item, so values up to 4.29 billion are legal
-   syntax. Bounding the usage array stops the memory corruption but the element
-   loop in handle_main_input() still runs once per declared element.
- *
- * Measures cost per element on the host. The number that matters is the target's:
- * the RP2040 runs a Cortex-M0+ at 120 MHz, and DeskHop's watchdog fires after
- * 500 ms, which is a budget of 60 million cycles for the whole parse.
- */
+/* Report Count is a 32-bit global item, so values up to 4.29 billion are legal syntax.
+   Bounding the usage array stops the memory corruption but the element loop in
+   handle_main_input() still runs once per declared element. Measures the cost per element
+   on the host; the number that matters is the target's, where the RP2040 runs a
+   Cortex-M0+ at 120 MHz and DeskHop's watchdog fires after 500 ms, a budget of 60 million
+   cycles for the whole parse. */
 #include "main.h"
 #include <time.h>
 

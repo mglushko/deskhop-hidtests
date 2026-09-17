@@ -2,41 +2,26 @@
  *
  * Parses a pointing device's descriptor, then pushes real reports through
  * extract_report_values(), which tools/lift.py pulls verbatim out of the target's
- * mouse.c. Expected values are worked out by hand from the descriptor, so this
- * fails if either the parser or the extraction changes meaning.
+ * mouse.c. Expected values are worked out by hand from the descriptor, so this fails if
+ * either the parser or the extraction changes meaning.
  *
- * The devices, chosen for the shapes they exercise:
+ * The devices are chosen for the shapes they exercise: 8-bit fields with no report ID,
+ * 12-bit X/Y split across two report IDs or packed so Y never lands on a byte boundary,
+ * vendor bytes between the buttons and the axes, two mouse collections in one
+ * descriptor, and 16-bit axes on report ID 0x1A, which is 26. cases_mouse.h says which
+ * device is which. cherry_mw8c_mouse runs the Kensington's cases because its pointer
+ * section is byte for byte the same; if that ever stops being true, this notices.
  *
- *   gameball_trackball      8-bit fields, no report ID at all
- *   kensington_expert_mouse 12-bit X/Y, and the pointer split across two report
- *                           IDs: buttons/wheel/pan on 1, X/Y on 2
- *   cherry_mw8_mouse        12-bit X/Y in one report, so Y starts at bit 20 and
- *                           never lands on a byte boundary
- *   mx518_mouse             two vendor bytes sitting between the buttons and the
- *                           axes, and the wheel declared before X/Y
- *   kernel_multi_collection two mouse collections in one descriptor, so the
- *                           decode runs against whichever one won
- *   sculpt_rx_mouse         16-bit axes, wheel and pan on report ID 0x1A, which is 26:
- *                           decodes here, and before ce8abb6 upstream dropped it before
- *                           it got here
- *
- * cherry_mw8c_mouse runs the Kensington's cases because its pointer section is
- * byte for byte the same; if that ever stops being true, this notices.
- *
- * Each report is copied into an exact-size allocation before being decoded, the
- * same trick truncate.c uses, so ASan's redzone catches a read past the end of
- * the report rather than letting it pass as a plausible number.
+ * Each report is decoded from an exact-size allocation, as in truncate.c, so ASan's
+ * redzone catches a read past its end rather than letting it pass as a plausible number.
  */
 #include "main.h"
 #include "dispatch.h"
 #include "support.h"
 
-/* Routing comes from src/dispatch.h, shared with dispatchtest, so the two cannot
-   disagree about what usb.c does, and the receiver is named by the same function
-   dispatchtest prints rather than by a second reading of which branch usb.c took.
-   Here it stays display only - printed in each device's header, never asserted on -
-   because a mouse test should fail on decode, not on routing. src/dispatchtest.c is
-   what asserts on it. */
+/* Routing comes from src/dispatch.h, shared with dispatchtest, so the two cannot disagree
+   about what usb.c does. Display only, never asserted on: a mouse test should fail on
+   decode, not on routing, and src/dispatchtest.c is what asserts on it. */
 static void print_dispatch(const hid_interface_t *iface, uint8_t itf_protocol,
                            const uint8_t *report) {
     process_report_f got = hid_route(iface, itf_protocol, report);
@@ -113,22 +98,16 @@ static int run_device(const mouse_device_t *dev) {
 }
 
 #ifdef HARNESS_IFACE_MOUSE_BUTTONS
-/* Where a movement report's buttons come from when the report has none.
-
-   Two pointing devices can be attached at once - a keyboard's mouse keys for the buttons
-   and a trackball for the movement is the setup upstream #287 is about - so what the host
-   is told is the union across all of them, and state->mouse_buttons holds that union.
-   Which makes it the wrong thing for a single device's decode to read back: a device that
-   declares its buttons under a report ID of its own sends movement reports with no button
-   field at all, and falling back to the union would write another device's buttons into
-   this one's stored state, where they would stay held after that device let go.
-
-   The fallback therefore reads the interface it was handed. Three real descriptors, each
-   presetting a different stored value and a deliberately different union, so a fallback
-   that reached for either the wrong one or a hardcoded zero fails here.
-
-   Only built where the target has the per-interface field; on a tree without it the
-   fallback is state->mouse_buttons and these cases would be asserting the bug. */
+/* Where a movement report's buttons come from when the report has none. With two pointing
+   devices attached (a keyboard's mouse keys plus a trackball, the setup upstream #287 is
+   about) the host is told the union, held in state->mouse_buttons, and that is the wrong
+   thing for one device's decode to read back: a device declaring its buttons under a
+   report ID of its own sends movement reports with no button field, and the union would
+   leave another device's buttons held in this one's stored state after it let go. So the
+   fallback reads the interface it was handed. Three real descriptors, each with a
+   different stored value and union, so reaching for the wrong one or a hardcoded zero
+   fails here. Only built where the target has the per-interface field; without it the
+   fallback is state->mouse_buttons and these cases would assert the bug. */
 typedef struct {
     const char    *name;
     const uint8_t *desc;

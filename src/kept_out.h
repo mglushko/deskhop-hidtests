@@ -1,11 +1,8 @@
-/* What a case table's gates kept out of this build, for the last line of a run.
- *
- * The case tables drop a device behind #ifdef HARNESS_* when the target lacks the bound
- * that device needs, so that one known overread does not take the whole run down. Each
- * such gate adds its device to a list here in its closed form, and the binaries print the
- * list last. A probe that stops matching the target - a parameter renamed upstream, say -
- * then shows up as a line in the output rather than as a quietly smaller denominator.
- */
+/* What a case table's gates kept out of this build, printed last in a run. The tables
+ * drop a device behind #ifdef HARNESS_* when the target lacks the bound it needs, so one
+ * known overread does not take the whole run down; each such gate adds its device to a
+ * list here in its closed form. A probe that stops matching the target (a parameter
+ * renamed upstream, say) then shows as a line, not as a quietly smaller denominator. */
 #pragma once
 
 #include <stdio.h>

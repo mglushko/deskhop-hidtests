@@ -1,23 +1,15 @@
-/* Stand-ins for the send path, and for the global they read.
- *
- * process_consumer_report() and process_system_report() are lifted verbatim by
- * tools/lift.py, so everything they reach for has to exist here. They end by
- * handing a payload to one of three functions:
+/* Stand-ins for the send path, and for the global they read. process_consumer_report()
+ * and process_system_report() are lifted verbatim by tools/lift.py, so everything they
+ * reach for has to exist here. They end by handing a payload to one of three functions:
  *
  *     CURRENT_BOARD_IS_ACTIVE_OUTPUT ? send_consumer_control(...)  : queue_packet(...)
  *     CURRENT_BOARD_IS_ACTIVE_OUTPUT ? send_system_control(...)    : queue_packet(...)
  *
- * The real send_consumer_control and send_system_control live in keyboard.c one
- * level below the receivers, and they are NOT lifted: they reach queue_cc_packet,
- * queue_system_packet, time_us_64() and state->last_activity[BOARD_ROLE], which is
- * Pico SDK and queue machinery. The cut is here, above them, and it is the right
- * place - what a test wants to know is what the receiver decided to send, which is
- * exactly what these three are handed.
- *
- * queue_packet is the one that carries a length and a packet type; the two send_*
- * functions do not, so len is recorded as -1 for them. That is not a gap: the
- * length is fixed by the constant the caller would have used either way, and the
- * test asserts the payload bytes.
+ * The real send_* live in keyboard.c one level below and are NOT lifted: they reach
+ * queue_cc_packet, queue_system_packet, time_us_64() and state->last_activity[BOARD_ROLE]
+ * (Pico SDK and queue machinery). The cut is here, above them, and rightly so: a test
+ * wants to know what the receiver decided to send, which is exactly what these three are
+ * handed. Only queue_packet carries a length and a packet type.
  */
 #include "main.h"
 

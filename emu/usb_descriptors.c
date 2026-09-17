@@ -1,14 +1,9 @@
-/* USB descriptors for the emulated devices.
- *
- * Every report descriptor here is generated out of ../descriptors.h by
- * gen_desc.py at build time, so the rig and the harness corpus cannot drift.
- * Which device this binary is depends on EMU_BITDO, EMU_GAMEBALL, EMU_ULTRALINK
- * or EMU_SCULPT, set by CMake, which builds them all.
- *
- * The interface classes are chosen deliberately, not copied from a template.
- * deskhop routes on bInterfaceProtocol before it looks at anything else, so
- * getting these wrong moves the device onto a different code path and quietly
- * tests something other than what is intended. Each one is justified below.
+/* USB descriptors for the emulated devices. Every report descriptor is generated
+ * out of ../descriptors.h by gen_desc.py at build time, so the rig and the harness
+ * corpus cannot drift; EMU_BITDO, EMU_GAMEBALL, EMU_ULTRALINK or EMU_SCULPT, set by
+ * CMake, picks the device. The interface classes are chosen deliberately: deskhop
+ * routes on bInterfaceProtocol before it looks at anything else, so a wrong one
+ * quietly tests a different code path. Each one is justified below.
  */
 #include "tusb.h"
 #include "emu_desc.h"
@@ -22,12 +17,10 @@
 #elif defined(EMU_GAMEBALL)
 #  define EMU_VID 0x0782   /* Gameball */
 #  define EMU_PID 0x001B
-   /* Distinct serial and bcdDevice per variant, on purpose. Windows caches a
-      device's descriptors against VID, PID and bcdDevice, so re-flashing a
-      different interface layout onto the same identity gets the cached copy
-      rather than the new one, and the device looks broken for a reason that is
-      nothing to do with its firmware. Anything that changes the descriptor
-      layout here should change these too. */
+   /* Distinct serial and bcdDevice per variant, on purpose: Windows caches a
+      device's descriptors against VID, PID and bcdDevice, so re-flashing another
+      layout onto the same identity gets the cached copy and looks broken. Anything
+      that changes the descriptor layout here should change these too. */
 #  if defined(EMU_FULLFIX)
 #    define EMU_PRODUCT "Gameball emulator (three interfaces, repaired)"
 #    define EMU_SERIAL  "GAMEBALL-3FIX"
@@ -91,11 +84,10 @@ uint8_t const *tud_descriptor_device_cb(void) {
 /*============================================================================*/
 #if defined(EMU_BITDO)
 
-/* One interface, deliberately bInterfaceSubClass 0 and bInterfaceProtocol 0.
-   That is what a six collection composite interface really looks like, and it
-   keeps deskhop on the report ID path where the collection collapse lives.
-   Declaring a boot keyboard would risk the host negotiating boot protocol,
-   where reports carry no ID and the bug is unreachable. */
+/* One interface, deliberately bInterfaceSubClass 0 and bInterfaceProtocol 0: what a six
+   collection composite interface really looks like, and it keeps deskhop on the report
+   ID path where the collection collapse lives. A boot keyboard would risk the host
+   negotiating boot protocol, where reports carry no ID and the bug is unreachable. */
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
     (void)instance;
     return bitdo_desc;
@@ -115,22 +107,17 @@ uint8_t const desc_configuration[] = {
 
 /* Three interfaces, in the order the real device presents them.
  *
- *   0  trackball  bInterfaceProtocol = MOUSE. This one matters. The descriptor
- *                 declares no report ID, so if the interface came up as NONE
- *                 then report_carries_id() is false and pick_receiver() falls
- *                 into the report_handler[report[0]] branch, where report[0] is
- *                 the button byte. The pointer would then be routed by which
- *                 buttons were held. Declaring MOUSE takes the direct branch
- *                 instead, which is both correct and what a real trackball does.
- *   1  gesture    Vendor page 0xFFE0, no boot anything, so subclass 0 and
- *                 protocol 0. This is the interface that carries the bug: three
- *                 of its reports declare 8-bit fields with Report Counts of 256,
- *                 1024 and 2048 against a 128 entry usages[] array. Nothing is
- *                 ever sent on it. Enumerating is the whole test.
- *   2  keyboard   Boot keyboard. Note it declares eight modifier bits and 48
- *                 bits of padding and no key array at all, so it can report
- *                 modifiers and nothing else. That is the device's own doing,
- *                 not a simplification here.
+ *   0  trackball  bInterfaceProtocol = MOUSE, and it matters: the descriptor has no
+ *                 report ID, so as NONE report_carries_id() is false and
+ *                 pick_receiver() takes report_handler[report[0]], the button byte,
+ *                 routing the pointer by which buttons are held. MOUSE takes the
+ *                 direct branch, which is correct and what a real trackball does.
+ *   1  gesture    Vendor page 0xFFE0, no boot anything, so subclass 0 protocol 0.
+ *                 Carries the bug: three reports declare 8-bit fields with Report
+ *                 Counts of 256, 1024 and 2048 against a 128 entry usages[] array.
+ *                 Nothing is ever sent on it; enumerating is the whole test.
+ *   2  keyboard   Boot keyboard: eight modifier bits, 48 bits of padding and no key
+ *                 array, so modifiers and nothing else. The device's own doing.
  */
 #if defined(EMU_MINIMAL) || defined(EMU_NORMALISED) || defined(EMU_FIXED)
 
@@ -180,15 +167,13 @@ uint8_t const desc_configuration[] = {
 /*============================================================================*/
 #elif defined(EMU_ULTRALINK)
 
-/* One interface carrying all three of the real device's top-level collections:
-   a 6KRO keyboard on report ID 7, consumer control on 0x0C and an NKRO keyboard
-   on 0x11. bInterfaceProtocol NONE for the same reason as the 8BitDo above, and
-   here it is load-bearing twice over. Declaring a boot keyboard risks the host
-   negotiating boot protocol, and extract_kbd_data returns from _extract_kbd_boot
-   before the descriptor is consulted at all - so the off-by-one usage range this
-   rig exists to exercise would never be reached. The device's own 6KRO report is
-   not boot-shaped either: it is seven bytes, modifier and six keycodes with no
-   reserved byte, because its 5 + 3 LED bits are declared as Output. */
+/* One interface with the real device's three top-level collections: a 6KRO
+   keyboard on report ID 7, consumer control on 0x0C and an NKRO keyboard on 0x11.
+   bInterfaceProtocol NONE as for the 8BitDo, and load-bearing twice here: in boot
+   protocol extract_kbd_data returns from _extract_kbd_boot before the descriptor is
+   consulted, so the off-by-one usage range this rig exists to exercise would never
+   be reached, and the device's 6KRO report is not boot-shaped either: seven bytes,
+   modifier and six keycodes, no reserved byte, since its 5 + 3 LED bits are Output. */
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
     (void)instance;
     return ultralink_desc;
@@ -206,22 +191,20 @@ uint8_t const desc_configuration[] = {
 /*============================================================================*/
 #elif defined(EMU_SCULPT)
 
-/* Three interfaces, in the order the real receiver presents them and with the
- * classes the public probes of 045e:07a5 show for it.
+/* Three interfaces, in the real receiver's order, with the classes the public
+ * probes of 045e:07a5 show for it.
  *
- *   0  keyboard  Boot keyboard, subclass 1 protocol 1, no report ID. Nothing is
- *                wrong with it; it carries the positive control, one F13 per
- *                cycle, through a path every tree routes correctly.
- *   1  mouse     Boot mouse, subclass 1 protocol 2, the mouse on report ID 0x1A.
- *                This is the whole test. MOUSE rather than NONE because that is
- *                what the real unit declares, and because it is what lets
- *                force_mouse_boot_mode reach the rig: TinyUSB's host refuses
- *                SET_PROTOCOL on a NONE interface. In report protocol the two
- *                classes take the same path through usb.c anyway, since the
- *                descriptor declares report IDs.
- *   2  consumer  A vendor block, consumer control on report 7 and system control
- *                on 3, subclass 0. Presented and never used, so the interface
- *                count and endpoint layout match the real receiver's.
+ *   0  keyboard  Boot keyboard, subclass 1 protocol 1, no report ID: the positive
+ *                control, one F13 per cycle, on a path every tree routes correctly.
+ *   1  mouse     Boot mouse, subclass 1 protocol 2, the mouse on report ID 0x1A: the
+ *                whole test. MOUSE rather than NONE because the real unit declares
+ *                it, and because TinyUSB's host refuses SET_PROTOCOL on a NONE
+ *                interface, so MOUSE is what lets force_mouse_boot_mode reach the
+ *                rig. In report protocol both take the same path through usb.c
+ *                anyway, since the descriptor declares report IDs.
+ *   2  consumer  Vendor block, consumer control on report 7 and system control on
+ *                3, subclass 0. Presented and never used, so the interface count and
+ *                endpoint layout match the real receiver's.
  */
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
     switch (instance) {

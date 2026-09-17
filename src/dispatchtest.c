@@ -2,31 +2,21 @@
  *
  *   ./dispatchtest          every routing case, print a table
  *
- * Every other target here starts after the report has arrived somewhere. This one
- * asks the question before that: given an interface and the bytes on the wire,
- * which of the four process_*_report functions does usb.c hand them to? The
- * routing is modelled in src/dispatch.h, shared with mousetest.
+ * Given an interface and the bytes on the wire, which of the four process_*_report
+ * functions does usb.c hand them to? Every other target starts after that. The routing
+ * is modelled in src/dispatch.h, shared with mousetest.
  *
- * WHY THIS EXISTS
+ * usb.c branches on iface->uses_report_id, which the parser sets from the descriptor at
+ * enumeration and nothing ever revises; it does not look at iface->protocol. So once
+ * force_kbd_boot_protocol puts a keyboard into boot protocol the device stops sending a
+ * report ID but dispatch still reads report[0], now the modifier byte, as one. Harmless
+ * on a descriptor that declares no report ID, where the else-if branch picks the receiver
+ * from the interface protocol; on one that does, the keystroke is dropped or handed to
+ * the consumer or system receiver. A second cause: before ce8abb6 upstream indexed the
+ * table by report ID with MAX_REPORTS slots, so an ID of 24 or more was never bound and
+ * its reports were dropped in report protocol too. The sculpt rows measure that one.
  *
- * usb.c decides between two branches on iface->uses_report_id, which the parser
- * sets from the *descriptor* at enumeration and nothing ever revises. It does not
- * look at iface->protocol. So when a keyboard is put into boot protocol - which is
- * what force_kbd_boot_protocol does - the device stops sending a report ID, but
- * dispatch keeps reading report[0] as one. report[0] is now the modifier byte, and
- * the report goes to report_handler[modifier].
- *
- * On a keyboard whose descriptor declares no report ID that is harmless: the
- * else-if branch runs and the receiver is picked from the interface protocol. On
- * one that does declare a report ID, the result ranges from the keystroke being
- * dropped to it being handed to the consumer or system receiver. The rows below
- * measure that on the real devices in the corpus rather than arguing it.
- *
- * A second cause, found later: before ce8abb6 upstream indexed the table by the report
- * ID with MAX_REPORTS slots, so an ID of 24 or more was never bound and its reports
- * were dropped in report protocol too. The sculpt rows measure that one.
- *
- * This target FAILS on firmware that has either bug. Upstream main fixed the table and
+ * This target FAILS on firmware that has either bug: upstream main fixed the table and
  * still routes boot protocol by the first byte; DeskHop Extended fixed both and passes.
  * It belongs in `make findings`, not `make test`, for the same reason truncate and
  * shortreport do: its exit status is the finding.
@@ -125,11 +115,10 @@ static const route_case_t cases[] = {
                                        "arrives only because the left button sets bit 0, matching report ID 1"},
 
 /* ---- report IDs above MAX_REPORTS: report protocol, nothing exotic on the wire -- */
-/* Microsoft Sculpt receiver 045e:07a5 (issue #367). Its mouse lives on report ID
-   0x1A, which is 26; before ce8abb6 the handler table had MAX_REPORTS (24) slots indexed
-   by the ID itself, so no receiver was ever bound and the report was dropped whichever
-   bInterfaceProtocol the interface carried. The keyboard and the consumer/system
-   interfaces of the same receiver use IDs 0, 7 and 3 and route normally. */
+/* Microsoft Sculpt receiver 045e:07a5 (issue #367): mouse on report ID 0x1A, which is 26,
+   so before ce8abb6 no receiver was ever bound and the report was dropped whichever
+   bInterfaceProtocol the interface carried. Its keyboard and consumer/system interfaces
+   use IDs 0, 7 and 3 and route normally. */
 {"sculpt rx mouse on ID 0x1A, itf mouse", D(sculpt_rx_mouse),   MSE, R, {0x1A,0x00,0x01,0x00},
                                        process_mouse_report, NULL},
 {"sculpt rx mouse on ID 0x1A, itf none",  D(sculpt_rx_mouse),   NON, R, {0x1A,0x00,0x01,0x00},

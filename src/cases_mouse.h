@@ -1,12 +1,7 @@
-/* Mouse decode cases, shared by mousetest and shortreport.
- *
- * Split out of mousetest.c so the two binaries cannot disagree about what a
- * device sends. shortreport replays each of these at every truncated length, so
- * a case added here is checked for both its decoded values and its behaviour on
- * a short report, without being written twice.
- *
- * Expected values are worked out by hand from the descriptor, so a case fails if
- * either the parser or the extraction changes meaning.
+/* Mouse decode cases, shared by mousetest and shortreport so the two cannot disagree
+ * about what a device sends; shortreport replays each row at every truncated length.
+ * Expected values are worked out by hand from the descriptor, so a case fails if either
+ * the parser or the extraction changes meaning.
  */
 #pragma once
 
@@ -15,10 +10,10 @@
 
 /* The shortest report the firmware hands to the decoder: process_mouse_report has no
    length guard, so one byte reaches extract_report_values. mousetest refuses a row below
-   this and shortreport starts its truncations here; either would otherwise measure an
-   input no device can deliver. A hand copy of firmware logic, so re-check it against
-   mouse.c when touching either; last checked against upstream c220d0c and DeskHop
-   Extended 637b985. */
+   this and shortreport starts its truncations here, as either would otherwise measure an
+   input no device can deliver. A hand copy of firmware logic: re-check against mouse.c
+   when touching either; last checked against upstream e5f8ae8 and DeskHop Extended
+   60605e1. */
 #define MOUSE_MIN_LEN 1
 
 typedef struct {
@@ -68,17 +63,16 @@ static const mouse_case_t m_gameball_cases[] = {
     {"everything at once",         {0x1F, 0x7F, 0x81, 0x02, 0xFE}, 5,  127, -127,  2, -2, 31},
 };
 
-/* Kensington Expert Mouse, mi_00 (issue #218), and byte for byte the same layout
-   on the Cherry MW 8C, mi_01 (issue #133).
+/* Kensington Expert Mouse, mi_00 (issue #218), and byte for byte the same layout on the
+   Cherry MW 8C, mi_01 (issue #133).
      report 1: [id][buttons 5 bits + 3 pad][wheel][pan]
      report 2: [id][X 12 bits][Y 12 bits], packed low nibble first:
                byte 1 = X & 0xFF, byte 2 = (X >> 8) | ((Y & 0xF) << 4), byte 3 = Y >> 4
-   extract_value() skips a field whose report_id does not match the report in
-   hand, so a report 1 leaves X and Y at zero and a report 2 leaves wheel and pan
-   at zero. Buttons are the exception: when skipped they fall back to the last
-   button state known for this device, which is zero throughout this test - so the
-   r2 cases below read the same on either side of that fallback changing where it
-   looks. Where it looks is the subject of run_button_fallback() in mousetest.c. */
+   extract_value() skips a field whose report_id does not match the report in hand, so a
+   report 1 leaves X and Y at zero and a report 2 leaves wheel and pan at zero. Skipped
+   buttons fall back to the last state known for this device, zero throughout, so the r2
+   rows read the same wherever that fallback looks: the subject of run_button_fallback()
+   in mousetest.c. */
 static const mouse_case_t m_kensington_cases[] = {
     {"r1: button 1 (left)",     {0x01, 0x01, 0x00, 0x00}, 4,     0,     0,  0,  0,  1},
     {"r1: button 2 (right)",    {0x01, 0x02, 0x00, 0x00}, 4,     0,     0,  0,  0,  2},
@@ -122,21 +116,18 @@ static const mouse_case_t m_cherry_mw8_cases[] = {
     {"everything at once",   {0x03, 0x1F, 0xFF, 0x17, 0x80, 0x7F, 0x81}, 7,  2047, -2047,  127, -127, 31},
 };
 
-/* Logitech MX518. No report ID. The two vendor bytes at 1 and 2 are declared
-   inside the mouse collection but belong to no usage the parser tracks, so the
-   axes sit further along than a naive reading suggests:
+/* Logitech MX518. No report ID. The two vendor bytes at 1 and 2 are declared inside the
+   mouse collection but belong to no usage the parser tracks, so the axes sit further
+   along than a naive reading suggests, X at bit 32 and Y at bit 44:
      [buttons 8][vendor][vendor][wheel 8][X 12 bits][Y 12 bits]
-   X starts at bit 32 and Y at bit 44, so byte 5 carries the top nibble of X in
-   its low half and the bottom nibble of Y in its high half:
      byte 4 = X & 0xFF, byte 5 = (X >> 8) | ((Y & 0xF) << 4), byte 6 = Y >> 4
    This device has no AC Pan, so pan stays 0 throughout. */
 static const mouse_case_t m_mx518_cases[] = {
     {"button 1 (left)",       {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,     0,     0,    0, 0,   1},
-    /* -1, not 255: get_report_value sign-extends, and this is the first mouse in
-       the corpus with 8 buttons, so it is the first whose button field can set
-       bit 7. Harmless on the wire - mouse_report_t.buttons is uint8_t, so the
-       low 8 bits ship as 0xFF either way - but it is why the expected value
-       here is not the 255 you would write down from the descriptor alone. */
+    /* -1, not 255: get_report_value sign-extends, and this is the first mouse in the
+       corpus with 8 buttons, so the first whose button field can set bit 7. Harmless on
+       the wire, since mouse_report_t.buttons is uint8_t and the low 8 bits ship as 0xFF
+       either way. */
     {"all eight buttons",     {0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,     0,     0,    0, 0,  -1},
     {"move right (X +1)",     {0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00}, 7,     1,     0,    0, 0,   0},
     {"move left  (X -1)",     {0x00, 0x00, 0x00, 0x00, 0xFF, 0x0F, 0x00}, 7,    -1,     0,    0, 0,   0},
@@ -152,20 +143,16 @@ static const mouse_case_t m_mx518_cases[] = {
     {"everything at once",    {0xFF, 0xAA, 0x55, 0x7F, 0xFF, 0x17, 0x80}, 7,  2047, -2047,  127, 0,  -1},
 };
 
-/* Kernel docs multi-collection device, decoded against report ID 2 - the second
-   mouse collection, which is the one left standing in iface->mouse after the
-   parser walks both. Layout after the ID byte:
+/* Kernel docs multi-collection device, decoded against report ID 2, the second mouse
+   collection and the one left standing in iface->mouse after the parser walks both.
+   Layout after the ID byte:
      [buttons 5 + 3 pad][X 12 bits][Y 12 bits][wheel 8][pan 8]
-   The last case feeds report ID 1, the first collection, and expects nothing to
-   come out. That is not a typo. extract_value bails when the report's leading ID
-   byte does not equal mouse->report_id, and the second collection overwrote
-   report_id with 2 as the parser walked past it, so every field of an ID 1
-   report fails the check and the values stay zero. usb.c still routes those
-   reports here, because report_handler[1] was bound while the first collection
-   was being parsed - so they arrive at the mouse path and are silently dropped.
-   Both collections happen to declare the same layout, so nothing would have been
-   lost by decoding ID 1 with ID 2's offsets; the parser just has no way to do
-   that with one mouse_t per interface. */
+   The last case feeds report ID 1 and expects nothing, on purpose: extract_value bails
+   when the leading ID byte differs from mouse->report_id, which the second collection
+   overwrote with 2, so every field stays zero. usb.c still routes those reports here,
+   report_handler[1] having been bound while the first collection was parsed, so they
+   arrive and are silently dropped. Both collections declare the same layout, so ID 2's
+   offsets would have lost nothing; one mouse_t per interface just cannot do that. */
 static const mouse_case_t m_kernel_multi_cases[] = {
     {"button 1 (left)",       {0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,     0,     0,    0,    0,  1},
     {"all five buttons",      {0x02, 0x1F, 0x00, 0x00, 0x00, 0x00, 0x00}, 7,     0,     0,    0,    0, 31},
@@ -182,12 +169,12 @@ static const mouse_case_t m_kernel_multi_cases[] = {
     {"report 1 dropped",      {0x01, 0x1F, 0xFF, 0x17, 0x80, 0x7F, 0x81}, 7,     0,     0,    0,    0,  0},
 };
 
-/* Logi Bolt receiver, interface 1. Nine-byte report: ID 2, a 16-bit button field,
-   16-bit X and Y, then 8-bit wheel and pan. The first device in the corpus with
-   more than eight buttons, which is what makes the last two rows worth having:
-   get_report_value() sign-extends on the top bit of the field, so a 16-bit button
-   bitmap with bit 15 set comes back negative. Harmless downstream only because
-   mouse_report_t.buttons is a uint8_t and buttons 9-16 are dropped there anyway. */
+/* Logi Bolt receiver, interface 1. Nine-byte report: ID 2, a 16-bit button field, 16-bit
+   X and Y, then 8-bit wheel and pan. The first device in the corpus with more than eight
+   buttons, hence the last two rows: get_report_value() sign-extends on the top bit of
+   the field, so a 16-bit bitmap with bit 15 set comes back negative, harmless downstream
+   only because mouse_report_t.buttons is a uint8_t and buttons 9-16 are dropped there
+   anyway. */
 static const mouse_case_t m_bolt_rx_cases[] = {
     {"move right (X +20)",    {0x02, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00}, 9,   20,   0,   0,   0,      0},
     {"move left  (X -20)",    {0x02, 0x00, 0x00, 0xEC, 0xFF, 0x00, 0x00, 0x00, 0x00}, 9,  -20,   0,   0,   0,      0},
@@ -218,22 +205,20 @@ static const mouse_case_t m_ultralink_cases[] = {
     {"everything at once",    {0x01, 0x1F, 0xFF, 0x7F, 0x01, 0x80, 0x7F, 0x81}, 8, 32767, -32767, 127, -127, 31},
 };
 
-/* Logi Bolt receiver, interface 3: a Precision Touchpad. It declares Generic
-   Desktop X and Y, but inside a Digitizer top-level collection, so global_usage is
-   0x05 and no entry in extract_data()'s map matches. Nothing is found, no handler
-   is bound, and a finger report decodes to zeros. Asserting the absence, the same
-   way the mx518 case asserts vendor bytes never reach an axis. */
+/* Logi Bolt receiver, interface 3: a Precision Touchpad. It declares Generic Desktop X
+   and Y inside a Digitizer top-level collection, so global_usage is 0x05 and no entry in
+   extract_data()'s map matches: nothing is found, no handler is bound, and a finger
+   report decodes to zeros. The row asserts that absence, as the mx518's vendor-bytes row
+   does. */
 static const mouse_case_t m_bolt_touchpad_cases[] = {
     {"finger down, absolute X/Y", {0x28, 0x03, 0x01, 0x40, 0xD7, 0x0A, 0xFA, 0x06}, 8, 0, 0, 0, 0, 0},
 };
 
-/* The boot-protocol path, which kbdtest has had for keyboards all along and this
-   file has not had for mice. extract_report_values() returns early when the
-   protocol is BOOT and reads the bytes through a hid_mouse_report_t * - buttons,
-   x, y, wheel, pan - without consulting the descriptor and without looking at
-   len. d_boot_mouse's own layout is exactly that, so a full 5-byte report decodes
-   correctly here; the point of the entry is that shortreport can then hand the
-   same path a report shorter than the struct. */
+/* The boot-protocol path. extract_report_values() returns early when the protocol is BOOT
+   and reads the bytes through a hid_mouse_report_t * (buttons, x, y, wheel, pan) without
+   consulting the descriptor or len. d_boot_mouse's layout is exactly that, so a full
+   5-byte report decodes correctly; the entry exists so shortreport can hand the same path
+   a report shorter than the struct. */
 static const mouse_case_t m_boot_protocol_cases[] = {
     {"boot: move right (X +20)", {0x00, 0x14, 0x00, 0x00, 0x00}, 5,   20,   0,  0,  0,  0},
     {"boot: move up-left",       {0x00, 0xF6, 0xF6, 0x00, 0x00}, 5,  -10, -10,  0,  0,  0},
@@ -242,15 +227,13 @@ static const mouse_case_t m_boot_protocol_cases[] = {
 };
 
 
-/* Microsoft Sculpt Ergonomic Mouse receiver, interface 1 (issue #367). Every report
-   below but the synthetic extremes row is one the reporter captured with usbhid-dump, so
-   the expected values are read off the wire rather than derived. Layout is [0x1A]
-   [5 buttons + 3 pad][X 16][Y 16][wheel 16][pan 16], ten bytes. The wheel reads 12 per
-   notch in the capture because the Linux host had set the Resolution Multiplier feature; a
-   host that never touches that feature gets the device default instead. Decoding the bytes
-   is one question and routing the report is another: 0x1A is 26, above the 24-slot table
-   upstream had before ce8abb6, so see dispatchtest for what happened to the report before
-   any of this ran. */
+/* Microsoft Sculpt Ergonomic Mouse receiver, interface 1 (issue #367). Every row but the
+   synthetic extremes is a report the reporter captured with usbhid-dump, so the expected
+   values are read off the wire. Layout [0x1A][5 buttons + 3 pad][X 16][Y 16][wheel 16]
+   [pan 16], ten bytes. The wheel reads 12 per notch because the Linux host had set the
+   Resolution Multiplier feature; a host that never touches it gets the device default.
+   Routing is another question: 0x1A is 26, above the 24-slot table upstream had before
+   ce8abb6, so see dispatchtest for what happened to the report first. */
 static const mouse_case_t m_sculpt_cases[] = {
     {"move left  (X -1)",       {0x1A, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 10,  -1,  0,   0,  0, 0},
     {"move right (X +1)",       {0x1A, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 10,   1,  0,   0,  0, 0},
@@ -287,12 +270,11 @@ static const mouse_case_t m_g502_cases[] = {
     {"drag: btn1 + move",     {0x01, 0x00, 0x0A, 0x00, 0xF6, 0xFF, 0x00, 0x00}, 8,    10,    -10,   0,   0,      1},
 };
 
-/* Logitech Unifying receiver, interface 1, [#17] and [#150] - two units with different
+/* Logitech Unifying receiver, interface 1, [#17] and [#150]: two units with different
    firmware that put the same fields in the same places. Eight bytes on report ID 2: a
-   16-bit button field, then 12-bit X and Y packed low nibble first, the Kensington's
-   arrangement with a byte of buttons in front:
-     byte 3 = X & 0xFF, byte 4 = (X >> 8) | ((Y & 0xF) << 4), byte 5 = Y >> 4
-   then 8-bit wheel and pan. */
+   16-bit button field, 12-bit X and Y packed low nibble first as on the Kensington, then
+   8-bit wheel and pan:
+     byte 3 = X & 0xFF, byte 4 = (X >> 8) | ((Y & 0xF) << 4), byte 5 = Y >> 4 */
 static const mouse_case_t m_unifying_cases[] = {
     {"move right (X +1)",     {0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00}, 8,     1,     0,    0,    0,      0},
     {"move left  (X -1)",     {0x02, 0x00, 0x00, 0xFF, 0x0F, 0x00, 0x00, 0x00}, 8,    -1,     0,    0,    0,      0},
@@ -370,13 +352,12 @@ static const mouse_case_t m_issue26_cases[] = {
 
 /* Corsair Scimitar RGB Elite, interface 0, [#45]. Every row up to the scroll is a report
    the reporter captured with usbhid-dump, eleven bytes: [0x01][32 buttons][X 16][Y 16]
-   [wheel][pad]. The 32-bit button field is the first in the corpus, and it is why this
-   device sits behind HARNESS_FIELD_32 in the table below: get_report_value() computes
-   (1u << size) - 1, which is undefined for a size of 32, and UBSan aborts the run on
-   either tree. On the RP2040 the shift comes out as 0, the mask as all ones and the
-   buttons decode; on x86 without the sanitiser the mask is 0 and every button reads as
-   released. The rows are what the descriptor specifies, ready for a tree that handles
-   the width. */
+   [wheel][pad]. The 32-bit button field, the corpus's first, is why the device sits
+   behind HARNESS_FIELD_32 below: get_report_value() computes (1u << size) - 1, undefined
+   for a size of 32, and UBSan aborts the run on either tree. On the RP2040 the shift
+   comes out as 0 and the mask as all ones, so the buttons decode; on x86 without the
+   sanitiser the mask is 0 and every button reads released. The rows are what the
+   descriptor specifies, for a tree that handles the width. */
 static const mouse_case_t m_scimitar_cases[] = {
     {"move right (X +1), captured", {0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}, 11,  1,  0, 0, 0,    0},
     {"move left  (X -1), captured", {0x01, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00}, 11, -1,  0, 0, 0,    0},
@@ -424,8 +405,8 @@ static const mouse_case_t m_issue99_cases[] = {
 /* A vial-qmk keyboard's mouse collection, [#151], where a layer change made the pointer
    jump to the parking corner. Six bytes on report ID 2: five buttons padded to a byte,
    8-bit X, Y, wheel and pan. The last row is the report the reporter captured on the
-   layer change, seven bytes of zeros: it decodes to nothing, which is the whole point -
-   an empty movement report is what reached the output side. */
+   layer change, seven bytes of zeros, decoding to nothing: an empty movement report is
+   what reached the output side. */
 static const mouse_case_t m_vial_qmk_cases[] = {
     {"move right (X +10)",    {0x02, 0x00, 0x0A, 0x00, 0x00, 0x00}, 6,   10,    0,  0,  0,  0},
     {"move up    (Y -10)",    {0x02, 0x00, 0x00, 0xF6, 0x00, 0x00}, 6,    0,  -10,  0,  0,  0},

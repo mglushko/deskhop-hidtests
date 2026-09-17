@@ -1,16 +1,11 @@
-/* Helpers the drivers share, so a fix lands once.
- *
- * dup_exact copies a report or descriptor into an allocation of exactly its length,
- * which is what lets ASan's redzone catch a read one byte past the end instead of
- * returning the next case's bytes; six sites used to spell it out, four of them without
- * checking malloc. run_forked runs one case in a child so a crash does not hide the
- * remaining thousands, and a fork or wait that fails exits rather than scoring the case
- * clean, which is what a zero status from waitpid(-1) used to do. parse_arg is fuzz.c's
- * strtol wrapper, here so truncate and shortreport stop using atoi, whose "abc" is
- * indistinguishable from an explicit 0. parse_iface is the zeroed-interface parse every
- * driver starts from, print_rule the dashed line under every table header, and print_hex
- * the byte dump four of them had hand-rolled with their own padding constants.
- */
+/* Helpers the drivers share, so a fix lands once: dup_exact, the exact-size copy that
+ * lets ASan's redzone catch a read one byte past the end instead of returning the next
+ * case's bytes; run_forked, one case per child so a crash does not hide the remaining
+ * thousands, and a failed fork or wait exits rather than scoring the case clean, as a
+ * zero status from waitpid(-1) once did; parse_arg, the strtol wrapper (atoi's "abc" is
+ * indistinguishable from an explicit 0);
+ * parse_iface, the zeroed-interface parse every driver starts from; print_rule, the
+ * dashed line under every table header; print_hex, the byte dump. */
 #pragma once
 
 #include "main.h"

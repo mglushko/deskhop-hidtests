@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Instrument a copy of hid_parser.c so every access into parser_state.usages[]
-reports its absolute index to dbg_touch() before happening, then gets clamped so
-the harness survives and can keep fuzzing instead of dying on the first overflow.
+"""Instrument a copy of hid_parser.c so every access into parser_state.usages[] reports
+its absolute index to dbg_touch() first, then is clamped so the harness can keep fuzzing.
 
     instrument.py <hid_parser.c> <out.c>
 
-Works on the three shapes the file has had: before the usage-array bound, with PR
-#361's usages_left(), and with upstream 1e31d10's rewrite of that bound. A site that
-exists in only some shapes is optional where its shape is absent; every access that
-is there must be matched, or it exits non-zero, which catches the case where
-upstream restructured the parser again and this tool has gone stale.
+Works on the three shapes the file has had: before the usage-array bound, with PR #361's
+usages_left(), and with upstream 1e31d10's rewrite of that bound. A site found only in
+some shapes is optional where its shape is absent; every access that is there must be
+matched, or it exits non-zero, which catches upstream restructuring the parser again.
 """
 import os
 import sys
@@ -34,17 +32,12 @@ static inline uint16_t *dbg_slot(parser_state_t *parser, uint16_t *p, long i) {
 }
 '''
 
-# (tag, old, new, group)
-#
-# group is what the site belongs to, and every group must end up with at least one
-# match or the run fails. A site in a group of its own is simply required.
-#
-# The read of the usage is spelled differently in each shape of the parser, so those
-# sites share a group: any one of them counts, none being present does not.
-# Marking them individually optional - which is what this used to do - meant a
-# restructure upstream could leave the read uninstrumented while every required
-# site still matched, and fuzz would then under-report out-of-bounds accesses
-# without a word. That is the exact false negative this tool exists to prevent.
+# (tag, old, new, group). Every group must end up with at least one match or the run
+# fails, so a site in a group of its own is simply required. The usage read is spelled
+# differently in each shape of the parser, so those sites share a group and any one of
+# them counts: marked individually optional, as they once were, an upstream restructure
+# could leave the read uninstrumented while every required site still matched, and fuzz
+# would under-report out-of-bounds accesses without a word.
 SITES = [
     # pre-fix and #361: update_usage() writes the previous element's usage forward
     ("update_usage",
@@ -104,12 +97,10 @@ SITES = [
      "advance"),
 ]
 
-# A group whose sites exist only in some shapes of the file is required only while the
-# shape is: the marker is text that proves the shape is present. update_usage() was
-# removed by 1e31d10, which reads the last declared usage instead of writing it forward,
-# so on that shape there is nothing to instrument and nothing missing. Without this the
-# tool refused the current upstream parser outright; with the group merely optional it
-# would stay silent if a #361-shaped tree ever lost the site to reformatting.
+# A group whose sites exist only in some shapes is required only while its marker, text
+# proving the shape, is present. 1e31d10 removed update_usage(), reading the last
+# declared usage instead of writing it forward, so on that shape nothing is missing; a
+# merely optional group would stay silent if a #361 tree lost the site to reformatting.
 GROUP_MARKER = {
     "update_usage": "void update_usage(",
 }
@@ -158,11 +149,9 @@ def main():
     absent  = [g for g in all_groups if g not in seen_groups and not required(g)]
 
     if missing:
-        # Bail before writing anything. Writing first and returning non-zero after
-        # leaves a file newer than its prerequisites, so the next make skips this
-        # rule and links a half-instrumented parser - and fuzz then under-reports
-        # out-of-bounds accesses, which is the exact false negative it exists to
-        # prevent. The Makefile also sets .DELETE_ON_ERROR:; this is the other half.
+        # Bail before writing: a written file is newer than its prerequisites, so the next
+        # make would skip this rule and link a half-instrumented parser that under-reports
+        # out-of-bounds accesses. The Makefile's .DELETE_ON_ERROR: is the other half.
         print("instrumenting %s FAILED" % sys.argv[1])
         print("  NO SITE MATCHED IN %d GROUP(S):" % len(missing))
         for group in missing:

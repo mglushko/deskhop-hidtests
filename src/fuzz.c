@@ -3,13 +3,10 @@
  *   ./fuzz [count] [seed]
  *
  * Must be linked against a parser built by tools/instrument.py, which routes each
- * usages[] access through dbg_touch() below and then clamps it, so one process can
- * chew through thousands of descriptors that would otherwise corrupt parser state
- * on the first one.
- *
- * The generator leans on the shapes that actually break things: large report
- * counts, long usage runs, and vendor pages. It is not trying to be a general HID
- * fuzzer, it is trying to hit the usage array hard.
+ * usages[] access through dbg_touch() below and then clamps it, so one process can chew
+ * through thousands of descriptors that would otherwise corrupt parser state on the
+ * first one. Not a general HID fuzzer: the generator leans on large report counts, long
+ * usage runs and vendor pages, the shapes that actually break things.
  */
 #include "main.h"
 #include "support.h"

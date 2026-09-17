@@ -1,42 +1,26 @@
 /* End to end keyboard decode.
  *
- * Parses a keyboard's descriptor, then pushes reports through extract_kbd_data()
- * and checks the 8-byte boot-style report that comes out. Expected values are
- * worked out by hand from the descriptor bytes, so this fails if either the
- * parser or the extraction changes meaning.
+ * Parses a keyboard's descriptor, then pushes reports through extract_kbd_data() and
+ * checks the 8-byte boot-style report that comes out. Expected values are worked out by
+ * hand from the descriptor bytes, so this fails if either the parser or the extraction
+ * changes meaning. Nothing here needs lifting: extract_kbd_data and its three helpers,
+ * _extract_kbd_boot, _extract_kbd_other and _extract_kbd_nkro, live in hid_report.c,
+ * which every binary here already compiles; keyboard.c just calls in.
  *
- * Unlike the mouse path, nothing here needs lifting. extract_kbd_data and its
- * three helpers - _extract_kbd_boot, _extract_kbd_other, _extract_kbd_nkro -
- * all live in hid_report.c, which every binary here already compiles. Only the
- * declarations sit in keyboard.h; keyboard.c just calls in.
+ * The devices are chosen for the path each takes through extract_kbd_data; the comment
+ * above each table in cases_kbd.h names it.
  *
- * The devices, chosen for the path each one takes through extract_kbd_data:
+ * Those decode differently by tree, so a case carries up to four expectations, each
+ * naming one: `keys` is what main produced before #359, `keys_fixed` what a parser
+ * keeping every NKRO block produces, `keys_multi` what one holding a keyboard_t per
+ * collection produces, and `keys_wide` what one keeping a usage range wider than its
+ * block produces. The Makefile's probes and the target's own header say which fixes it
+ * has, and run_device() takes the first of keys_wide, keys_multi, keys_fixed and keys
+ * that those fixes and the row's flags allow.
  *
- *   boot_keyboard           _extract_kbd_boot, the plain 8-byte report
- *   rpi_keyboard            same, plus the len == KBD_REPORT_LENGTH + 1 case
- *   boot_protocol           the HID_PROTOCOL_BOOT early return, which ignores
- *                           the descriptor entirely
- *   composite               _extract_kbd_other: keyboard behind report ID 1,
- *                           keys picked out of key_array rather than assumed
- *   nkro_keyboard           _extract_kbd_nkro, one 240-bit block
- *   keyboardio_keyboard     an NKRO block starting at bit 68, four bits into a
- *                           byte - the shape [#216] blames for shifted keys
- *   superlight2_rx_keyboard three blocks, of which main before #359 kept the first
- *   wooting_keyboard        four blocks, of which main before #359 kept the last
- *   ultralink_nkro_keyboard a usage range one wider than the block it covers,
- *                           which every tree before this one threw away
- *
- * Those decode differently depending on the branch under test, so a case carries
- * up to four expectations, each naming a tree: `keys` is what main produced before #359,
- * `keys_fixed` what a parser keeping every NKRO block produces, `keys_multi` what
- * a parser holding one keyboard_t per collection produces, and `keys_wide` what a
- * parser keeping a usage range wider than its block produces. The right one is
- * selected at compile time from what the Makefile finds in the target, so one
- * unmodified file asserts correctly against every one of them.
- *
- * Each report is copied into an exact-size allocation before being decoded, the
- * same trick mousetest.c and truncate.c use, so ASan's redzone catches a read
- * past the end of the report rather than letting it pass as a plausible key.
+ * Each report is decoded from an exact-size allocation, as in mousetest.c and
+ * truncate.c, so ASan's redzone catches a read past its end rather than letting it pass
+ * as a plausible key.
  */
 #include "main.h"
 #include "cases_kbd.h"
@@ -59,29 +43,20 @@ static void print_keys(const uint8_t *k) {
 }
 
 #if ONE_KEYBOARD_PER_COLLECTION
-/* A corpus-wide structural check, rather than two devices with hand-written answers.
- *
- * On a tree that gives each collection its own keyboard_t, one property has to hold for
- * every descriptor here: any report ID the parser bound to process_keyboard_report must
- * resolve, through the firmware's own get_keyboard(), to a slot that claims that ID. If
- * it resolves to a slot claiming a different one, two collections are sharing a
- * keyboard_t and whichever was parsed second has written over the first.
- *
- * This is what the two multi-collection devices demonstrate case by case, stated once
- * over the whole corpus instead. It needs no expectations and no knowledge of any
- * particular device, so it holds for descriptors added later, which is the part the
+/* A corpus-wide structural check: on a tree that gives each collection its own
+ * keyboard_t, any report ID the parser bound to process_keyboard_report must resolve,
+ * through the firmware's own get_keyboard(), to a slot claiming that ID. Otherwise two
+ * collections share a keyboard_t and whichever was parsed second has written over the
+ * first. It needs no expectations, so it holds for descriptors added later, which the
  * hand-written cases cannot do. Gated because it is false by construction on a tree
- * where get_keyboard() short-circuits.
+ * where get_keyboard() short-circuits. It also needs a parser that survives the whole
+ * corpus: without the usages[] bounds fix, gameball_gesture and many_usages take the run
+ * down first. Every tree with a keyboard_t per collection has that fix too, so the one
+ * gate covers both, but the dependency is worth knowing if the two ever come apart.
  *
- * It parses the whole corpus, so it also needs a parser that survives the whole corpus:
- * on a tree without the usages[] bounds fix, gameball_gesture and many_usages take the
- * run down before the check reaches its own conclusion. Every tree that allocates a
- * keyboard_t per collection has that fix too, so the one gate covers both, but the
- * dependency is worth knowing if the two ever come apart.
- *
- * Measured discriminating: against PR #361, which bounds usages[] but does not allocate
- * per collection, it reports three violations - ultralink_iface1 report 17 resolving to a
- * slot claiming 7, and both of the 8BitDo's NKRO IDs resolving to the 6KRO slot.
+ * Measured discriminating against PR #361, which bounds usages[] but does not allocate
+ * per collection: three violations, ultralink_iface1 report 17 resolving to a slot
+ * claiming 7 and both of the 8BitDo's NKRO IDs resolving to the 6KRO slot.
  */
 static int check_keyboard_slots(void) {
     static hid_interface_t iface;

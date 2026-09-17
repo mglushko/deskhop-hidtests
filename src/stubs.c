@@ -1,23 +1,16 @@
-/* The four report receivers live in mouse.c / keyboard.c and are referenced by the
-   usage map in hid_report.c. They play no part in parsing a descriptor, so empty
-   bodies are enough to link.
+/* The four report receivers live in mouse.c / keyboard.c and are referenced by the usage
+   map in hid_report.c. They play no part in parsing a descriptor, so empty bodies link.
+   What the tests use is their addresses: extract_data() binds one to each report ID, and
+   dump prints the handlers: line, cctest asserts the report ID under test is bound to the
+   receiver it drives, kbdtest's slot check resolves every keyboard binding, and
+   dispatchtest compares what the routing returns against them. Aliasing the four, or
+   sharing one body, would make those addresses compare equal and every check meaningless.
 
-   What the tests actually use is their addresses. extract_data() binds one of these
-   to each report ID, and four programs read the table back: dump prints the handlers:
-   line, cctest asserts the report ID under test is bound to the receiver it drives,
-   kbdtest's slot check resolves every keyboard binding, and dispatchtest compares what
-   the routing returns against them. So these have to stay four distinguishable
-   functions: aliasing them, or routing them through one shared implementation, would
-   make those addresses compare equal and every one of those checks would quietly
-   become meaningless.
-
-   Four identical empty bodies are the kind of thing -fipa-icf exists to merge, and
-   that pass is on by default at -O2 and -Os. Measured on GCC 15 it does not fire
-   here - the four keep distinct addresses at -O2 and under -flto, with and without
-   the attribute below - so it has not fired on any build measured here. But nothing
-   in the source said the addresses had to stay distinct; it was resting on the
-   optimiser choosing not to, and on the -O1 in CFLAGS. noipa says it outright, and
-   costs nothing on four empty functions. */
+   -fipa-icf exists to merge identical bodies and is on by default at -O2 and -Os. On GCC
+   15 it does not fire here at -O2, even under -flto, with or without noipa below; but
+   nothing in the source said the addresses had to stay distinct, and that rested on the
+   optimiser choosing not to, and on the -O1 in CFLAGS. noipa says it outright, and costs
+   nothing on four empty functions. */
 #include "main.h"
 
 /* noipa is GCC 8+ and has no Clang equivalent, so ask rather than assume. */

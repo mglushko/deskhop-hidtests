@@ -1,33 +1,23 @@
 /* Hardware stand-ins for devices in the deskhop-hidtests corpus.
  *
- * The harness compiles the firmware's own parser and feeds it real bytes, which
- * is enough to say what the code does with a report but never enumerates
- * anything. These builds close that gap for four devices whose bugs were found
- * on the host and had no way to be seen on a desk. CMake builds them all.
+ * The harness feeds the firmware's own parser real bytes but never enumerates
+ * anything; these builds close that gap for four devices whose bugs were found on
+ * the host. CMake builds them all. emu/README.md carries the long form.
  *
  *============================================================================
  * EMU_BITDO - 8BitDo Retro Mechanical Keyboard, hrvach/deskhop#57
  *============================================================================
  *
- * Interface 2 declares three keyboard collections on one interface, on report
- * IDs 1 (6KRO), 12 and 10 (both 120-bit NKRO bitmaps). Before the fix all three
- * collapse onto keyboards[0], the NKRO bitmap descriptors overwrite the 6KRO
- * one, and an incoming report ID 1 is walked as if it were a bitmap:
- *
- *     typed by the emulator     6KRO keycodes 04 05 06 07 08 09
- *     fixed firmware            abcdef
- *     broken firmware           gmovw3
- *
- * Measured, not guessed: k_bitdo_cases pins the broken column at
- * {10,16,18,25,26,32} and the fixed at {4,5,6,7,8,9}.
- *
- * The trailing ",./" is the control and also guards the one way this could pass
- * for the wrong reason. extract_kbd_data returns _extract_kbd_boot before the
- * descriptor is consulted, and the 8BitDo's 6KRO layout IS the boot layout, so
- * report ID 1 decodes to abcdef in boot protocol whether or not the fix is in.
- * The control therefore uses usages 54 to 56, which sit in bitmap bytes 6 and 7
- * at wire offsets 8 and 9, past the eight bytes _extract_kbd_boot copies. In
- * boot protocol they vanish and the tail disappears with them.
+ * Interface 2 declares three keyboard collections on one interface, on report IDs
+ * 1 (6KRO), 12 and 10 (both 120-bit NKRO bitmaps). Before the fix all three
+ * collapse onto keyboards[0], the NKRO descriptors overwrite the 6KRO one, and
+ * report ID 1 is walked as a bitmap: 6KRO keycodes 04 to 09 type gmovw3 instead of
+ * abcdef. k_bitdo_cases pins both, {10,16,18,25,26,32} broken, {4,5,6,7,8,9} fixed.
+ * The ",./" tail is the control and guards the one false pass: extract_kbd_data
+ * returns _extract_kbd_boot before consulting the descriptor, and the 8BitDo's 6KRO
+ * layout IS the boot layout, so report ID 1 decodes to abcdef in boot protocol with
+ * or without the fix. Usages 54 to 56 sit in bitmap bytes 6 and 7, wire offsets 8
+ * and 9, past the eight bytes _extract_kbd_boot copies, so there the tail vanishes.
  *
  *     abcdef,./  and line breaks   fixed
  *     gmovw3,./  and line breaks   broken, the collapse is present
@@ -37,47 +27,30 @@
  * EMU_GAMEBALL - Gameball trackball 0782:001B, hrvach/deskhop#332
  *============================================================================
  *
- * Three interfaces, presented in the order the real device does. The bug is not
- * on the interface you watch, which is the whole reason this one has to be a
- * composite device rather than a single descriptor.
- *
- * The gesture interface declares 8-bit fields with Report Counts of 256, 1024 and
- * 2048 against a 128 entry usages[] array, one usage each, and in parser_state_t
- * the very next member after usages[] is p_usage, a pointer the parser then
- * dereferences. On a tree without a bound the parse runs off the end of the array
- * and into that pointer. Its largest count, the 16328 bits of padding on the
- * first report, is not involved: a 1-bit constant takes the size/count swap in
- * handle_main_input and lands as a single element. Parsing this descriptor on
- * upstream main aborts under ASan on the host; on an RP2040 it corrupts a live
- * pointer instead.
- *
- * Nothing is ever sent on the gesture interface. Enumerating is the entire test,
- * because the damage happens at parse time. What you watch is the trackball, on
- * interface 0, which moves the pointer in a square and works both side scroll
- * pads. If the parse survived, the square is smooth and the scrolling works. If
- * it did not, the board is unlikely to still be forwarding anything.
- *
- * The circle is 32 relative steps whose deltas sum to zero on both axes, so the
- * pointer returns to where it started every revolution rather than walking off
- * toward a screen edge and tripping deskhop's own output switching. The LED is
- * solid while it circles and flickers while it scrolls.
- *
- * The keyboard interface is presented and never used. It declares eight modifier
- * bits and 48 bits of padding and no key array at all, so it could only ever
- * report modifiers, which would look like a stuck Shift. That is the real
- * device's descriptor, not a simplification.
+ * Three interfaces in the real device's order, because the bug is not on the one
+ * you watch. The gesture interface declares 8-bit fields with Report Counts of 256,
+ * 1024 and 2048 against a 128 entry usages[] array, one usage each, and the next
+ * parser_state_t member is p_usage, a pointer the parser dereferences, so a parse
+ * without a bound runs off the array into it: upstream main aborts under ASan on
+ * the host, an RP2040 corrupts a live pointer instead. Nothing is ever sent on that
+ * interface; the damage happens at parse time, so enumerating is the whole test.
+ * Watch the trackball on interface 0, which circles the pointer and works both side
+ * scroll pads, LED solid while circling and flickering while scrolling. If the
+ * parse survived the circle is smooth and the scrolling works; if not, the board is
+ * unlikely to still be forwarding anything. The keyboard interface is presented and
+ * never used: eight modifier bits, 48 bits of padding and no key array, as the real
+ * device declares it, so it could only ever report modifiers, a stuck Shift.
  *
  *============================================================================
  * EMU_ULTRALINK - Keychron Ultra-Link 8K 3434:d028, hrvach/deskhop#324
  *============================================================================
  *
- * Interface 1 carries a 6KRO keyboard on report ID 7 and an NKRO keyboard on
- * report ID 0x11 whose bitmap declares 153 usages over 152 bits. A parser that
- * demands one usage per bit exactly never records that block, so every key typed
- * through the NKRO report vanishes; the width arm sent upstream as
- * hrvach/deskhop#366 keeps it. The rig runs the 8BitDo's script on this device's
- * IDs and lengths, with the tail typed through the NKRO collection as the
- * control.
+ * Interface 1 carries a 6KRO keyboard on report ID 7 and an NKRO keyboard on report
+ * ID 0x11 whose bitmap declares 153 usages over 152 bits. A parser that demands
+ * exactly one usage per bit never records that block, so every key typed through
+ * the NKRO report vanishes; the width arm merged upstream as hrvach/deskhop#366
+ * (e5f8ae8) keeps it. The rig runs the 8BitDo's script on this device's IDs and
+ * lengths, with the tail typed through the NKRO collection as the control.
  *
  *============================================================================
  * EMU_SCULPT - Microsoft Sculpt receiver 045e:07a5, hrvach/deskhop#367
@@ -85,30 +58,26 @@
  *
  * Three interfaces as the real receiver presents them. The mouse, on interface 1,
  * sits on report ID 0x1A, which is 26: on a tree whose handler table has
- * MAX_REPORTS (24) slots indexed by the ID, nothing is ever bound to it and every
- * report is dropped before decode. The parser has the layout right all along.
- *
- * The rig traces the same 120 pixel circle as the Gameball, then presses buttons
- * 1 to 5 one at a time, then works the wheel and the tilt, then taps F13 on the
- * keyboard interface. The key is the positive control: a boot keyboard with no
- * report ID, routed correctly on every tree, so it arrives whether or not the
- * mouse half does.
+ * MAX_REPORTS (24) slots indexed by the ID, nothing is bound to it and every report
+ * is dropped before decode, though the parser has the layout right all along. The
+ * rig traces the same 120 pixel circle as the Gameball, presses buttons 1 to 5 one
+ * at a time, works the wheel and the tilt, then taps F13 on the keyboard interface:
+ * a boot keyboard with no report ID, routed correctly on every tree, so the
+ * positive control arrives whether or not the mouse half does.
  *
  *     circle, five clicks, scroll, F13       fix present
  *     F13 alone, LED solid, pointer still    the mouse report is being dropped
  *     circle and clicks, no scroll           boot protocol: proves nothing here
  *
- * The last row is force_mouse_boot_mode. The rig follows the host into boot
+ * The last row is force_mouse_boot_mode: the rig follows the host into boot
  * protocol and sends the three-byte layout, which carries no ID and so takes a
- * different path through usb.c; on DeskHop Extended that path works with or
- * without the fix. No scroll phase is the tell.
+ * different path through usb.c, one that works on DeskHop Extended with or without
+ * the fix. No scroll phase is the tell.
  *
  *============================================================================
  *
- * The onboard LED reports which region a failure is in, so "nothing happened"
- * does not have to cover everything from an unpowered board to a working rig
- * pointed at the wrong PC. See emu/README.md. Hold BOOTSEL while plugging the
- * board in to get back to UF2 mode.
+ * The onboard LED reports which region a failure is in; see emu/README.md. Hold
+ * BOOTSEL while plugging the board in to get back to UF2 mode.
  */
 #include <string.h>
 
@@ -137,23 +106,15 @@ static uint32_t reports_sent = 0;
  *============================================================================*/
 #if defined(EMU_GAMEBALL) || defined(EMU_SCULPT)
 
-/* A 120 pixel circle, as 48 relative steps.
- *
- * Small on purpose. A big circle needs clearance on all four sides, and a corner
- * is the worst place to start one because two directions clamp at once, which
- * turns the loop into a staircase and loses the movement that would have closed
- * it. 120 pixels needs little enough room that where the pointer starts stops
- * mattering.
- *
- * Step count and rounding pull against each other: too few steps looks like a
- * polygon, too many makes each step's rounding a larger share of it and the speed
- * vary around the loop, which pointer acceleration turns into shape distortion.
- * 48 steps at radius 60 gives 8 pixel sides and 6 percent variation.
- *
- * The deltas are differences between rounded points on the true circle, so the
- * path never leaves it by more than half a pixel, and they sum to zero on both
- * axes, so the pointer returns to where it started every revolution.
- */
+/* A 120 pixel circle, as 48 relative steps. Small on purpose: a big circle needs
+ * clearance on all four sides, and a corner start clamps two directions at once,
+ * turning the loop into a staircase that loses the movement that would have closed
+ * it. Too few steps looks like a polygon; too many makes each step's rounding a
+ * larger share of it and the speed vary around the loop, which pointer acceleration
+ * turns into shape distortion. 48 steps at radius 60 gives 8 pixel sides and 6
+ * percent variation. The deltas are differences between rounded points on the true
+ * circle, so the path never leaves it by more than half a pixel, and they sum to
+ * zero on both axes, so the pointer returns to where it started every revolution. */
 #define CIRCLE_STEPS 48
 static const int8_t circle[CIRCLE_STEPS][2] = {
     { -1,  8}, { -1,  8}, { -3,  7}, { -3,  7}, { -4,  7}, { -6,  5}, { -5,  6}, { -7,  4},
@@ -209,17 +170,14 @@ typedef struct {
 } burst_t;
 
 /* One line per cycle. The first burst is the discriminator: abcdef where the 6KRO
-   collection decodes on its own. Where the collections have collapsed the two rigs
-   fail differently: the 8BitDo's six bytes are walked as a bitmap and come out as
-   gmovw3, while the Ultra-Link loses its first key slot and types bcdef. The
-   second and third go through the NKRO collection and are chosen to be invisible in
-   boot protocol, so a run that cannot tell fixed from broken says so by losing its
-   tail rather than by typing something plausible: a usage lands in the report at
-   byte 2 + usage / 8, one for the report ID and one for the modifier, so anything at
-   48 or above falls outside the eight bytes _extract_kbd_boot copies. 0x36 to 0x38
+   collection decodes on its own, gmovw3 where the 8BitDo's collapsed collections
+   walk it as a bitmap, bcdef where the Ultra-Link's lose the first key slot. The
+   other two go through the NKRO collection and are invisible in boot protocol, so a
+   run that cannot tell fixed from broken loses its tail rather than typing something
+   plausible: a usage lands at byte 2 + usage / 8 (report ID, then modifier), so 48
+   and above falls outside the eight bytes _extract_kbd_boot copies and 0x36 to 0x38
    vanish there. Enter at 0x28 lands at byte 7, inside the copy, and surfaces as
-   ErrorRollOver instead - also a tell, just a louder one. Keep every NKRO usage at
-   48 or above for the first part of that to hold. */
+   ErrorRollOver: a louder tell. Keep every NKRO usage meant to vanish at 48 or above. */
 static const burst_t script[] = {
     {RID_6KRO, {0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 6},  /* abcdef, or gmovw3 / bcdef */
     {RID_NKRO, {0x36, 0x37, 0x38},                   3},  /* ,./                       */
@@ -281,7 +239,7 @@ static void device_task(void) {
 }
 
 /*==============================================================================
- *  Gameball: draw a square and work both scroll pads, on interface 0
+ *  Gameball: draw the circle and work both scroll pads, on interface 0
  *============================================================================*/
 #elif defined(EMU_GAMEBALL)
 
@@ -512,14 +470,9 @@ static void device_task(void) {
  *     4   ready and armed, counting out the grace period before the first report.
  *     solid / flickering   sending; see the per-device notes above.
  *
- * Codes 2 and 3 used to look identical, which is what made a stalled rig
- * indistinguishable from a suspended one. Each of the three tests behind them is
- * a separate public call, so the code says which of tud_mounted(),
- * tud_suspended() and tud_hid_ready() is the one that is false rather than
- * leaving it to be inferred.
- *
- * A code that changes on its own means enumeration is cycling: the host is
- * configuring the device, dropping it, and trying again. */
+ * Each test is its own public call, so the code says which of tud_mounted(),
+ * tud_suspended() and tud_hid_ready() is the one that is false. A code that changes
+ * on its own means enumeration is cycling: configured, dropped, tried again. */
 #define FLASH_ON_MS   120
 #define FLASH_OFF_MS  200
 #define CODE_GAP_MS   1200
@@ -571,11 +524,10 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
     (void)buffer;   (void)bufsize;
 }
 
-/* Returning 0 here stalls the control request. A boot device gets asked for an
-   input report during enumeration on some hosts, and a stall is a reason for one
-   to stop binding a driver and leave the port suspended, which presents as a
-   device that enumerates and then goes quiet. Hand back a zeroed report of the
-   right length instead. */
+/* Returning 0 here stalls the control request. Some hosts ask a boot device for an
+   input report during enumeration, and a stall is a reason for one to stop binding a
+   driver and leave the port suspended, which presents as a device that enumerates and
+   then goes quiet. Hand back a zeroed report of the right length instead. */
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
                                hid_report_type_t report_type,
                                uint8_t *buffer, uint16_t reqlen) {

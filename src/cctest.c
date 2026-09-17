@@ -1,30 +1,21 @@
 /* End to end consumer and system control.
  *
- * Parses a descriptor, then pushes real reports through process_consumer_report()
- * and process_system_report(), which tools/lift.py pulls verbatim out of the
- * target's keyboard.c. What the receivers hand to the send path is recorded by
- * src/recorders.c and asserted here.
+ * Parses a descriptor, then pushes real reports through process_consumer_report() and
+ * process_system_report(), which tools/lift.py pulls verbatim out of the target's
+ * keyboard.c. What the receivers hand to the send path is recorded by src/recorders.c
+ * and asserted here. `compare` diffs the parse, so a change confined to keyboard.c is
+ * invisible to it, and PR [#358] is exactly that change: this is the target that sees it.
  *
- * This is the target that closes the gap the README used to describe: `compare`
- * diffs the *parse*, so a change confined to keyboard.c is invisible to it. PR
- * [#358] is exactly that change, and compare prints `identical parse` on every
- * descriptor, including cherry_kc6000_consumer, the device it fixes.
+ * #358 changes function bodies only, no macro and no header, so there is nothing to
+ * #ifdef on. Every case carries both answers and each row is classified instead: MAIN
+ * matches want_main, FIXED want_fixed, AGREED both (the controls), and NEITHER is a
+ * failure. The verdict at the end says which branch the code under test behaves like;
+ * FINDINGS.md, "How #358 is measured", has the rest.
  *
- * WHICH BRANCH AM I LOOKING AT
- *
- * #358 changes function bodies only - no macro, no header change - so cases_kbd.h's
- * `#ifdef MAX_NKRO_BLOCKS` trick has nothing to test. Every case therefore carries
- * both answers, and this classifies the branch instead of assuming it: a row that
- * matches want_main is MAIN, one that matches want_fixed is FIXED, one that matches
- * both is AGREED (the controls), and one that matches neither is a failure. The
- * verdict at the end says which branch the code under test behaves like, which is
- * the question compare answers wrongly.
- *
- * Each report is copied into an exact-size allocation before being decoded, the same
- * trick mousetest.c, kbdtest.c and shortreport.c use, so ASan's redzone catches a
- * read past the end of the report rather than letting it pass as a plausible key.
- * process_consumer_report reads raw_report[0] unconditionally, so a zero-length
- * report is not a thing the firmware survives and not a thing this feeds it.
+ * Each report is decoded from an exact-size allocation, as in mousetest.c, kbdtest.c and
+ * shortreport.c, so ASan's redzone catches a read past its end. process_consumer_report
+ * reads raw_report[0] unconditionally, so a zero-length report is not a thing the
+ * firmware survives and not a thing this feeds it.
  */
 #include "main.h"
 #include "cases_cc.h"

@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Lift named functions verbatim out of a deskhop source file.
-
-The point is that the harness runs the firmware's own code rather than a hand
-copy, so a test can never quietly drift from what the device actually does.
+"""Lift named functions verbatim out of a deskhop source file, so the harness runs the
+firmware's own code rather than a hand copy that could quietly drift from the device.
 
     lift.py <source.c> <out.c> func1 [func2 ...]
 
-Fails loudly if a function is not found, so a rename upstream breaks the build
-instead of silently testing nothing.
+Fails loudly if a function is not found, so a rename upstream breaks the build instead
+of silently testing nothing.
 """
 import re
 import sys
@@ -68,11 +66,10 @@ def extract(src, name):
         if brace == -1 or (semi != -1 and semi < brace):
             continue    # a prototype, or a call ending in a semicolon
 
-        # A definition has only the parameter list between the name and the body.
-        # A call in a condition - `if (!get_keyboard(iface, id)) {` - also puts a
-        # brace before any semicolon, and lifting from there would take the
-        # caller's body instead. Requiring the gap between the closing paren and
-        # the brace to be blank is what separates the two.
+        # A definition has only the parameter list between the name and the body. A call
+        # in a condition, `if (!get_keyboard(iface, id)) {`, also puts a brace before any
+        # semicolon, and lifting from there would take the caller's body: the gap between
+        # the closing paren and the brace has to be blank.
         close = matching_paren(src, i + len(needle) - 1)
         if close == -1 or close > brace or src[close + 1:brace].strip():
             rejected.append((src.count("\n", 0, i) + 1, src[line_start:src.find("\n", i)].strip()))

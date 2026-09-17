@@ -3,37 +3,27 @@
  *   ./shortreport                    every case at every length, print a summary
  *   ./shortreport <entry> <n> <len>  run one case in process, ASan report visible
  *
- * An entry is named by its table and its descriptor, mouse/<name> or kbd/<name>, with
- * /boot on the end where the device is replayed in boot protocol: kbd/boot_keyboard/boot.
- * Five descriptors sit in both tables or twice in one, which is why the name alone is
- * not the entry; where it is unambiguous a bare <name> still selects it, as the repro
- * lines in FINDINGS.md do. The sweep's table and its repro line print the full form,
- * which names the same entry on every tree, whatever the HARNESS_* gates left out.
+ * An entry is mouse/<name> or kbd/<name>, with /boot on the end where the device is
+ * replayed in boot protocol: kbd/boot_keyboard/boot. Five descriptors sit in both tables
+ * or twice in one, so the name alone is not the entry, though a bare <name> still selects
+ * it where unambiguous, as the repro lines in FINDINGS.md do. The sweep and its repro
+ * line print the full form, which names the same entry on every tree, whatever the
+ * HARNESS_* gates left out.
  *
- * The mirror image of truncate.c. That one truncates the *descriptor*, which a
- * device supplies once at enumeration; this one truncates the *report*, which a
- * device supplies thousands of times a second and which nothing validates against
- * the length the descriptor implied. A descriptor can declare a 30-byte NKRO
- * bitmap and the device can then send eight bytes, and every offset the parser
- * derived is now pointing past the end of the buffer.
+ * The mirror image of truncate.c: the descriptor arrives once at enumeration, the report
+ * thousands of times a second, and nothing validates it against the length the
+ * descriptor implied, so a 30-byte NKRO bitmap sent as eight bytes leaves every derived
+ * offset pointing past the buffer. As there, each prefix is decoded from an exact-size
+ * heap allocation so ASan's redzone catches an overread rather than the next case's
+ * bytes, in a forked child so one crash does not hide the remaining thousands.
  *
- * Two things make this work, both borrowed from truncate.c. Each prefix is copied
- * into its own exact-size heap allocation, so ASan's redzone sits immediately
- * after the last valid byte and an overread is caught rather than silently
- * reading the next case's bytes. And each case runs in a forked child, so one
- * crash does not hide the remaining thousands.
- *
- * WHAT LENGTHS ARE REACHABLE
- *
- * Each receiver in the firmware applies its own length guard before it reaches
- * the decode path, so the shortest report that can actually get through differs
- * per path. Replaying below that floor would report a bug no device can trigger,
- * which is worse than not testing at all - it would send someone upstream with a
- * patch for an unreachable case. The floors are MOUSE_MIN_LEN and KBD_MIN_LEN in
- * the case tables' headers, beside the rows they bound, and mousetest and kbdtest
- * refuse a row below them for the same reason. They are hand copies of firmware
- * logic and load bearing: raising a floor hides a real finding and lowering one
- * invents a false one.
+ * Each receiver applies its own length guard before the decode path, so the shortest
+ * report that can get through differs per path, and replaying below that floor would
+ * report a bug no device can trigger: worse than not testing at all, it would send
+ * someone upstream with a patch for an unreachable case. The floors, MOUSE_MIN_LEN and
+ * KBD_MIN_LEN, are defined beside the case tables they bound, and mousetest and kbdtest
+ * refuse a row below them for the same reason. They are hand copies of firmware logic
+ * and load bearing: raising one hides a real finding, lowering one invents a false one.
  */
 #include "main.h"
 #include "cases_mouse.h"
@@ -100,9 +90,8 @@ static int run_isolated(path_e path, const void *dev, unsigned case_idx, int n, 
 }
 
 /* Uniform view over the two case tables, so the driver below is written once. id is the
-   entry's name on the command line and in the table: mouse/<name> or kbd/<name>, with
-   /boot where the row is replayed in boot protocol. It is the row's own, not its
-   position, so it selects the same entry on every tree. */
+   entry's name as the header describes it, the row's own rather than its position, so it
+   selects the same entry on every tree. */
 typedef struct {
     path_e      path;
     const void *dev;

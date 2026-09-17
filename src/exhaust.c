@@ -1,12 +1,9 @@
-/* p_usage only ever moves forward across a whole descriptor, so usages[] can be
-   used up before the parser reaches the collection we actually care about.
- *
- * Puts N vendor usages in front of a known good boot mouse and asks whether the
- * mouse still resolves. On a parser that bounds accesses but never resets the
- * cursor, X and Y stop being identified past roughly 126 usages: the device
- * enumerates but the pointer never moves. On one that restarts the usage list per
- * main item, the offsets stay correct however long the prefix gets.
- */
+/* p_usage only ever moves forward across a whole descriptor, so usages[] can be used up
+   before the parser reaches the collection we actually care about. Puts N vendor usages
+   in front of a known good boot mouse and asks whether the mouse still resolves. A parser
+   that bounds accesses but never resets the cursor stops identifying X and Y past roughly
+   126 usages, so the device enumerates but the pointer never moves; one that restarts the
+   usage list per main item keeps the offsets correct however long the prefix gets. */
 #include "main.h"
 #include "descriptors.h"
 #include "support.h"

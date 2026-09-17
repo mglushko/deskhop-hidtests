@@ -1,10 +1,8 @@
-/* Stand-ins for the TinyUSB and Pico SDK bits that hid_parser.c and hid_report.c
-   reach for, so both can be compiled and run on the host.
-
-   Every constant here is copied from the vendored
-   pico-sdk/lib/tinyusb/src/class/hid/hid.h. `make check-constants` compares the
-   two mechanically, so this no longer has to be taken on trust - run it if a
-   result looks wrong, before suspecting the firmware. */
+/* Stand-ins for the TinyUSB and Pico SDK bits that hid_parser.c and hid_report.c reach
+   for, so both can be compiled and run on the host. Every constant here is copied from
+   the vendored pico-sdk/lib/tinyusb/src/class/hid/hid.h, and `make check-constants`
+   compares the two mechanically: run it if a result looks wrong, before suspecting the
+   firmware. */
 #pragma once
 
 #include <stdbool.h>
@@ -115,23 +113,20 @@ typedef struct TU_ATTR_PACKED {
     int8_t  pan;
 } hid_mouse_report_t;
 
-/* The parts of device_t the lifted code actually reads. extract_report_values()
-   names mouse_buttons; process_consumer_report() and process_system_report() want
-   the two fields CURRENT_BOARD_IS_ACTIVE_OUTPUT compares.
+/* The parts of device_t the lifted code reads: extract_report_values() names
+   mouse_buttons, and CURRENT_BOARD_IS_ACTIVE_OUTPUT in process_consumer_report() and
+   process_system_report() compares the other two. Every width is copied from the
+   target's src/include/structs.h and is load bearing: where a skipped button field falls
+   back to mouse_buttons, a wider field here would let a value survive that the firmware
+   truncates (it was int32_t once, and silently disagreed with the device). A tree that
+   keeps buttons per interface reads iface->mouse_buttons instead, but the parameter
+   stays, so keep the width right either way.
 
-   Every width here is copied from the target's src/include/structs.h and each is
-   load bearing. mouse_buttons is the one to be careful with. On a tree where a
-   skipped button field falls back to it, a wider field here would let a value
-   survive that the firmware truncates - it was int32_t once, and silently
-   disagreed with the device. On a tree that keeps buttons per interface the
-   fallback reads iface->mouse_buttons instead and this field goes unread, but the
-   parameter stays, so keep the width right either way.
-
-   Nothing checks this copy the way `make check-constants` checks the constants
-   above; check_constants.py compares macros, not struct fields. Re-read structs.h
-   when a decode result looks off. Last checked against upstream c220d0c:
-   mouse_buttons int16_t (structs.h:110), active_output and board_role uint8_t
-   (structs.h:101-102); DeskHop Extended 637b985 has the same widths. */
+   Nothing checks this copy: check_constants.py compares macros, not struct fields, so
+   re-read structs.h when a decode result looks off. Last checked against upstream
+   e5f8ae8: mouse_buttons int16_t (structs.h:110), active_output and board_role uint8_t
+   (structs.h:101-102); DeskHop Extended 60605e1 has the same widths (structs.h:131 and
+   122-123). */
 typedef struct {
     int16_t mouse_buttons;
     uint8_t active_output;
@@ -140,11 +135,10 @@ typedef struct {
 
 /*==============================================================================
  *  Recording stand-ins for the send path
- *
- *  process_consumer_report() and process_system_report() end by handing a payload
- *  to one of three functions, depending on CURRENT_BOARD_IS_ACTIVE_OUTPUT. All
- *  three are recorded rather than implemented (src/recorders.c), because what a
- *  test wants to know is exactly what they were handed. See src/cctest.c.
+ *  process_consumer_report() and process_system_report() end by handing a payload to
+ *  one of three functions, chosen by CURRENT_BOARD_IS_ACTIVE_OUTPUT. All three are
+ *  recorded rather than implemented (src/recorders.c), because what a test wants to
+ *  know is exactly what they were handed. See src/cctest.c.
  *============================================================================*/
 
 typedef enum {

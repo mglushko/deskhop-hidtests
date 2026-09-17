@@ -6,16 +6,12 @@
 #define CFG_TUD_ENABLED         1
 #define CFG_TUH_ENABLED         0
 
-/* Both of these are required, and the second one is the trap. CFG_TUD_ENABLED
-   alone compiles every device class driver, so the build looks complete and the
-   binary links, but tusb_init() is guarded on
-
-       #if CFG_TUD_ENABLED && defined(TUD_OPT_RHPORT)
-
-   and TUD_OPT_RHPORT is only defined by tusb_option.h when CFG_TUSB_RHPORT0_MODE
-   carries OPT_MODE_DEVICE. Without it tusb_init() compiles to "return true" and
-   the device stack is never brought up: the board powers on, runs, blinks, and
-   never enumerates. main.c has a #error that catches this at build time. */
+/* Both are required, and this one is the trap. CFG_TUD_ENABLED alone compiles and
+   links every device class driver, but tusb_init() is guarded on
+   CFG_TUD_ENABLED && defined(TUD_OPT_RHPORT), and tusb_option.h defines
+   TUD_OPT_RHPORT only when CFG_TUSB_RHPORT0_MODE carries OPT_MODE_DEVICE. Without
+   it tusb_init() compiles to "return true" and the board runs, blinks and never
+   enumerates. main.c has a #error that catches this at build time. */
 #define CFG_TUSB_RHPORT0_MODE   (OPT_MODE_DEVICE | OPT_MODE_FULL_SPEED)
 
 #define CFG_TUSB_MEM_SECTION

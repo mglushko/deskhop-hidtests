@@ -3,9 +3,8 @@
  *   ./dump                 list descriptor names, one per line
  *   ./dump <name>          parse it and dump the result
  *
- * Output is deliberately stable and line oriented so `make compare` can diff two
- * builds of it against each other. Any change to this format invalidates nothing,
- * but both sides of a comparison must be built from the same dump.c.
+ * Output is stable and line oriented so `make compare` can diff two builds of it. A
+ * format change invalidates nothing, but both sides must be built from the same dump.c.
  */
 #include "main.h"
 #include "descriptors.h"
@@ -70,14 +69,13 @@ static void dump_iface(hid_interface_t *iface) {
 
     }
 
-    /* cc_array and sys_array live on a keyboard_t, but they are consumer and system
-       state: handle_consumer_control_values() writes them through get_keyboard(),
-       and process_consumer_report() reads them back the same way. Printing them
-       under the keyboard loop meant they vanished whenever num_keyboards was 0 -
-       which is exactly the case for cherry_kc6000_consumer, a consumer-only
-       interface whose cc_array is the whole point. Print them where they are used,
-       and read keyboards[PRIMARY_KEYBOARD] the way get_keyboard() does when an
-       interface has no report IDs. */
+    /* cc_array and sys_array live on a keyboard_t but are consumer and system state:
+       handle_consumer_control_values() writes them through get_keyboard() and
+       process_consumer_report() reads them back the same way. Printed where they are
+       used, not under the keyboard loop, where they vanished whenever num_keyboards was
+       0, as it is for cherry_kc6000_consumer, a consumer-only interface whose cc_array is
+       the whole point. keyboards[PRIMARY_KEYBOARD] is read the way get_keyboard() does
+       when an interface has no report IDs. */
     const keyboard_t *cckb = &iface->keyboards[PRIMARY_KEYBOARD];
 
     printf("  consumer: rid=%u var=%d arr=%d\n", iface->consumer.report_id,

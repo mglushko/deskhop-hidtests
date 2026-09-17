@@ -17,8 +17,7 @@
 #   cmake --build emu/build
 #
 # Report descriptors are regenerated from ../descriptors.h on every build, so an
-# emulator and the host harness can never disagree about the device. Each target
-# gets its own generated header holding only its own descriptors.
+# emulator and the harness cannot disagree; each target gets its own generated header.
 cmake_minimum_required(VERSION 3.13)
 
 set(PICO_SDK_FETCH_FROM_GIT off)
@@ -36,9 +35,8 @@ set(CORPUS ${CMAKE_CURRENT_LIST_DIR}/../descriptors.h)
 # emu_device(<target> <defines> DESC <c_name>=<prefix> ... [--flag ...]
 #            [SOURCES <file> ...] [LIBS <lib> ...])
 #
-# One generated header per target, holding only that target's descriptors, then the
-# executable. SOURCES defaults to the two files the timed rigs share; the Sleep/Wake rig
-# brings its own, and the library its BOOTSEL sampler needs.
+# One generated header per target, then the executable. SOURCES defaults to the two
+# files the timed rigs share; the Sleep/Wake rig brings its own and the BOOTSEL library.
 function(emu_device target defines)
   cmake_parse_arguments(ARG "" "" "DESC;SOURCES;LIBS" ${ARGN})
   if(NOT ARG_DESC)
@@ -110,20 +108,17 @@ emu_device(gameball-min-emu "EMU_GAMEBALL;EMU_MINIMAL"
 emu_device(gameball-c0-emu "EMU_GAMEBALL;EMU_NORMALISED"
   DESC d_gameball_trackball=gameball_trackball --normalise-end-collection)
 
-# Both repairs. On top of End Collection, the axes get a negative Logical
-# Minimum: the corpus descriptor never sets one, so the 0 left over from the
-# button block stands and X, Y, wheel and pan read as unsigned 0..127. A host
-# that honours that throws away every negative delta and the pointer can only
-# travel right and down.
+# Both repairs. On top of End Collection, the axes get a negative Logical Minimum:
+# the corpus descriptor never sets one, so the 0 left over from the button block
+# stands and X, Y, wheel and pan read as unsigned 0..127, and a host that honours
+# that throws away every negative delta, so the pointer can only travel right and down.
 emu_device(gameball-fixed-emu "EMU_GAMEBALL;EMU_FIXED"
   DESC d_gameball_trackball=gameball_trackball --normalise-end-collection --fix-signed-axes)
 
-# The one that tests #332. All three interfaces, both repairs, so the gesture
-# interface with its Report Counts of 256, 1024 and 2048 is actually presented to
-# deskhop while the trackball stays watchable. The repairs are applied because a
-# host has to accept the device before any of this can be tested at all, and the
-# evidence says they bring the bytes closer to what the real device sends rather
-# than further from it.
+# The one that tests #332: all three interfaces, both repairs, so the gesture
+# interface with its Report Counts of 256, 1024 and 2048 is presented to deskhop while
+# the trackball stays watchable. The repairs are there because a host has to accept the
+# device first, and the evidence says they bring the bytes closer to the real device's.
 emu_device(gameball-full-emu "EMU_GAMEBALL;EMU_FULLFIX"
   DESC d_gameball_trackball=gameball_trackball
   d_gameball_gesture=gameball_gesture

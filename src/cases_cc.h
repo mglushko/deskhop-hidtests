@@ -1,22 +1,16 @@
-/* Consumer and system control decode cases.
+/* Consumer and system control decode cases. They drive process_consumer_report() and
+ * process_system_report(), lifted verbatim out of the target's keyboard.c, and assert
+ * what those functions hand to the send path: `compare` diffs the parse, so a change
+ * confined to keyboard.c, which PR [#358] is, stays invisible to it.
  *
- * These drive process_consumer_report() and process_system_report(), lifted
- * verbatim out of the target's keyboard.c, and assert what those functions hand to
- * the send path. That is the gap the README used to describe: `compare` diffs the
- * parse, so a change confined to keyboard.c is invisible to it, and PR [#358] is
- * exactly such a change.
- *
- * #358 adds no macro, so unlike cases_kbd.h there is nothing to #ifdef on. Each
- * case therefore carries BOTH answers - what pre-#358 main produces and what #358
- * produces - and src/cctest.c reports which one the branch under test matched, failing
- * only if it matches neither. The verdict line at the end of a run says "behaves like
- * pre-#358 main" or "behaves like #358", which is the question compare answers wrongly.
+ * #358 adds no macro, so there is nothing to #ifdef on. Each case carries BOTH answers,
+ * pre-#358 main's and #358's; src/cctest.c reports which one the tree under test matched,
+ * failing only if it matches neither, as "behaves like pre-#358 main" or "behaves like
+ * #358" on the verdict line.
  *
  * Every cc_array value below was read out of `make dump D=<device>`, not derived by
- * hand. That column of dump's output only became visible as part of this work - it
- * used to print inside the keyboard loop, so an interface with no keyboard
- * collection never showed it, which is precisely the case for the one real device
- * that separates the two branches.
+ * hand. dump printed that column inside the keyboard loop until this work, so the one
+ * real separating device, an interface with no keyboard collection, never showed it.
  */
 #pragma once
 
@@ -54,25 +48,19 @@ typedef struct {
     unsigned        count;
 } cc_device_t;
 
-/* Cherry KC6000 Slim, [#117] "Media Keys not working". THE separating device, and a
-   real one: consumer control with no report ID anywhere on the interface, so its
-   reports carry no leading ID byte and main's unconditional skip reads one byte too
-   far. Nine 1-bit usages then seven bits of padding, two bytes on the wire.
-
-   cc_array, from `make dump D=cherry_kc6000_consumer`:
+/* Cherry KC6000 Slim, [#117] "Media Keys not working". THE separating device, and a real
+   one: consumer control with no report ID anywhere on the interface, so its reports carry
+   no leading ID byte and main's unconditional skip reads one byte too far. Nine 1-bit
+   usages then seven bits of padding, two bytes on the wire; cc_array from `make dump
+   D=cherry_kc6000_consumer`:
      [0]=00CD play/pause  [1]=00B5 next  [2]=00B6 prev  [3]=00B8 eject
      [4]=00E2 mute  [5]=00EA vol-  [6]=00E9 vol+  [7]=0223 home  [8]=0192 calculator
-
-   Bit i of byte 0 is usage i; bit 0 of byte 1 is usage 8. main reads byte 1 where it
-   should read byte 0, so it sees the padding byte for usages 0-7 and the *first*
-   data byte for usage 8 - which is why the calculator row below is the sharpest of
-   the four: main does not merely lose the key, it reports a different one.
-
-   Note that main still *sends* on every row: process_consumer_report has no early
-   return, so a press it fails to decode goes out as a zero payload rather than as
-   nothing. Losing the key and sending silence are the same thing downstream, but the
-   distinction matters when reading the table - only the system receiver below can
-   drop a report outright. */
+   Bit i of byte 0 is usage i; bit 0 of byte 1 is usage 8. main reads byte 1 for byte 0,
+   so it sees the padding byte for usages 0-7 and the first data byte for usage 8: the
+   calculator row is the sharpest, main reporting a different key rather than none. main
+   still sends on every row, process_consumer_report having no early return, so an
+   undecoded press goes out as a zero payload; only the system receiver below can drop a
+   report outright. */
 static const cc_case_t kc6000_cases[] = {
     /*                                                     ---- main ----      ---- #358 ----   */
     {"play/pause (bit 0)",   {0x01, 0x00}, 2, true,  {0x00, 0x00},      true,  {0xCD, 0x00}},
@@ -107,25 +95,22 @@ static const cc_case_t bolt_consumer_cases[] = {
 };
 
 /* Microsoft Wired Keyboard 600, [#297], system control on report ID 3. The system
-   receiver ignores is_variable entirely - it just takes one byte - so what matters
-   here is only that the interface uses report IDs. main requires length > 1 and
-   reads raw_report[1]; #358 requires data_len >= 1, which is the same length, and
-   reads data[0], which is the same byte. Identical on both branches, and the control
-   for the synthetic below. */
+   receiver ignores is_variable and takes one byte, so only the interface's report IDs
+   matter: main requires length > 1 and reads raw_report[1]; #358 requires data_len >= 1,
+   the same length, and reads data[0], the same byte. Identical on both branches, and the
+   control for the synthetic below. */
 static const cc_case_t ms600_system_cases[] = {
     {"power down",           {0x03, 0x81}, 2, true, {0x81},             true,  {0x81}},
     {"sleep",                {0x03, 0x82}, 2, true, {0x82},             true,  {0x82}},
     {"nothing held",         {0x03, 0x00}, 2, true, {0x00},             true,  {0x00}},
 };
 
-/* SYNTHETIC. The system half's separating case, and the only one that exists - see
-   the comment on d_system_no_report_id in descriptors.h for the survey that
-   establishes no real device reaches it.
-
-   One byte on the wire, no report ID. main's guard is `length <= SYSTEM_CONTROL_LENGTH`
-   with SYSTEM_CONTROL_LENGTH == 1, so a one-byte report is rejected before anything is
-   read and NOTHING is sent. #358 computes data_len == 1, passes `data_len < 1`, and
-   delivers data[0]. The difference is not a wrong byte, it is the whole report. */
+/* SYNTHETIC. The system half's separating case, and the only one that exists: the survey
+   on d_system_no_report_id in descriptors.h finds no real device that reaches it. One
+   byte on the wire, no report ID. main's guard is `length <= SYSTEM_CONTROL_LENGTH` with
+   SYSTEM_CONTROL_LENGTH == 1, so a one-byte report is rejected unread and NOTHING is
+   sent; #358 computes data_len == 1, passes `data_len < 1`, and delivers data[0]. The
+   difference is the whole report, not a wrong byte. */
 static const cc_case_t system_no_rid_cases[] = {
     {"power down",           {0x01}, 1, false, {0},                     true,  {0x01}},
     {"sleep",                {0x02}, 1, false, {0},                     true,  {0x02}},
@@ -135,13 +120,12 @@ static const cc_case_t system_no_rid_cases[] = {
 };
 
 
-/* Microsoft Sculpt receiver, interface 2 (issue #367). Consumer control on report ID
-   7 as one 16-bit array slot followed by a keyboard-page array byte, padding and
-   vendor bits - eight bytes on the wire. is_variable is false, so this is the copy
-   through branch, as on the Bolt. System control on report ID 3, one byte. Both
-   declare their own IDs, so main and #358 must agree on every row; the entries are
-   here so the receiver's third interface is measured next to the mouse half that
-   is not delivered at all. */
+/* Microsoft Sculpt receiver, interface 2 (issue #367). Consumer control on report ID 7:
+   one 16-bit array slot, then a keyboard-page array byte, padding and vendor bits, eight
+   bytes on the wire; is_variable is false, so the copy-through branch, as on the Bolt.
+   System control on report ID 3, one byte. Both declare their own IDs, so main and #358
+   must agree on every row; the entries measure the receiver's third interface next to the
+   mouse half that is not delivered at all. */
 static const cc_case_t sculpt_consumer_cases[] = {
     {"volume up",            {0x07, 0xE9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8, true, {0xE9, 0x00, 0x00, 0x00},
                                                                                   true, {0xE9, 0x00, 0x00, 0x00}},
@@ -155,11 +139,11 @@ static const cc_case_t sculpt_system_cases[] = {
     {"nothing held",         {0x03, 0x00}, 2, true, {0x00},             true,  {0x00}},
 };
 
-/* Apple A2520 media keys (issue #157): five variable bits on report 0x52, which is 82. On a
-   table indexed by the ID nothing is bound for it, so the rows below would fail on routing
-   rather than decode; they enter only on a tree that binds an ID of 24 or more, keyed by
-   value or through the 256-entry map, the way the 8BitDo rows enter only on a tree that
-   bounds the bitmap walk.
+/* Apple A2520 media keys (issue #157): five variable bits on report 0x52, which is 82. A
+   table indexed by the ID binds nothing for it, so these rows would fail on routing, not
+   decode; they enter only on a tree binding an ID of 24 or more, keyed by value or
+   through the 256-entry map, as the 8BitDo rows enter only on a tree that bounds the
+   bitmap walk.
    cc_array from dump: [0]=00CD play/pause [1]=00B3 fast forward [2]=00B4 rewind
    [3]=00B5 scan next [4]=00B6 scan previous */
 #if defined(HARNESS_HANDLER_LOOKUP) || defined(HARNESS_HANDLER_MAP)

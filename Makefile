@@ -22,8 +22,9 @@
 #   make check-parse                 add_descriptor.py's reader against every dump shape
 #   make check-cli                   the replay tools' command lines, at full length only
 #   make test-sleepwake              the BOOTSEL rig's gesture logic, on the host
-#   make test                        the regression gate: mouse, kbd, consumer, check-parse,
-#                                    check-cli, check-constants and test-sleepwake
+#   make test                        the regression gate: mouse, kbd, consumer,
+#                                    check-parse, check-cli, check-constants and
+#                                    test-sleepwake
 #   make findings                    the four that fail by design, for their numbers
 #   make corpus                      regenerate the table in CORPUS.md
 #   make all                         build everything without running it
@@ -44,36 +45,31 @@ CC     := gcc
 WARN   := -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
 CFLAGS := -O1 -g $(WARN)
 
-# ASan catches reads past a descriptor or a report, which is why both are copied
-# into exact-size heap allocations before use. UBSan catches a different class it
-# cannot see at all: get_report_value() computes (1u << val->size) and
-# 0xFFFFFFFFU << val->size, and val->size is the *swapped* Report Count for 1-bit
-# fields (hid_parser.c, handle_main_input), so a mouse declaring 40 one-bit
-# buttons shifts by 40. That is undefined, and on x86 it silently takes the shift
-# mod 32 and returns a plausible wrong number rather than faulting.
+# ASan catches reads past a descriptor or a report, hence both are copied into exact-size
+# heap allocations. UBSan catches what ASan cannot: get_report_value() computes
+# (1u << val->size) and 0xFFFFFFFFU << val->size, and val->size is the *swapped* Report
+# Count for 1-bit fields (hid_parser.c, handle_main_input), so a mouse declaring 40
+# one-bit buttons shifts by 40.
+# That is undefined; on x86 it silently comes out mod 32 as a plausible wrong number.
 SAN    := -fsanitize=address,undefined -fno-omit-frame-pointer \
           -fno-sanitize-recover=all
 
 export ASAN_OPTIONS = detect_leaks=0
 export UBSAN_OPTIONS = print_stacktrace=1
 
-# Generated files are written by tools that can fail partway. Without this, a
-# failed recipe leaves an output file newer than its prerequisites, and the next
-# make treats it as up to date - so a tools/instrument.py that bailed on a missing
-# site would be skipped on the retry and fuzz would run against a partially
+# Generated files are written by tools that can fail partway. Without this a failed
+# recipe leaves an output newer than its prerequisites, so a tools/instrument.py that
+# bailed on a missing site is skipped on the retry and fuzz runs against a partially
 # instrumented parser, reporting fewer out-of-bounds accesses than really happen.
 .DELETE_ON_ERROR:
 
 B := build
 
-# Which checkout to compile against, and where its outputs go. `compare`
-# re-invokes make with these overridden to build a reference version too.
-#
-# TAG must depend on the target, or switching DESKHOP silently reuses binaries
-# built against the previous one: make only compares timestamps, and a freshly
-# created worktree looks older than the last build. The basename alone is not
-# enough either, since two checkouts called deskhop in different places would
-# share a directory, so a short hash of the absolute path goes on the end.
+# Which checkout to compile against and where its outputs go; `compare` re-invokes make
+# with both overridden to build a reference version. TAG must depend on the target, or
+# switching DESKHOP silently reuses binaries built against the previous one: make only
+# compares timestamps, and a fresh worktree looks older than the last build. The basename
+# alone would let two checkouts called deskhop share a directory, hence the path hash.
 SRC ?= $(DESKHOP)
 TAG ?= $(notdir $(patsubst %/,%,$(DESKHOP)))-$(shell printf '%s' '$(abspath $(DESKHOP))' | md5sum | cut -c1-7)
 
@@ -86,11 +82,10 @@ GEN := $(OUT)/gen
 # face.
 DEPS := Makefile include/harness.h include/main.h include/tusb.h
 
-# The target's src/include is deliberately NOT on the include path. A quoted
-# #include "main.h" searches the including file's own directory first, so leaving
-# it there would pull in deskhop's real main.h and the whole Pico SDK with it.
-# Instead the two headers we need are copied into $(GEN), where their own quoted
-# includes resolve to the shims in include/.
+# The target's src/include is deliberately NOT on the include path: a quoted #include
+# "main.h" searches the including file's own directory first and would pull in deskhop's
+# real main.h and the whole Pico SDK. The headers needed are copied into $(GEN) instead,
+# where their own quoted includes resolve to the shims in include/.
 INCS := -I$(GEN) -Iinclude -I.
 
 PARSER := $(SRC)/src/hid_parser.c
@@ -158,36 +153,31 @@ KBD_LIFT      := get_keyboard $(if $(HAS_MULTI_KBD),get_or_add_keyboard)
 # without this fix, so a third state is needed for the devices whose answer it moves.
 KBD_MULTI := $(if $(HAS_MULTI_KBD),-DHARNESS_MULTI_KEYBOARD)
 
-# Does the target bound extract_bit_variable against the report length? On a tree that
-# does not, feeding a 6KRO report to a collection wrongly flagged NKRO walks the bitmap
-# straight off the end and ASan aborts the whole run. That read is a real finding, and
-# truncate and shortreport already measure it across the corpus; kbdtest declines the one
-# case that would fault rather than taking the suite down with it. The bound has two
-# spellings: #359 wrote `byte_index >= len`, and upstream's readability pass (896e903)
-# renamed the parameter to report_length, which the fork follows from 637b985. Either
-# string is the fix; a tree with neither reads as unbounded and the 8BitDo stays out.
+# Does the target bound extract_bit_variable against the report length? Unbounded, a 6KRO
+# report to a collection wrongly flagged NKRO walks off the bitmap and ASan aborts the
+# run: a real finding truncate and shortreport already measure, so kbdtest declines that
+# one case. Either spelling is the fix: #359's `byte_index >= len`, or report_length from
+# upstream's readability pass (896e903), which the fork follows from 637b985. A tree with
+# neither reads as unbounded and the 8BitDo stays out.
 KBD_BOUNDED := $(call probe,hid_report.c,byte_index >= (len|report_length),HARNESS_BOUNDED_BITMAP)
 
 # Does the target keep a bitmap whose usage range is wider than the block has bits for,
-# instead of demanding one usage per bit exactly? Unlike every other probe here there is
-# nothing that IS the compile prerequisite: the change is a predicate inside
-# handle_keyboard_descriptor_values, with no symbol this harness links against, so this is
-# a proxy and cannot be anything else. It greps any of three spellings of the rule: the
-# is_key_bitmap identifier the fix introduced on the #359 chain; the width arm
-# `size >= NKRO_MIN_BITS`, which is all that names it once the test moved into upstream's
-# maps_usage_to_bitmap_bits() helper (896e903); or `key_bits >= NKRO_MIN_BITS`, the same
-# arm as Hrvoje merged it into is_nkro_key_field() (e5f8ae8), which the fork follows from
-# 28dd847. A tree that spells it a fourth way reads here as "not fixed", the Keychron rows
-# then assert the old zeros, and it fails as MISMATCH with the report bytes printed:
-# loudly, which is the opposite of the silent skip c6d0264 was written to get rid of.
-KBD_WIDE := $(call probe,hid_report.c,is_key_bitmap|(size|key_bits) >= NKRO_MIN_BITS,HARNESS_WIDE_USAGE_RANGE)
+# instead of demanding one usage per bit exactly? Nothing here IS the compile
+# prerequisite: the change is a predicate in the keyboard descriptor handler, with
+# no symbol the harness links against, so the grep is a proxy. Every form of the fix
+# shares the width arm `>= NKRO_MIN_BITS` on the field's width, spelled `size` on the
+# fork from 524b61d through 637b985 (and on PR #366 as sent) and `key_bits` once upstream
+# merged #366 as is_nkro_key_field() (e5f8ae8), which the fork follows from 28dd847. Any
+# other spelling reads as "not fixed": the Keychron rows then assert the old zeros and
+# fail as MISMATCH with the report bytes printed, loudly, the opposite of the silent skip
+# c6d0264 removed.
+KBD_WIDE := $(call probe,hid_report.c,(size|key_bits) >= NKRO_MIN_BITS,HARNESS_WIDE_USAGE_RANGE)
 
 # Does _extract_kbd_other stop at the bytes that arrived? Its key_array loop is indexed by
-# byte offset from the descriptor, and a keyboard whose report comes up one byte short of
-# where the descriptor put the last key slot reads past the report. DeskHop Extended
-# guards the loop with the report length; PR #359 bounds the bitmap walk (the flag above)
-# but not this loop, so the two need separate probes. Expression rather than identifier,
-# because the guard is one more clause in an existing loop and introduces no name.
+# byte offset from the descriptor, so a report one byte short of the last key slot reads
+# past it. DeskHop Extended guards the loop with the report length; PR #359 bounds the
+# bitmap walk (the flag above) but not this loop, so the two need separate probes. An
+# expression, not an identifier: the guard adds no name.
 KBD_OTHER_BOUNDED := $(call probe,hid_report.c,i < MAX_KEYS && i < len,HARNESS_BOUNDED_KEY_ARRAY)
 
 # Which names does nkro_block_t give a block's position and width? #359 called them offset
@@ -201,36 +191,29 @@ $(GEN)/lifted_kbd.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 $(GEN)/lifted_mouse.c: $(SRC)/src/mouse.c tools/lift.py | $(GEN)
 	@python3 tools/lift.py $< $@ extract_value extract_report_values
 
-# Does the target keep mouse buttons per interface rather than in one global? On a tree
-# that does, extract_report_values() falls back to iface->mouse_buttons and mousetest can
-# say so; on one that does not, the cases below would not even compile.
-#
-# The grep asks the header, because the field being there IS the compile prerequisite -
-# the same file $(HDRS) copies and the cases are built against, so the two cannot come to
-# different answers. Asking mouse.c about the helper that populates the field instead
-# would be a proxy one step removed: rename that helper and the cases would be dropped
-# silently, with mousetest's last line then saying something false about the target. A
-# tree that has the field but kept the old fallback is not a concern here, since that
-# fails loudly as MISMATCH rather than quietly as a skip.
+# Does the target keep mouse buttons per interface rather than in one global? Where it
+# does, extract_report_values() falls back to iface->mouse_buttons and mousetest can say
+# so; where not, the cases would not compile. The grep asks the header because the field
+# IS the compile prerequisite, in the file $(HDRS) copies, so the two cannot disagree.
+# Asking mouse.c about the helper that fills it would be a proxy: rename it and the cases
+# drop silently, mousetest's last line then false. A tree with the field but the old
+# fallback fails loudly as MISMATCH rather than quietly as a skip.
 MOUSE_IFACE_BTN := $(call probe,include/hid_parser.h,mouse_buttons,HARNESS_IFACE_MOUSE_BUTTONS)
 
-# Does the parser stop advancing its usage cursor once usages[] is full? The bound has
-# two spellings. PR #361 introduced usages_left() for it, and upstream 1e31d10 rewrote
-# the same bound as pointer comparisons against usages + HID_MAX_USAGES, so either
-# string is the fix. The pre-fix parser has neither: it compares usage_count and the
-# element index against HID_MAX_USAGES alone, which is what lets p_usage walk out of
-# the array. Without the bound a descriptor with a Report Count in the hundreds against
-# one usage walks the parser out of its own state, which is the Gameball's shape, so a
-# device that declares one, the Magic Trackpad's mouse interface, is kept out of
-# mousetest and shortreport on such a tree rather than taking the run down.
+# Does the parser stop advancing its usage cursor once usages[] is full? Either spelling
+# is the fix: PR #361's usages_left(), or upstream 1e31d10's pointer comparisons against
+# usages + HID_MAX_USAGES. The pre-fix parser checks only usage_count and the element
+# index against HID_MAX_USAGES, so a Report Count in the hundreds against one usage, the
+# Gameball's shape, walks p_usage out of the array and the parser out of its own state;
+# the Magic Trackpad's mouse interface declares one and stays out of mousetest and
+# shortreport on such a tree rather than taking the run down.
 PARSER_BOUNDED := $(call probe,hid_parser.c,usages_left|usages \+ HID_MAX_USAGES,HARNESS_BOUNDED_USAGES)
 
-# Can get_report_value() read a field 32 bits wide? No tree can yet: both compute
-# (1u << size) - 1, which is undefined at 32, so UBSan aborts the run on the first such
-# report. The Corsair Scimitar's 32-button field is the first device to reach it, and its
-# rows wait behind this flag. The grep is a guess at what the fix will look like - a
-# width test before the shift - so a fix spelled differently reads as "not fixed" and
-# keeps the device out, which fails safe: nothing is asserted rather than something wrong.
+# Can get_report_value() read a field 32 bits wide? No tree can yet: (1u << size) - 1 is
+# undefined at 32 and UBSan aborts the run, so the Corsair Scimitar's 32-button rows wait
+# behind this flag. The grep guesses at the fix, a width test before the shift; a fix
+# spelled differently reads as "not fixed" and keeps the device out, which fails safe:
+# nothing is asserted rather than something wrong.
 FIELD_32 := $(call probe,hid_report.c,size >= 32,HARNESS_FIELD_32)
 
 # The two receivers PR #358 changes. Lifted rather than reimplemented for the same
@@ -240,13 +223,12 @@ FIELD_32 := $(call probe,hid_report.c,size >= 32,HARNESS_FIELD_32)
 $(GEN)/lifted_cc.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 	@python3 tools/lift.py $< $@ process_consumer_report process_system_report
 
-# usb.c's routing is liftable only on a tree that factored it out as pick_receiver().
-# Everywhere else src/dispatch.h's model stands in and dispatchtest says so, because a
-# model reports what it was written to say rather than what the firmware does. One
-# grep, and only to decide how dispatchtest links.
-# A target whose handler table is keyed by value reads it through get_report_handler();
-# src/handlers.h picks the matching accessor so dump, cctest, kbdtest and the dispatch
-# model measure either shape.
+# usb.c's routing is liftable only on a tree that factored it out as pick_receiver();
+# elsewhere src/dispatch.h's model stands in and dispatchtest says so, since a model
+# reports what it was written to say, not what the firmware does. One grep, only to decide
+# how dispatchtest links. A handler table keyed by value is read through
+# get_report_handler(); src/handlers.h picks the matching accessor so dump, cctest,
+# kbdtest and the dispatch model measure either shape.
 HANDLER_LOOKUP := $(call probe,hid_report.c,get_report_handler,HARNESS_HANDLER_LOOKUP)
 CFLAGS += $(HANDLER_LOOKUP)
 
@@ -307,13 +289,10 @@ $(OUT)/dispatchtest: src/dispatchtest.c src/support.h src/dispatch.h src/handler
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(DISPATCH_FLAG) -o $@ src/dispatchtest.c \
 	    $(DISPATCH_SRC) $(CORE)
 
-# needs lifted_mouse.c: it drives extract_report_values, the same entry point
-# mousetest uses, so that the truncated reports go through the firmware's own
-# extraction rather than a reimplementation of it
-# $(KBD_BOUNDED) as well, so both users of cases_kbd.h see the same device list. Without
-# it the 8BitDo would be in one binary and not the other, which is a confusing thing to
-# debug later; the coverage it would add here on an unbounded tree is the same overread
-# truncate already counts.
+# needs lifted_mouse.c: it drives extract_report_values, mousetest's entry point, so the
+# truncated reports go through the firmware's own extraction. $(KBD_BOUNDED) as well, so
+# both users of cases_kbd.h see the same device list rather than the 8BitDo in one binary
+# and not the other; on an unbounded tree it would only add the overread truncate counts.
 $(OUT)/shortreport: src/shortreport.c src/support.h src/cases_mouse.h src/cases_kbd.h src/kept_out.h descriptors.h $(HDRS) $(DEPS) \
                     $(CORE) $(GEN)/lifted_mouse.c | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_BOUNDED) $(KBD_OTHER_BOUNDED) $(NKRO_BITS_FIELDS) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/shortreport.c \
@@ -360,23 +339,17 @@ timing: $(OUT)/timing
 fuzz: $(OUT)/fuzz
 	@$(OUT)/fuzz $(N) $(SEED)
 
-# Materialise a reference commit, build the same harness against it, and diff the
-# parse of every descriptor. This is the target that proves a parser change is
-# inert on known good devices while fixing the broken one.
+# Materialise a reference commit, build the same harness against it, and diff the parse of
+# every descriptor: proof that a parser change is inert on known good devices while fixing
+# the broken one. The tree is keyed by resolved SHA, not the name REF was spelled with:
+# keyed by name the archive is extracted once and never again (the rule has no changing
+# prerequisite), so every later `compare REF=main` would silently diff against whatever
+# main pointed at the first time. Keyed by SHA, a moved branch is a path not yet there.
 #
-# The tree is keyed by resolved commit, not by the name REF was spelled with. A
-# branch name is a moving target: keyed by name, the archive is extracted once and
-# then never again, because the rule has no prerequisite that ever changes. Every
-# later `compare REF=main` would diff against whatever main pointed at the first
-# time anyone ran it, silently. Keyed by SHA, a moved branch is simply a path that
-# does not exist yet.
-#
-# Only defined when compare is actually being asked for. These names appear in
-# rule targets, which make expands while reading the file, so an unconditional
-# definition runs `git rev-parse` on every single invocation - `make clean`, `make
-# dump`, a tab-completion probe. Nothing else here needs a git repo at $(DESKHOP)
-# at all, and the sub-make below is spelled with TAG overridden so it resolves
-# through the ordinary $(OUT) rules without needing REF_SHA either.
+# Only defined when compare is asked for: these names appear in rule targets, which make
+# expands while reading the file, so an unconditional definition runs `git rev-parse` on
+# every invocation, `make clean` included. Nothing else needs a git repo at $(DESKHOP);
+# the sub-make overrides TAG to resolve through the ordinary $(OUT) rules without REF_SHA.
 ifneq ($(filter compare,$(MAKECMDGOALS)),)
 
 REF_SHA  := $(shell git -C $(DESKHOP) rev-parse --short $(REF) 2>/dev/null)
@@ -440,20 +413,16 @@ compare: check-ref $(REF_TREE)/.stamp $(OUT)/dump
 
 endif  # compare in MAKECMDGOALS
 
-# The regression gate: everything that must pass against *any* firmware worth
-# shipping, so a red `make test` means the harness moved or a known good device
-# stopped decoding. Safe to wire into CI.
-#
-# fuzz, truncate, shortreport and dispatch are deliberately NOT here. They fail by design on
-# firmware that has the bug they look for - truncate fails on every tree measured and
-# dispatch on upstream main today - so folding them in would make
-# this permanently red and worth nothing. Their exit status is the finding, not a
-# regression. `make findings` runs those, and reports rather than gates.
-#
-# check-cli runs the replay tools' command lines at full length only, so it holds on any
-# tree the decode suites hold on. check-constants sits after it: it is the only one
-# needing the Pico SDK submodule populated, and it skips cleanly when it is not.
-# test-sleepwake closes the list; it needs only gcc.
+# The regression gate: everything that must pass against *any* firmware worth shipping, so
+# a red `make test` means the harness moved or a known good device stopped decoding. Safe
+# to wire into CI. fuzz, truncate, shortreport and dispatch are deliberately NOT here:
+# they fail by design on firmware that has the bug they look for (truncate on every tree
+# measured, dispatch on upstream main today), so folding them in would leave this
+# permanently red; their exit status is the finding, and `make findings` runs them and
+# reports rather than gates. check-cli runs the replay tools' command lines at full
+# length only, so it holds on any tree the decode suites hold on; check-constants is the
+# only one needing the Pico SDK submodule and skips cleanly without it; test-sleepwake
+# closes the list and needs only gcc.
 .PHONY: test findings
 test: mouse kbd consumer check-parse check-cli check-constants test-sleepwake
 	@echo
@@ -480,11 +449,10 @@ findings: $(OUT)/fuzz $(OUT)/truncate $(OUT)/shortreport $(OUT)/dispatchtest
 	@echo
 	@echo "these fail when they find something; read the counts, not the status"
 
-# harness.h hand-copies TinyUSB's item tags and usages. Nothing in a normal build
-# checks that copy, and a wrong value would not fail to compile - it would shift an
-# offset and make every target report a plausible wrong answer. Deliberately not a
-# prerequisite of `all`: the harness does not otherwise need the Pico SDK submodule
-# to be populated, and requiring it here would break builds that work fine today.
+# harness.h hand-copies TinyUSB's item tags and usages. Nothing in a normal build checks
+# that copy, and a wrong value would not fail to compile: it would shift an offset and
+# make every target report a plausible wrong answer. Deliberately not a prerequisite of
+# `all`: nothing else needs the Pico SDK submodule, and requiring it would break builds.
 TUSB_HID := $(DESKHOP)/pico-sdk/lib/tinyusb/src/class/hid/hid.h
 
 # one shell, not two: a bare `test || { ...; exit 0; }` on its own recipe line only

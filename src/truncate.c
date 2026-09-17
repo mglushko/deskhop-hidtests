@@ -3,18 +3,13 @@
  *   ./truncate              run all prefixes of all descriptors, print a summary
  *   ./truncate <name> <n>   run one case in process with the ASan report visible
  *
- * A device can present a short or malformed descriptor, and the parse loop reads a
- * header and then up to four data bytes without checking they are still inside the
- * buffer:
- *
- *     while (desc_len > 0) {
- *         item.hdr = *(header_t *)report++;
- *         item.val = get_descriptor_value(report, item.hdr.size);
- *
- * Two things make this test work. Each prefix is copied into its own exact-size
- * heap allocation, so ASan's redzone sits immediately after the last valid byte and
- * an overread is caught rather than silently reading neighbouring data. And each
- * case runs in a forked child, so one crash does not hide the remaining cases.
+ * A device can present a short or malformed descriptor, and the parse loop reads a header
+ * and then up to four data bytes (item.hdr = *(header_t *)report++, then
+ * get_descriptor_value(report, item.hdr.size)) without checking they are still inside
+ * the buffer. Each prefix is copied into its own exact-size heap allocation, so ASan's
+ * redzone sits immediately after the last valid byte and an overread is caught rather
+ * than silently reading neighbouring data; each case runs in a forked child, so one crash
+ * does not hide the remaining cases.
  */
 #include "main.h"
 #include "descriptors.h"

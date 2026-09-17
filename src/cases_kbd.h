@@ -1,16 +1,10 @@
-/* Keyboard decode cases, shared by kbdtest and shortreport.
- *
- * Split out of kbdtest.c so the two binaries cannot disagree about what a device
- * sends. shortreport replays each of these at every truncated length, so a case
- * added here is checked for both its decoded values and its behaviour on a short
- * report, without being written twice.
- *
- * Every case carries up to four expectations, each naming a tree: `keys` is what main
- * produced before #359, `keys_fixed` what a parser keeping every NKRO block produces,
- * `keys_multi` what a parser holding one keyboard_t per collection produces, and
- * `keys_wide` what a parser keeping a usage range wider than its block produces. The right
- * one is selected at compile time from what the Makefile finds in the target, so one
- * unmodified file asserts correctly against every one of them.
+/* Keyboard decode cases, shared by kbdtest and shortreport so the two cannot disagree
+ * about what a device sends; shortreport replays each row at every truncated length.
+ * Each case carries up to four expectations, one per tree: `keys` is main before #359,
+ * `keys_fixed` a parser keeping every NKRO block, `keys_multi` one holding one
+ * keyboard_t per collection, `keys_wide` one keeping a usage range wider than its block.
+ * The Makefile picks the column from what it finds in the target, so one unmodified file
+ * asserts correctly against every tree.
  */
 #pragma once
 
@@ -49,11 +43,10 @@
 #define REPORT_MAX 40
 
 /* The shortest report the firmware hands to the decoder: process_keyboard_report returns
-   on length < KBD_REPORT_LENGTH before extract_kbd_data runs. kbdtest refuses a row below
-   this and shortreport starts its truncations here; a shorter row would assert an input
-   the receiver drops. A hand copy of firmware logic, so re-check it against keyboard.c
-   when touching either; last checked against upstream c220d0c and DeskHop Extended
-   637b985. */
+   on length < KBD_REPORT_LENGTH before extract_kbd_data runs, so kbdtest refuses a row
+   below this and shortreport starts its truncations here rather than assert an input the
+   receiver drops. A hand copy of firmware logic: re-check against keyboard.c when
+   touching either; last checked against upstream e5f8ae8 and DeskHop Extended 60605e1. */
 #define KBD_MIN_LEN KBD_REPORT_LENGTH
 
 typedef struct {
@@ -72,12 +65,12 @@ typedef struct {
     bool        has_multi;
     uint8_t     keys_multi[KEYS_IN_USB_REPORT];
 
-    /* A fourth, for the collections whose bitmap is only kept once a usage range wider
-       than its block is accepted. A row can carry one flag, the other, both or neither,
-       and the Keychron's NKRO collection parsed on its own needs only this one, because
-       there is nothing there for a second keyboard_t to hold. The trees are not so free:
-       every width arm so far sits on a tree with one keyboard_t per collection, and the
-       columns model that lineage; kbdtest's banner says what a tree off it would do. */
+    /* A fourth, for bitmaps kept only once a usage range wider than its block is
+       accepted. A row may carry either flag, both or neither; the Keychron's NKRO
+       collection parsed alone needs only this one, having nothing for a second keyboard_t
+       to hold. Every width arm so far sits on a tree with one keyboard_t per collection,
+       which the columns model; kbdtest's banner says what a tree off that lineage would
+       do. */
     bool        has_wide;
     uint8_t     keys_wide[KEYS_IN_USB_REPORT];
 } kbd_case_t;
@@ -162,11 +155,10 @@ static const kbd_case_t k_superlight2_cases[] = {
                                                                     0x00, {0}, {135}},
 };
 
-/* Wooting Two HE, [#335], "only CTRL, Shift & Win work". Four blocks, and main
-   keeps the last - usages 176 to 221, none of which are letters. So the modifier
-   byte survives and every ordinary key decodes to nothing, which is exactly the
-   reported symptom. The first row is the bug in one line: 'a' held down, nothing
-   comes out. */
+/* Wooting Two HE, [#335], "only CTRL, Shift & Win work". Four blocks, and main before
+   #359 keeps the last, usages 176 to 221, none of them letters: the modifier byte
+   survives and every ordinary key decodes to nothing, exactly the reported symptom. The
+   first row is the bug in one line, 'a' held down and nothing out. */
 static const kbd_case_t k_wooting_cases[] = {
     {"usage 4 (a), block 0",   {[1] = 0x01}, 28,                    0x00, {0}, {4}},
     {"usage 51, block 1",      {[7] = 0x01}, 28,                    0x00, {0}, {51}},
@@ -197,32 +189,24 @@ static const kbd_case_t k_ultralink_kbd_cases[] = {
                                                                     0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
 };
 
-/* The same reports against the whole of interface 1, which is what deskhop actually
-   parses. Interface 1 declares two keyboard collections, on report IDs 7 and 0x11.
+/* The same reports against the whole of interface 1, which is what deskhop parses: two
+   keyboard collections, on report IDs 7 and 0x11. `keys` and `keys_fixed` hold WRONG
+   answers on purpose, what a tree without the multi-keyboard fix produces: get_keyboard()
+   short-circuited on num_keyboards == 1 to keyboards[PRIMARY_KEYBOARD], so the 0x11
+   collection wrote over the ID 7 one. Its NKRO block is VARIABLE at offset_idx 1, and
+   handle_keyboard_descriptor_values sets key_array[offset_idx] = (data_type == ARRAY)
+   unconditionally, clearing the key_array[1] the ID 7 collection had set: byte 1 is its
+   first key slot, so every 6KRO report lost its first keycode. keys_multi, what a tree
+   with get_or_add_keyboard produces, is the right answer and matches
+   k_ultralink_kbd_cases above, the same collection parsed alone.
 
-   The `keys` and `keys_fixed` columns hold WRONG answers on purpose, because they are
-   what a tree without the multi-keyboard fix produces: get_keyboard() short-circuited
-   on num_keyboards == 1 and handed back keyboards[PRIMARY_KEYBOARD] every time, so the
-   0x11 collection wrote over the report ID 7 one. Its NKRO block sits at offset_idx 1
-   and is VARIABLE, and handle_keyboard_descriptor_values assigns
-   key_array[offset_idx] = (data_type == ARRAY) unconditionally, so that assignment
-   CLEARED the key_array[1] the report ID 7 collection had set. Byte 1 is the first of
-   that keyboard's six key slots, so the first keycode in every 6KRO report went
-   missing: hold 'a' alone and nothing came out.
-
-   keys_multi is what a tree with get_or_add_keyboard produces, which is simply the
-   right answer - and it matches k_ultralink_kbd_cases above, the same collection parsed
-   on its own. The two entries exist side by side precisely so they can be compared, and
-   once the collapse is fixed they agree.
-
-   The three report 0x11 rows are the NKRO collection on the same interface, and a
-   keycode comes out of them on the width arm alone: without it the bitmap is rejected
-   for declaring 153 usages over 152 bits, whether it landed in its own keyboard_t or in
-   the collapsed one, and with it the block decodes from whichever keyboard_t holds it.
-   So only keys_wide carries a keycode. The first two rows say nothing on every other
-   tree, and has_multi is left false because the collapse fix does not move them; the
-   Enter row is the exception, since the collapse alone turns its bit into ErrorRollOver
-   and the collapse fix takes that away again. */
+   The three report 0x11 rows are the NKRO collection, and a keycode comes out of them on
+   the width arm alone: without it the bitmap is rejected for declaring 153 usages over
+   152 bits, in its own keyboard_t or the collapsed one; with it the block decodes from
+   whichever holds it. So only keys_wide carries a keycode, and has_multi stays false on
+   the first two rows since the collapse fix does not move them; the Enter row is the
+   exception, the collapse alone turning its bit into ErrorRollOver and the collapse fix
+   taking that away again. */
 static const kbd_case_t k_ultralink_iface1_cases[] = {
     {"a",                       {0x07, 0x00, 0x04}, 8,              0x00, {0}, {0},
                                                                     true, {4}},
@@ -237,33 +221,28 @@ static const kbd_case_t k_ultralink_iface1_cases[] = {
                                                                     0x00, {0}, {0},
                                                                     false, {0}, true, {54, 55, 56}},
     /* Enter is the one rig report whose bit lands inside the six bytes the collapsed
-       key_array covers, so on a tree that collapses the two collections it comes back as
-       ErrorRollOver rather than as nothing. In the fifth key slot, not the first: the
-       collapse clears key_array[1], so _extract_kbd_other starts packing at byte 2 and
-       byte 6, where this bit is, arrives fifth. Same shape the 8BitDo's boot rows record,
-       reached here in report protocol and by a different route. */
+       key_array covers, so a collapsing tree returns ErrorRollOver rather than nothing,
+       and in the fifth slot: the collapse clears key_array[1], so _extract_kbd_other
+       packs from byte 2 and byte 6, where this bit is, arrives fifth. The 8BitDo's boot
+       rows record the same shape by another route. */
     {"rig: enter on the NKRO collection", {0x11, 0x00, [7] = 0x01}, 21,
                                                                     0x00, {0, 0, 0, 0, 1}, {0, 0, 0, 0, 1},
                                                                     true, {0}, true, {40}},
 };
 
 /* Keychron Ultra-Link 8K, upstream issue 324, the NKRO collection on report ID 0x11
-   alone, so the off-by-one range can be read without the key_array interaction on top
-   of it.
-
-   The bitmap is declared 19 00 2A 98 00 with 95 98: usage minimum 0, usage maximum 152,
-   over 152 bits. That is 153 usages in 152 bits, and it is what the device ships. Three
-   columns are wrong on purpose, because three trees throw the block away. main records
-   it on size > 32 and then discards it in _extract_kbd_nkro, whose 1:1 recheck the range
-   fails; [#359] and everything built on it reject it earlier, in maps_usage_per_bit.
-   Either way nkro_count is 0 at decode time, the report falls to _extract_kbd_other, and
-   both items in this collection are VARIABLE - so key_array is empty and every keycode
-   disappears while the modifier decodes. That is why the second row still wants modifier
-   0x02 and no keys.
-
-   keys_wide is what a tree accepting a range that merely covers its block produces. The
-   last row is the off-by-one itself: usage 151 is the highest bit with a home, and usage
-   152, the one the range declares and the block has no room for, is not expected back. */
+   alone, so the off-by-one range is read without the key_array interaction on top. The
+   bitmap is declared 19 00 2A 98 00 with 95 98: usage minimum 0, maximum 152, over 152
+   bits, 153 usages in 152 bits, and it is what the device ships. Three columns are wrong
+   on purpose: trees before the width arm throw the block away, pre-#359 main in
+   _extract_kbd_nkro's 1:1 recheck and #359 trees in maps_usage_to_bitmap_bits. Then
+   nkro_count is 0 at decode time, the report falls to _extract_kbd_other, and with both
+   items VARIABLE key_array is empty, so every keycode disappears while the modifier
+   decodes: hence the second row's modifier 0x02 and no keys. Upstream keeps the block
+   since e5f8ae8 and the fork since 524b61d; keys_wide is what such a tree, accepting a
+   range that merely covers its block, produces. The last row is the off-by-one itself:
+   usage 151 is the highest bit with a home, and usage 152, declared but with no room, is
+   not expected back. */
 static const kbd_case_t k_ultralink_nkro_cases[] = {
     {"usage 4 (a)",              {0x11, 0x00, 0x10}, 21,            0x00, {0}, {0},
                                                                     false, {0}, true, {4}},
@@ -274,15 +253,12 @@ static const kbd_case_t k_ultralink_nkro_cases[] = {
 };
 
 /* A 6KRO keyboard carrying a short keyboard-page bit field, [id][mod][F13-F20][6 keys].
-   Both columns hold the same correct values: main ignores the 8-bit field because it
-   filters on size > 32, and a parser deciding is_nkro on the summed block width ignores
-   it too. Only a parser that flags NKRO per block fails these - it routes the report
-   through _extract_kbd_nkro, which never reads key_array, and every keycode disappears
-   while the modifiers keep working.
-
-   The last case holds F13 down. It is not reported, on any branch: the bit field is not
-   treated as a key bitmap, so its bits go nowhere. That is the cost of the size rule and
-   these rows are here to state it, not to hide it. */
+   Both columns hold the same correct values: main before #359 ignores the 8-bit field by
+   filtering on size > 32, and a parser deciding is_nkro on the summed block width ignores
+   it too. Only a parser flagging NKRO per block fails these: it routes the report through
+   _extract_kbd_nkro, which never reads key_array, so every keycode disappears while the
+   modifiers work. The F13 row is reported on no branch, the field never being treated as
+   a key bitmap: the cost of the size rule, stated rather than hidden. */
 static const kbd_case_t k_bit_field_cases[] = {
     {"a",                       {0x01, 0x00, 0x00, 0x04}, 9,        0x00, {4}, {4}},
     {"shift + a",               {0x01, 0x02, 0x00, 0x04}, 9,        0x02, {4}, {4}},
@@ -292,26 +268,18 @@ static const kbd_case_t k_bit_field_cases[] = {
     {"nothing held",            {0x01, 0x00, 0x00, 0x00}, 9,        0x00, {0}, {0}},
 };
 
-/* 8BitDo Retro Mechanical Keyboard, [#57], interface 2: three keyboard collections on
-   one interface. A 6KRO keyboard on report ID 1, then NKRO bitmaps on 12 and 10.
-
-   Worse than the Keychron above, because both of the 8BitDo's NKRO blocks map one usage
-   per bit over 120 bits and so pass every test the parser applies. On a tree where they
-   land on keyboards[0] alongside the 6KRO key array, is_nkro is set on that entry and
-   _extract_kbd_nkro runs for report ID 1 as well - so a 6KRO report is decoded as though
-   its bytes were bitmap bits. The keyboard does not lose one key, it types the wrong
-   ones, which is what "I plugged my keyboard it did not work" looks like from the
-   outside.
-
-   The `keys` and `keys_fixed` columns are therefore both wrong on purpose again, and
-   keys_multi is the right answer. The doubling in keys_fixed is not a typo: both NKRO
-   blocks land on keyboards[0] and both get walked over the same report bytes, so each
-   finds the same bit and the keycode comes out twice. The last row exercises the NKRO
-   collection on its own report ID and is doubled for the same reason.
-
-   `keys` mirrors `keys_fixed` rather than carrying a separate number. No tree selects it
-   for this device: every tree without MAX_NKRO_BLOCKS also lacks the bitmap bound and is
-   gated out below, so a value there would be untested. */
+/* 8BitDo Retro Mechanical Keyboard, [#57], interface 2: a 6KRO keyboard on report ID 1,
+   then NKRO bitmaps on 12 and 10. Worse than the Keychron above: both NKRO blocks map
+   one usage per bit over 120 bits and pass every test the parser applies, so on a tree
+   where they land on keyboards[0] beside the 6KRO key array, is_nkro is set there and
+   _extract_kbd_nkro runs for report ID 1 too, decoding a 6KRO report as bitmap bits. The
+   keyboard types the wrong keys rather than losing one. `keys` and `keys_fixed` are
+   therefore wrong on purpose and keys_multi is the right answer. The doubling in
+   keys_fixed is not a typo: both NKRO blocks land on keyboards[0] and are walked over
+   the same bytes, so each finds the same bit, on the report ID 12 rows too. `keys`
+   mirrors `keys_fixed` because no tree selects it here: every tree without
+   MAX_NKRO_BLOCKS also lacks the bitmap bound and is gated out below, so a separate
+   value would be untested. */
 static const kbd_case_t k_bitdo_cases[] = {
     {"a, on the 6KRO collection", {0x01, 0x00, 0x00, 0x04}, 9,      0x00, {10, 10}, {10, 10},
                                                                     true, {4}},
@@ -324,17 +292,15 @@ static const kbd_case_t k_bitdo_cases[] = {
     {"usage 4 on the NKRO collection", {0x0C, 0x00, 0x10}, 17,      0x00, {4, 4}, {4, 4},
                                                                     true, {4}},
 
-    /* The two bursts emu/main.c pushes through the NKRO collection: "xyz" as the
-       hardware rig's positive control, then Enter to break the line. Pinned here so
-       every report the rig puts on the wire has a host-side answer to compare against,
-       and so a change to the script cannot quietly stop meaning what the README says.
-
-       The control deliberately uses usages 54 to 56 rather than letters. They sit in
-       bitmap bytes 6 and 7, at wire offsets 8 and 9, past the eight bytes
-       _extract_kbd_boot copies - so in boot protocol they produce nothing and the rig's
-       output loses its tail. k_bitdo_boot_cases below pins that, and it is what stops a
+    /* The two bursts emu/main.c pushes through the NKRO collection, the rig's positive
+       control and then Enter to break the line, pinned so every report the rig puts on
+       the wire has a host-side answer and the script cannot quietly drift from what the
+       README says. The control uses usages 54 to 56 rather than letters on purpose: they
+       sit in bitmap bytes 6 and 7, wire offsets 8 and 9, past the eight bytes
+       _extract_kbd_boot copies, so in boot protocol they produce nothing and the rig's
+       output loses its tail. k_bitdo_boot_cases pins that, and it is what stops a
        boot-protocol run reading as a pass: the 8BitDo's 6KRO layout is the boot layout,
-       so report ID 1 decodes to abcdef there whether or not the fix is present. */
+       so report ID 1 decodes to abcdef there with or without the fix. */
     {"usages 54-56 (,./), NKRO",  {0x0C, 0x00, [8] = 0xC0, [9] = 0x01}, 17,
                                                                     0x00, {54, 55, 56, 54, 55, 56},
                                                                           {54, 55, 56, 54, 55, 56},
@@ -343,19 +309,16 @@ static const kbd_case_t k_bitdo_cases[] = {
                                                                     true, {40}},
 };
 
-/* The same three reports emu/main.c sends, decoded in boot protocol instead.
-   extract_kbd_data returns _extract_kbd_boot before the descriptor is consulted, so
-   none of this depends on the tree: both columns are the same everywhere.
-
-   These rows are why the hardware rig is trustworthy. The 8BitDo's 6KRO layout is the
-   boot layout, so the first row decodes to the same abcdef a correctly fixed firmware
-   produces - a boot-protocol run would otherwise read as a pass. The other two rows are
-   the tell: _extract_kbd_boot copies eight bytes from the front of a 17-byte NKRO
-   report, so the control's bits at wire offsets 8 and 9 never arrive, and the rig's
-   output loses its ",./" tail and its line breaks. Modifier 0x0C is the report ID being
-   read as a modifier byte, and the lone 0x01 in the last row is usage 40's bit landing
-   at wire offset 7, inside the copy, where it decodes to ErrorRollOver rather than
-   Enter. */
+/* The same three reports emu/main.c sends, decoded in boot protocol: extract_kbd_data
+   returns _extract_kbd_boot before the descriptor is consulted, so both columns are the
+   same on every tree. These rows are why the rig is trustworthy. The 8BitDo's 6KRO layout
+   is the boot layout, so the first row decodes to the abcdef a fixed firmware produces
+   and a boot-protocol run would otherwise read as a pass; the other two are the tell.
+   _extract_kbd_boot copies eight bytes from the front of the 17-byte NKRO report, so the
+   control's bits at wire offsets 8 and 9 never arrive and the rig's output loses its
+   ",./" tail and line breaks; modifier 0x0C is the report ID read as a modifier, and the
+   lone 0x01 in the last row is usage 40's bit at wire offset 7, inside the copy, decoding
+   to ErrorRollOver rather than Enter. */
 static const kbd_case_t k_bitdo_boot_cases[] = {
     {"6KRO burst, boot layout matches",  {0x01, 0x00, 0x00, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}, 9,
                                                                     0x00, {4, 5, 6, 7, 8, 9}, {4, 5, 6, 7, 8, 9}},
@@ -401,13 +364,13 @@ static const kbd_case_t k_rid1_reserved_cases[] = {
     {"every modifier",     {0x01, 0xFF, 0x00, 0x00}, 9,             0xFF, {0}, {0}},
 };
 
-/* Corsair Strafe RGB in BIOS mode, [#45], the mode the reporter says works. The reporter's
-   capture shows nine-byte reports for a descriptor that declares eight, and the len ==
+/* Corsair Strafe RGB in BIOS mode, [#45], the mode the reporter says works. The capture
+   shows nine-byte reports for a descriptor declaring eight, and the len ==
    KBD_REPORT_LENGTH + 1 rule in _extract_kbd_boot reads the first byte as a stray report
-   ID: the modifier byte is dropped, the reserved byte is read as the modifier, and the
-   first key slot lands where the reserved byte was. So 'd' held with 'e' comes out as 'e'
-   alone, and right alt with '0' comes out as nothing at all. The eight-byte rows are the
-   same keys without the padding byte, for contrast. Same on every tree. */
+   ID: the modifier is dropped, the reserved byte read as the modifier, and the first key
+   slot lands where the reserved byte was. So 'd' with 'e' comes out as 'e' alone and
+   right alt with '0' as nothing; the eight-byte rows are the same keys without the
+   padding byte. Same on every tree. */
 static const kbd_case_t k_strafe_bios_cases[] = {
     {"d + e, nine bytes as captured",   {0x00, 0x00, 0x07, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00}, 9,
                                                                     0x00, {8}, {8}},
@@ -510,16 +473,15 @@ static const kbd_case_t k_qmk_shared_cases[] = {
     {"highest usage, 239",  {0x06, 0x00, [31] = 0x80}, 32,          0x00, {239}, {239}},
 };
 
-/* Keychron 2.4 GHz dongle, interface 2, [#211]: a 6KRO keyboard on report ID 1 and an NKRO
-   keyboard on report ID 12 whose bitmap declares 153 usages over 152 bits, the Ultra-Link's
-   off-by-one. The two 6KRO rows are reports the reporter typed, ten bytes with a padding
-   byte on the end, and they decode correctly on every tree - before #359 by luck: the
-   collapsed keyboard_t is flagged NKRO, but _extract_kbd_nkro rejects the wide range and
-   falls through to _extract_kbd_other, whose key_array the NKRO block never overwrote.
-
-   The NKRO rows need the wide-range acceptance, and only that: without it the block is
-   discarded on every tree, the report falls to _extract_kbd_other, and a collection of two
-   VARIABLE items has no key slots, so the modifier decodes and no key does. */
+/* Keychron 2.4 GHz dongle, interface 2, [#211]: a 6KRO keyboard on report ID 1 and an
+   NKRO keyboard on report ID 12 declaring 153 usages over 152 bits, the Ultra-Link's
+   off-by-one. The 6KRO rows are reports the reporter typed, ten bytes with a padding byte
+   on the end; they decode on every tree, before #359 by luck: the collapsed keyboard_t is
+   flagged NKRO, but _extract_kbd_nkro rejects the wide range and falls through to
+   _extract_kbd_other, whose key_array the NKRO block never overwrote. The NKRO rows need
+   the wide-range acceptance and only that: without it the block is discarded, the report
+   falls to _extract_kbd_other, and two VARIABLE items give no key slots, so the modifier
+   decodes and no key does. */
 static const kbd_case_t k_keychron_dongle_cases[] = {
     {"n + d, as typed",     {0x01, 0x00, 0x00, 0x11, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00}, 10,
                                                                     0x00, {0x11, 0, 0, 0x07}, {0x11, 0, 0, 0x07}},
@@ -535,14 +497,13 @@ static const kbd_case_t k_keychron_dongle_cases[] = {
 };
 
 /* The Areson trackball's keyboard collection, [#23]: no report ID of its own on an
-   interface where every other collection has one. uses_report_id is set for the
-   interface, so _extract_kbd_other treats the first byte of the eight-byte boot report as
-   the ID and reads the rest one byte late: the modifier byte is taken for an ID, the
-   reserved byte for the modifier, and the first key slot falls into the reserved
-   position. 'a' alone decodes to nothing, shift is lost, and six keys come back as five.
-   The same on every tree that reaches the answer; a tree without the length guard in
-   _extract_kbd_other reads one byte past the eight instead, which is why the entry is
-   gated. */
+   interface where every other collection has one. uses_report_id is set, so
+   _extract_kbd_other takes the first byte of the eight-byte boot report as the ID and
+   reads the rest one byte late: modifier taken for the ID, reserved byte for the
+   modifier, first key slot in the reserved position. 'a' alone decodes to nothing, shift
+   is lost, six keys come back as five. Same on every tree that reaches the answer;
+   without the length guard in _extract_kbd_other the read runs one byte past the eight,
+   hence the gate. */
 static const kbd_case_t k_areson_kbd_cases[] = {
     {"a, modifier byte taken as the ID",  {0x00, 0x00, 0x04}, 8,    0x00, {0}, {0}},
     {"shift + a, shift byte taken as the ID", {0x02, 0x00, 0x04}, 8, 0x00, {0}, {0}},
@@ -578,11 +539,9 @@ static const kbd_device_t kbd_devices[] = {
     DEV(kbd_with_bit_field, HID_PROTOCOL_REPORT, k_bit_field_cases),
     DEV(sculpt_rx_keyboard, HID_PROTOCOL_REPORT, k_sculpt_cases),
     DEV(apple_a2520_iface1, HID_PROTOCOL_REPORT, k_apple_a2520_cases),
-    /* The September 2026 sweep. Nine of the new keyboards are the plain eight-byte boot
-       layout with no report ID, and take the same len == 8 shortcut as d_boot_keyboard,
-       so they run k_boot_cases: the two Unifying receivers, QMK's stock keyboard, the
-       PS/2 converter, both Cherry MW 8 keyboards, the TMK board's interface 0, the QMK
-       board from [#71] and the Roccat's keyboard interface. */
+    /* The September 2026 sweep. The nine keyboards on k_boot_cases are the plain
+       eight-byte boot layout with no report ID, and take the same len == 8 shortcut as
+       d_boot_keyboard. */
     DEV(unifying_rx_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
     DEV(unifying_rx_b_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
     DEV(qmk_keyboard, HID_PROTOCOL_REPORT, k_boot_cases),
