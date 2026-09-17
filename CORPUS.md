@@ -274,9 +274,9 @@ here](#dumped-here) shows what those cost. Every one that declares a mouse or ke
   ranges where the corpus's own, newer Bolt declares a 6-slot array. `main` before [#359]
   kept only the 0x04-0x73 range and dropped the IME keys, the [#215] finding on a second
   receiver firmware. The **Keychron 2.4 GHz dongle** ([#211]) reproduced the [#57] collapse
-  the same way: its 6KRO and NKRO collections landed on one entry with `is_nkro` set. What
-  still separates it from upstream is its 153-usage bitmap over 152 bits, which [#366]
-  keeps.
+  the same way: its 6KRO and NKRO collections landed on one entry with `is_nkro` set. Its
+  153-usage bitmap over 152 bits separated it from upstream until [#366] merged as
+  `e5f8ae8`.
 - **Areson trackball** (`25a7:fa11`, [#23]) puts a keyboard collection with no report ID
   beside six collections that carry one, on a single interface. Both trees record it as
   report ID 0 on an interface they mark as using report IDs. What the device actually

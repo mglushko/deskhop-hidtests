@@ -164,8 +164,8 @@ that read them, and what each has caught.
 ## Reference numbers
 
 Results against two trees, so a broken harness can be told from a broken firmware.
-Taken in September 2026 against upstream `main` at `c220d0c` and
-[DeskHop Extended][deskhop-extended] `main` at `637b985`, over the 105-descriptor corpus.
+Taken in September 2026 against upstream `main` at `e5f8ae8` and
+[DeskHop Extended][deskhop-extended] `main` at `60605e1`, over the 105-descriptor corpus.
 The second column is the tree that runs on hardware, and the one whose regressions cost
 something. Where its denominator is larger, the extra rows are devices the harness keeps
 out of a run on a tree that lacks the bound they need, and cases that only apply to code
@@ -173,7 +173,7 @@ the fork has.
 
 | check | upstream main | [DeskHop Extended][deskhop-extended] |
 |---|---|---|
-| `compare` | all 105 parse, no crashes | 105 compared against upstream `main`, no crash on either side; differences confined to `ultralink_iface1`, `ultralink_nkro_keyboard` and `keychron_dongle_keyboard`, the three whose key bitmap declares one usage more than it has bits |
+| `compare` | all 105 parse, no crashes | 105 compared against upstream `main`, no crash on either side and an identical parse for every entry, now that upstream carries the width arm from #366 |
 | `mouse` | 327 of 327 cases over 28 devices | **327 of 327 over 28**, plus **4 of 4** button fallback cases |
 | `kbd` | 165 of 165 cases over 39 devices | **168 of 168 over 40** |
 | `consumer` | 29 of 29 over 9 devices | same |

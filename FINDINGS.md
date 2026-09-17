@@ -83,18 +83,20 @@ requiring `usage_max - usage_min + 1 == size`. The Keychron declares `19 00 2A 9
 record it, on `size > 32`, and then threw it away at decode time when `_extract_kbd_nkro`
 applied the identical 1:1 test. Both ended in `_extract_kbd_other` and lost every key, so it
 was never a regression, but the stricter rule was silently dropping a real keyboard's bitmap
-at parse time. DeskHop Extended now asks the two questions separately: the range must
-cover the block's bits, which is all `extract_bit_variable` needs, and the item must then
+at parse time. DeskHop Extended, and upstream since it merged [#366] as `e5f8ae8`, ask
+the two questions separately: the range must cover the block's bits, which is all
+`extract_bit_variable` needs, and the item must then
 look like a key bitmap - one usage per bit exactly, or a block at least `NKRO_MIN_BITS`
 wide. The exact arm keeps the Wooting's 8-bit range and the Superlight2's 5- and 3-bit
 ones, which a width rule alone would drop; the width arm takes the Keychron.
 `ultralink_nkro_keyboard` decodes `11 00 10` to nothing before and to usage 4 after, and it
 and `ultralink_iface1` were the only two of the 47 then in the corpus whose parse moved.
 Upstream [#324](https://github.com/hrvach/deskhop/issues/324), sent as
-[#366](https://github.com/hrvach/deskhop/pull/366), still open. With [#359] merged this is
-all that separates the two trees at parse time: `compare` between upstream `main` and
-DeskHop Extended differs on those two and on `keychron_dongle_keyboard`, which joined the
-corpus later with the same shape, and on nothing else in the 105.
+[#366](https://github.com/hrvach/deskhop/pull/366) and merged as `e5f8ae8` with the
+predicate renamed `is_nkro_key_field`, which the fork follows from `28dd847`. Until then
+this was all that separated the two trees at parse time: `compare` differed on those two
+and on `keychron_dongle_keyboard`, which joined the corpus later with the same shape, and
+on nothing else in the 105; it now shows an identical parse on every entry.
 
 [#358] changes two functions, and in practice only one of them matters. Its consumer
 half fixes a real device, the Cherry KC6000. Its system half needs an interface with a
@@ -416,7 +418,7 @@ against the report length, and every keyboard row upstream decodes as a bitmap d
 zero. What upstream still fails is causes 1, 2 and 4 on the mouse path and the
 `_extract_kbd_other` loop, which runs to `MAX_KEYS` whatever length arrived: all seven
 keyboard rows left with failures, the 8BitDo among them now that the bounded walk admits it
-to the run, fault in that loop, at `hid_report.c:331` on `c220d0c`. DeskHop Extended guards
+to the run, fault in that loop, at `hid_report.c:348` on `e5f8ae8`. DeskHop Extended guards
 it with the report length as well, which is the whole distance between its 0 of 3355 and
 upstream's 1372 of 3352 in the README table.
 

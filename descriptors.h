@@ -637,10 +637,10 @@ static const uint8_t d_ultralink_mouse[] = {
 
    The NKRO block declares 19 00 2A 98 00 with 95 98: usage minimum 0, usage
    maximum 152, and 152 bits. That is 153 usages in 152 bits, off by one, and it is
-   what the device really ships. Both the 1:1 check in _extract_kbd_nkro on main and
-   the maps_usage_per_bit rule in [#359] reject it, so NKRO decode fails on both. A
-   tree that asks only that the range cover the block's bits keeps it instead, which
-   is what the keys_wide column in src/cases_kbd.h pins.
+   what the device really ships. Trees before the width arm reject it, pre-#359 main
+   in _extract_kbd_nkro's 1:1 check and #359 trees in maps_usage_to_bitmap_bits, so
+   NKRO decode fails there. Upstream keeps it since it merged #366 as e5f8ae8 and the
+   fork since 524b61d, which is what the keys_wide column in src/cases_kbd.h pins.
 
    Two keyboard collections on one interface also collapse into one keyboard_t on
    any tree where get_keyboard() short-circuits on num_keyboards == 1. The 0x11 block
