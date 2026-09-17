@@ -164,7 +164,7 @@ that read them, and what each has caught.
 
 Results against two trees, so a broken harness can be told from a broken firmware.
 Taken in September 2026 against upstream `main` at `e5f8ae8` and
-[DeskHop Extended][deskhop-extended] at `27a7eb5`, over the 105-descriptor corpus.
+[DeskHop Extended][deskhop-extended] `main` at `6da4126`, over the 105-descriptor corpus.
 The second column is the tree that runs on hardware, and the one whose regressions cost
 something. Where its denominator is larger, the extra rows are devices the harness keeps
 out of a run on a tree that lacks the bound they need, and cases that only apply to code
