@@ -23,8 +23,8 @@
    about what usb.c does. Display only, never asserted on: a mouse test should fail on
    decode, not on routing, and src/dispatchtest.c is what asserts on it. */
 static void print_dispatch(const hid_interface_t *iface, uint8_t itf_protocol,
-                           const uint8_t *report) {
-    process_report_f got = hid_route(iface, itf_protocol, report);
+                           const uint8_t *report, int len) {
+    process_report_f got = hid_route(iface, itf_protocol, report, len);
 
     printf("%s%s\n", hid_receiver_name(got),
            got == process_mouse_report || got == NULL ? "" : " - WRONG RECEIVER");
@@ -48,9 +48,9 @@ static int run_device(const mouse_device_t *dev) {
     if (dev->count) {
         printf("  Dispatch (src/usb.c), both ways this interface can present itself:\n");
         printf("    bInterfaceProtocol = MOUSE : ");
-        print_dispatch(&iface, HID_ITF_PROTOCOL_MOUSE, dev->cases[0].report);
+        print_dispatch(&iface, HID_ITF_PROTOCOL_MOUSE, dev->cases[0].report, dev->cases[0].len);
         printf("    bInterfaceProtocol = NONE  : ");
-        print_dispatch(&iface, HID_ITF_PROTOCOL_NONE, dev->cases[0].report);
+        print_dispatch(&iface, HID_ITF_PROTOCOL_NONE, dev->cases[0].report, dev->cases[0].len);
         printf("\n");
     }
 

@@ -266,8 +266,9 @@ Cut it to 8 and the overflow stays; leave it alone and cut the three 8-bit count
 
 Interface 0 is what you watch. `bInterfaceProtocol` is deliberately `MOUSE`: the
 trackball descriptor declares no report ID, so an interface presenting as `NONE` would
-send `pick_receiver()` down the handler-table branch with the ID held at zero, and the
-report would arrive through `report_handler[0]` rather than by the interface's protocol.
+send the report down the handler-table branch of `tuh_hid_report_received_cb` with the ID
+held at zero, and it would arrive through `report_handler[0]` rather than by the
+interface's protocol.
 It reaches the mouse receiver either way. `MOUSE` takes the direct branch, which is both
 correct and what a real trackball does.
 

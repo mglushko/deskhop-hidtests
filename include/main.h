@@ -28,6 +28,33 @@ _Static_assert(KEYS_IN_USB_REPORT == sizeof(((hid_keyboard_report_t *)0)->keycod
 #include "hid_parser.h"
 #include "hid_report.h"
 
+/* The parts of device_t the lifted code reads. extract_report_values() names
+   mouse_buttons; CURRENT_BOARD_IS_ACTIVE_OUTPUT in process_consumer_report() and
+   process_system_report() compares active_output and board_role; and
+   tuh_hid_report_received_cb() finds its interface in iface[][] and tells a primary
+   keyboard by kbd_dev_addr and kbd_instance. Defined here rather than in harness.h
+   because iface[][] needs hid_interface_t, which the include above brings into view.
+
+   Every width is copied from the target's src/include/structs.h and is load bearing:
+   where a skipped button field falls back to mouse_buttons, a wider field here would let
+   a value survive that the firmware truncates (it was int32_t once, and silently disagreed
+   with the device). A tree that keeps buttons per interface reads iface->mouse_buttons
+   instead, but the parameter stays, so keep the width right either way.
+
+   Nothing checks this copy: check_constants.py compares macros, not struct fields, so
+   re-read structs.h when a decode result looks off. Last checked against upstream
+   e5f8ae8: kbd_dev_addr and kbd_instance uint8_t (structs.h:94-95), active_output and
+   board_role uint8_t (101-102), mouse_buttons int16_t (110), iface as here (118);
+   DeskHop Extended 60605e1 has the same widths (structs.h:115-116, 122-123, 131, 151). */
+typedef struct {
+    hid_interface_t iface[MAX_DEVICES][MAX_INTERFACES];
+    int16_t mouse_buttons;
+    uint8_t active_output;
+    uint8_t board_role;
+    uint8_t kbd_dev_addr;
+    uint8_t kbd_instance;
+} device_t;
+
 /*==============================================================================
  *  Firmware functions that live outside the two files under test.
  *  Defined in src/stubs.c so every test links.
@@ -67,6 +94,20 @@ int32_t extract_kbd_data(uint8_t *raw_report, int len, uint8_t itf, hid_interfac
 /* lifted verbatim out of the target's mouse.c by tools/lift.py */
 void extract_report_values(uint8_t *raw_report, int len, device_t *state,
                            mouse_values_t *values, hid_interface_t *iface);
+
+/*==============================================================================
+ *  usb.c's report callback, lifted whole for mousetest and dispatchtest
+ *  tuh_hid_report_received_cb() reaches two TinyUSB host calls and global_state, all
+ *  supplied by src/routing.c, and ends by calling one of the four receivers above, which
+ *  src/stubs.c records in harness_reached.
+ *============================================================================*/
+
+void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *report,
+                                uint16_t len);
+uint8_t tuh_hid_interface_protocol(uint8_t dev_addr, uint8_t idx);
+bool tuh_hid_receive_report(uint8_t dev_addr, uint8_t idx);
+
+extern process_report_f harness_reached;
 
 /*==============================================================================
  *  The consumer and system send path
