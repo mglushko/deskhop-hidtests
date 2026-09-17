@@ -113,25 +113,10 @@ typedef struct TU_ATTR_PACKED {
     int8_t  pan;
 } hid_mouse_report_t;
 
-/* The parts of device_t the lifted code reads: extract_report_values() names
-   mouse_buttons, and CURRENT_BOARD_IS_ACTIVE_OUTPUT in process_consumer_report() and
-   process_system_report() compares the other two. Every width is copied from the
-   target's src/include/structs.h and is load bearing: where a skipped button field falls
-   back to mouse_buttons, a wider field here would let a value survive that the firmware
-   truncates (it was int32_t once, and silently disagreed with the device). A tree that
-   keeps buttons per interface reads iface->mouse_buttons instead, but the parameter
-   stays, so keep the width right either way.
-
-   Nothing checks this copy: check_constants.py compares macros, not struct fields, so
-   re-read structs.h when a decode result looks off. Last checked against upstream
-   e5f8ae8: mouse_buttons int16_t (structs.h:110), active_output and board_role uint8_t
-   (structs.h:101-102); DeskHop Extended 60605e1 has the same widths (structs.h:131 and
-   122-123). */
-typedef struct {
-    int16_t mouse_buttons;
-    uint8_t active_output;
-    uint8_t board_role;
-} device_t;
+/* device_t, the parts of the firmware's global state the lifted code reads, is defined in
+   main.h rather than here: since tuh_hid_report_received_cb() is lifted it carries the
+   interface table by value, and hid_interface_t is not in view until hid_parser.h has
+   been included. */
 
 /*==============================================================================
  *  Recording stand-ins for the send path

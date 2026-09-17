@@ -4,7 +4,8 @@
  *
  * Given an interface and the bytes on the wire, which of the four process_*_report
  * functions does usb.c hand them to? Every other target starts after that. The routing
- * is modelled in src/dispatch.h, shared with mousetest.
+ * is usb.c's own tuh_hid_report_received_cb, lifted whole and driven through
+ * src/dispatch.h, shared with mousetest.
  *
  * usb.c branches on iface->uses_report_id, which the parser sets from the descriptor at
  * enumeration and nothing ever revises; it does not look at iface->protocol. So once
@@ -16,8 +17,9 @@
  * table by report ID with MAX_REPORTS slots, so an ID of 24 or more was never bound and
  * its reports were dropped in report protocol too. The sculpt rows measure that one.
  *
- * This target FAILS on firmware that has either bug: upstream main fixed the table and
- * still routes boot protocol by the first byte; DeskHop Extended fixed both and passes.
+ * This target FAILS on firmware that has either bug: upstream main fixed the table and,
+ * until #372 lands, still routes boot protocol by the first byte; DeskHop Extended fixed
+ * both and passes.
  * It belongs in `make findings`, not `make test`, for the same reason truncate and
  * shortreport do: its exit status is the finding.
  */
@@ -174,7 +176,7 @@ static bool routed_by_luck(const hid_interface_t *iface, const route_case_t *c,
     memcpy(probe, c->report, sizeof probe);
     probe[0] = (uint8_t)(probe[0] ^ 0xA5);
 
-    return hid_route(iface, c->itf_protocol, probe) != got;
+    return hid_route(iface, c->itf_protocol, probe, (int)sizeof probe) != got;
 }
 
 static const char *itf_name(uint8_t p) {
@@ -186,10 +188,7 @@ int main(void) {
     static hid_interface_t iface;
     int failures = 0, accidents = 0;
 
-    printf("  routing: %s\n\n", HID_ROUTE_IS_LIFTED
-           ? "lifted from the target's usb.c (pick_receiver)"
-           : "MODELLED in src/dispatch.h - the target has no pick_receiver() to lift, so "
-             "this\n           describes the model, not the firmware");
+    printf("  routing: lifted from the target's usb.c (tuh_hid_report_received_cb)\n\n");
 
     printf("  %-38s %-6s %-6s %-9s %-9s %s\n", "scenario", "itf", "proto", "reached", "wanted", "");
     print_rule(92);
@@ -202,7 +201,8 @@ int main(void) {
         /* iface->protocol is what the firmware would hold after
            tuh_hid_set_protocol_complete_cb; uses_report_id stays as the parser set
            it, because nothing in usb.c revises it. That pairing is the bug. */
-        process_report_f got = hid_route(&iface, c->itf_protocol, c->report);
+        process_report_f got = hid_route(&iface, c->itf_protocol, c->report,
+                                         (int)sizeof c->report);
 
         bool ok   = (got == c->want);
         bool luck = ok && routed_by_luck(&iface, c, got);
@@ -244,9 +244,6 @@ int main(void) {
         return 1;
     }
 
-    if (HID_ROUTE_IS_LIFTED)
-        printf("  every report reached its receiver, measured against the target's own routing\n");
-    else
-        printf("  every report reached its receiver - but see the routing note above\n");
+    printf("  every report reached its receiver, measured against the target's own routing\n");
     return 0;
 }

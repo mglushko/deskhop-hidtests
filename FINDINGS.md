@@ -406,8 +406,8 @@ cannot report something a device is unable to send:
 | `process_mouse_report` | none | 1 byte |
 | `process_keyboard_report` | `length < KBD_REPORT_LENGTH` returns | 8 bytes |
 
-Those floors are hand copies of firmware logic, like the routing in `src/dispatch.h`,
-and unlike that one they are load bearing - raising a floor hides a finding and
+Those floors are hand copies of firmware logic, the last such copies here now that the
+routing is lifted, and they are load bearing - raising a floor hides a finding and
 lowering one invents a false one. They are commented as such in `src/shortreport.c`.
 
 Present identically on `main` and on [#361] at the time: 779 of 1191 either way. The [#332]
@@ -491,21 +491,20 @@ to be asked which routing it uses to know that - in boot protocol `report[0]` is
 so routing must not depend on it, and the test simply perturbs that byte and sees
 whether the receiver moves. Left Ctrl on a report-ID-1 keyboard is the common case.
 
-**How `make dispatch` knows.** `tuh_hid_report_received_cb` cannot be lifted - it reaches
-`global_state` and the TinyUSB host API - but the decision inside it is a pure function
-of the interface, the interface protocol and `report[0]`. A target that factors that out
-as `pick_receiver()` gets it lifted verbatim like everything else here, and the run says
-`routing: lifted from the target's usb.c`. A target that still has it inlined in the
-callback has nothing to lift, so `src/dispatch.h`'s model stands in and the run says
-`MODELLED` instead. Only the first is a measurement of the firmware; the second reports
-what the model was written to say, which is exactly how this bug survived in the first
-place - `mousetest` carried a copy of these rules, display-only and documented as able to
-go stale, and it duly kept printing the old answer.
+**How `make dispatch` knows.** `tuh_hid_report_received_cb` is lifted whole. It reaches
+`global_state` and two TinyUSB host calls, and `src/routing.c` supplies all three, so the
+callback runs on the host exactly as written and the receivers it calls are stubs that
+record which one was reached. Every tree is measured the same way, whichever shape its
+routing takes. It was not always so: the callback was once modelled in `src/dispatch.h`,
+with the real function lifted only on a tree that had factored the decision out, and a
+model reports what it was written to say - which is exactly how this bug survived in the
+first place. `mousetest` carried a copy of these rules, display-only and documented as
+able to go stale, and it duly kept printing the old answer.
 
 `usb.c` is byte for byte the same on `main` and on all three PRs, so this is upstream's
-and long-standing rather than anything a fix introduced. DeskHop Extended is the one tree
-where it differs, by 67 lines, which is what the `dispatch` row means by lifted rather
-than modelled. Both flags default to 0, so it is opt-in - but both are checkboxes on the
+and long-standing rather than anything a fix introduced. [#372] carries the fix upstream:
+one local in the callback that says whether the wire report carries an ID, which DeskHop
+Extended now has in the same form. Both flags default to 0, so it is opt-in - but both are checkboxes on the
 config page, and the mouse one has now been ticked on real hardware with the predicted
 result. [#229] reports keys dying with that option enabled, which is *consistent* with
 this - but that reporter's Wooting declares no report ID on its keyboard interface,
@@ -728,6 +727,7 @@ the fix there, and the reporter did not choose the tool.
 [#361]: https://github.com/hrvach/deskhop/pull/361
 [#367]: https://github.com/hrvach/deskhop/issues/367
 [#368]: https://github.com/hrvach/deskhop/pull/368
+[#372]: https://github.com/hrvach/deskhop/pull/372
 
 <!-- dumping tools -->
 [winhiddump]: https://github.com/todbot/win-hid-dump

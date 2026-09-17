@@ -132,13 +132,12 @@ that read them, and what each has caught.
   `constants.h` are copied verbatim into the build directory, where their quoted
   includes resolve to the shims. The structs under test are always the target's own.
 - `tools/lift.py` copies the mouse extractors, the keyboard lookup, the consumer and
-  system receivers and, where the target has factored it out, the dispatch decision
-  verbatim out of the firmware. A rename upstream breaks the build rather than silently
-  testing nothing.
-- Where a function cannot be lifted because it reaches `global_state` or the TinyUSB host
-  API, the harness records what it hands to the next layer (`src/recorders.c`) or models
-  the decision (`src/dispatch.h`), and the run's output says which. Only the lifted form
-  is a measurement of the firmware.
+  system receivers and the report callback that routes to them verbatim out of the
+  firmware. A rename upstream breaks the build rather than silently testing nothing.
+- Where a function reaches `global_state` or the TinyUSB host API, the harness supplies
+  those and records what the function hands on: `src/recorders.c` under the consumer and
+  system receivers, `src/routing.c` around the report callback. Nothing is modelled; a
+  model reports what it was written to say.
 - The Makefile detects what a tree can do by grepping for the code that does it, and the
   case tables key their expectations on the resulting `HARNESS_*` flags. A device that
   would take a run down on a tree without the bound it needs is kept out of that run, and
@@ -165,7 +164,7 @@ that read them, and what each has caught.
 
 Results against two trees, so a broken harness can be told from a broken firmware.
 Taken in September 2026 against upstream `main` at `e5f8ae8` and
-[DeskHop Extended][deskhop-extended] `main` at `60605e1`, over the 105-descriptor corpus.
+[DeskHop Extended][deskhop-extended] at `27a7eb5`, over the 105-descriptor corpus.
 The second column is the tree that runs on hardware, and the one whose regressions cost
 something. Where its denominator is larger, the extra rows are devices the harness keeps
 out of a run on a tree that lacks the bound they need, and cases that only apply to code
@@ -177,7 +176,7 @@ the fork has.
 | `mouse` | 327 of 327 cases over 28 devices | **327 of 327 over 28**, plus **4 of 4** button fallback cases |
 | `kbd` | 165 of 165 cases over 39 devices | **168 of 168 over 40** |
 | `consumer` | 29 of 29 over 9 devices | same |
-| `dispatch` | 26 of 36 routed correctly, 4 of those only by luck; the 10 misrouted are all boot protocol | **36 of 36**, lifted rather than modeled |
+| `dispatch` | 26 of 36 routed correctly, 4 of those only by luck; the 10 misrouted are all boot protocol, which [#372](https://github.com/hrvach/deskhop/pull/372) fixes | **36 of 36** |
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `check-parse` | 7 dump shapes read, 2 non-dumps refused, 105 descriptors round trip | same |
 | `fuzz N=40000` | 0 out of bounds; lowest index 0, peak 127 | same: the parser is the same file |

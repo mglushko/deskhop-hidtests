@@ -1,5 +1,6 @@
 /* The four report receivers live in mouse.c / keyboard.c and are referenced by the usage
-   map in hid_report.c. They play no part in parsing a descriptor, so empty bodies link.
+   map in hid_report.c. They play no part in parsing a descriptor, so bodies that do no
+   more than note they were called link.
    What the tests use is their addresses: extract_data() binds one to each report ID, and
    dump prints the handlers: line, cctest asserts the report ID under test is bound to the
    receiver it drives, kbdtest's slot check resolves every keyboard binding, and
@@ -24,14 +25,20 @@
 #define KEEP_DISTINCT
 #endif
 
+/* Which of the four the lifted tuh_hid_report_received_cb() called, read back by
+   src/routing.c: NULL when it called none, which is what a dropped report means. */
+process_report_f harness_reached;
+
 KEEP_DISTINCT void process_mouse_report(uint8_t *report, int len, uint8_t itf,
                                         hid_interface_t *iface) {
     (void)report; (void)len; (void)itf; (void)iface;
+    harness_reached = process_mouse_report;
 }
 
 KEEP_DISTINCT void process_keyboard_report(uint8_t *report, int len, uint8_t itf,
                                            hid_interface_t *iface) {
     (void)report; (void)len; (void)itf; (void)iface;
+    harness_reached = process_keyboard_report;
 }
 
 /* cctest lifts these two out of the target's keyboard.c and links the real bodies
@@ -43,11 +50,13 @@ KEEP_DISTINCT void process_keyboard_report(uint8_t *report, int len, uint8_t itf
 KEEP_DISTINCT void process_consumer_report(uint8_t *report, int len, uint8_t itf,
                                            hid_interface_t *iface) {
     (void)report; (void)len; (void)itf; (void)iface;
+    harness_reached = process_consumer_report;
 }
 
 KEEP_DISTINCT void process_system_report(uint8_t *report, int len, uint8_t itf,
                                          hid_interface_t *iface) {
     (void)report; (void)len; (void)itf; (void)iface;
+    harness_reached = process_system_report;
 }
 
 #endif

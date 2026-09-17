@@ -185,7 +185,7 @@ KBD_OTHER_BOUNDED := $(call probe,hid_report.c,i < MAX_KEYS && i < len,HARNESS_B
 # Only dump prints them, so this is a display concern, not a decode one.
 NKRO_BITS_FIELDS := $(call probe,include/hid_parser.h,offset_bits,HARNESS_NKRO_BITS_FIELDS)
 
-$(GEN)/lifted_kbd.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
+$(GEN)/lifted_kbd.c: $(SRC)/src/keyboard.c tools/lift.py $(OUT)/probes | $(GEN)
 	@python3 tools/lift.py $< $@ $(KBD_LIFT)
 
 $(GEN)/lifted_mouse.c: $(SRC)/src/mouse.c tools/lift.py | $(GEN)
@@ -223,12 +223,8 @@ FIELD_32 := $(call probe,hid_report.c,size >= 32,HARNESS_FIELD_32)
 $(GEN)/lifted_cc.c: $(SRC)/src/keyboard.c tools/lift.py | $(GEN)
 	@python3 tools/lift.py $< $@ process_consumer_report process_system_report
 
-# usb.c's routing is liftable only on a tree that factored it out as pick_receiver();
-# elsewhere src/dispatch.h's model stands in and dispatchtest says so, since a model
-# reports what it was written to say, not what the firmware does. One grep, only to decide
-# how dispatchtest links. A handler table keyed by value is read through
-# get_report_handler(); src/handlers.h picks the matching accessor so dump, cctest,
-# kbdtest and the dispatch model measure either shape.
+# A handler table keyed by value is read through get_report_handler(); src/handlers.h
+# picks the matching accessor so dump, cctest and kbdtest measure either shape.
 HANDLER_LOOKUP := $(call probe,hid_report.c,get_report_handler,HARNESS_HANDLER_LOOKUP)
 CFLAGS += $(HANDLER_LOOKUP)
 
@@ -238,18 +234,38 @@ CFLAGS += $(HANDLER_LOOKUP)
 HANDLER_MAP := $(call probe,hid_report.c,report_receivers,HARNESS_HANDLER_MAP)
 CFLAGS += $(HANDLER_MAP)
 
-LIFTABLE_DISPATCH := $(call has,usb.c,process_report_f pick_receiver)
+# usb.c's routing is the body of tuh_hid_report_received_cb, lifted whole. src/routing.c
+# supplies the two TinyUSB host calls and the global it reaches, and the receivers it
+# calls are the recording stubs, so the answer is the firmware's on every tree and nothing
+# is modelled (src/dispatch.h says why). A tree that factored the decision out as
+# pick_receiver() has the callback call it, so that and its helper are lifted in front of
+# it where they exist; a name lift.py cannot find fails the build, as intended.
+DISPATCH_LIFT := $(if $(call has,usb.c,report_carries_id),report_carries_id) \
+                 $(if $(call has,usb.c,process_report_f pick_receiver),pick_receiver) \
+                 tuh_hid_report_received_cb
 
-ifneq ($(LIFTABLE_DISPATCH),)
-DISPATCH_SRC  := $(GEN)/lifted_dispatch.c
-DISPATCH_FLAG := -DHARNESS_LIFT_DISPATCH
-else
-DISPATCH_SRC  :=
-DISPATCH_FLAG :=
-endif
+ROUTING := src/routing.c $(GEN)/lifted_dispatch.c
 
-$(GEN)/lifted_dispatch.c: $(SRC)/src/usb.c tools/lift.py | $(GEN)
-	@python3 tools/lift.py $< $@ report_carries_id pick_receiver
+$(GEN)/lifted_dispatch.c: $(SRC)/src/usb.c tools/lift.py $(OUT)/probes | $(GEN)
+	@python3 tools/lift.py $< $@ $(DISPATCH_LIFT)
+
+# Every probe's answer in one file, whose timestamp moves only when an answer changes.
+# The answers choose what is lifted and which cases compile in, but a grep is nothing make
+# can see: a tree that gained or lost a lifted function kept the binary built the other
+# way, and dispatchtest once printed "lifted" against a tree with nothing to lift. FORCE
+# runs the recipe every time; cmp leaves the file, and everything built from it, alone
+# while the answers hold. In DEPS, so every binary depends on it.
+PROBE_ANSWERS := $(strip $(KBD_LIFT) $(KBD_MULTI) $(KBD_BOUNDED) $(KBD_WIDE) $(KBD_OTHER_BOUNDED) \
+                 $(NKRO_BITS_FIELDS) $(MOUSE_IFACE_BTN) $(PARSER_BOUNDED) $(FIELD_32) \
+                 $(HANDLER_LOOKUP) $(HANDLER_MAP) $(DISPATCH_LIFT))
+
+.PHONY: FORCE
+FORCE:
+
+$(OUT)/probes: FORCE | $(GEN)
+	@echo '$(PROBE_ANSWERS)' | cmp -s - $@ 2>/dev/null || echo '$(PROBE_ANSWERS)' > $@
+
+DEPS += $(OUT)/probes
 
 $(GEN)/hid_parser_instr.c: $(PARSER) tools/instrument.py | $(GEN)
 	@python3 tools/instrument.py $< $@
@@ -259,8 +275,8 @@ $(GEN)/hid_parser_instr.c: $(PARSER) tools/instrument.py | $(GEN)
 $(OUT)/dump: src/dump.c src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(NKRO_BITS_FIELDS) -o $@ src/dump.c $(CORE)
 
-$(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/kept_out.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN) check-target
-	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
+$(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/kept_out.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) $(GEN)/lifted_mouse.c $(ROUTING) | $(GEN) check-target
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(ROUTING) $(CORE)
 
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries
@@ -282,12 +298,11 @@ $(OUT)/cctest: src/cctest.c src/cases_cc.h src/handlers.h descriptors.h $(HDRS) 
 	    $(GEN)/lifted_cc.c src/recorders.c $(CORE)
 
 # Routing, not decode, so the only thing it needs out of $(CORE) is the four
-# distinguishable receiver addresses in src/stubs.c. $(DISPATCH_SRC) is the target's
-# own pick_receiver() where the target has one, and empty otherwise.
+# distinguishable receiver addresses in src/stubs.c. $(ROUTING) is the target's own
+# callback and the harness's stand-ins for what it reaches.
 $(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) \
-                     $(DISPATCH_SRC) | $(GEN) check-target
-	$(CC) $(CFLAGS) $(SAN) $(INCS) $(DISPATCH_FLAG) -o $@ src/dispatchtest.c \
-	    $(DISPATCH_SRC) $(CORE)
+                     $(ROUTING) | $(GEN) check-target
+	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/dispatchtest.c $(ROUTING) $(CORE)
 
 # needs lifted_mouse.c: it drives extract_report_values, mousetest's entry point, so the
 # truncated reports go through the firmware's own extraction. $(KBD_BOUNDED) as well, so
