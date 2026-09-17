@@ -5,19 +5,12 @@
     add_descriptor.py wooting_keyboard dump.txt
     add_descriptor.py --selftest           # check the reader against known dump shapes
 
-Eats whatever the issue tracker hands you: usbhid-dump output, the Windows tool's
-"DESCRIPTOR:" blocks, C arrays with 0x and commas, decoded arrays with the item
-spelled out in a trailing comment, or bare space separated hex. Non-hex lines are
-skipped, so you can paste a whole comment and it still works.
+Reads usbhid-dump output, the Windows tool's "DESCRIPTOR:" blocks, C arrays with 0x and
+commas, decoded arrays with the item in a trailing comment, or bare hex. Non-hex lines
+are skipped, so a whole issue comment can be pasted.
 
-Prints the C array and the registry line to add. It deliberately does not edit
-descriptors.h for you, because the comment naming the device and issue matters and
-only you can write it.
-
-Anything it drops, it says so on stderr. It used to drop two common shapes in
-silence - a decoded array, and a dump whose last line is a lone C0 - and both came
-back as a short descriptor that passed every check in sanity(), because losing a
-Collection and its End Collection together leaves the rest still balanced.
+Prints the C array and the registry line, and says on stderr what it dropped. It does
+not edit descriptors.h: the comment naming the device and issue is yours to write.
 """
 import os
 import re
@@ -31,13 +24,6 @@ TOKEN = re.compile(r"(?:\b0[xX])?([0-9A-Fa-f]{2})\b")
 # usbhid-dump prefixes each block with e.g. "001:004:000:DESCRIPTOR  1719851496.9"
 NOISE = re.compile(r"DESCRIPTOR|PATH:|^\s*```|bLength|bDescriptorType|^\s*\(\d+ bytes\)")
 
-# C comments in a pasted array: "0x05, 0x01,  /* Usage Page (Generic Desktop) */".
-# A published dump often decodes every item this way, and before these were stripped
-# the whole line failed the "is this line nothing but hex" test below and was dropped
-# as prose - silently, and in a way sanity() could not see. See parse_hex.
-BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
-LINE_COMMENT = re.compile(r"//[^\n]*")
-
 # what separates bytes in every format worth reading: spaces, commas, 0x prefixes
 SEPARATORS = re.compile(r"[\s,]|0[xX]")
 
@@ -48,25 +34,20 @@ MIN_BLOCK = 4
 def parse_hex(text, notes=None):
     """Every descriptor byte in a pasted dump, in order.
 
-    Lines that are not descriptor data are skipped, so a whole issue comment can be
-    piped in. Judging each line on its own was the problem: it cannot tell a dump whose
-    final line is a lone C0 from the "de ad" inside a sentence, and it threw away both.
-    So lines are classified first and decided in runs - a contiguous block of hex-only
-    lines is descriptor data if the block as a whole carries at least MIN_BLOCK bytes,
-    however few any one line holds.
-
-    That covers the two shapes that used to be dropped silently, each of which produced
-    a short descriptor that still looked plausible:
-
-      - a decoded array, published one item per line with a trailing C comment. The
-        comment is stripped, and two bytes on a line no longer disqualifies it.
-      - a dump whose last line is a lone C0, which now belongs to the block above it.
+    Lines that are not descriptor data are skipped, and they are judged in runs rather
+    than one at a time: a contiguous block of hex-only lines is data if together it
+    carries at least MIN_BLOCK bytes, however few any one line holds. That keeps a
+    dump's lone final C0 and drops the "de ad" inside a sentence, and a decoded array
+    with a C comment on every line is read once the comments are stripped. Both shapes
+    used to come back as a short descriptor that passed sanity().
 
     Anything appended to notes is a run that looked like data and was dropped anyway.
     """
-    # Whole text first: a block comment can span lines. Replaced with a space rather
-    # than deleted so bytes on either side of it cannot fuse into one token.
-    text = BLOCK_COMMENT.sub(" ", text)
+    # C comments first, over the whole text: a pasted array often decodes every item in a
+    # trailing comment, and before these were stripped the whole line failed the "nothing
+    # but hex" test below and was dropped as prose, silently. hiditems' stripper replaces
+    # a comment with a space, so bytes on either side of it cannot fuse.
+    text = hiditems.strip_comments(text)
 
     # tokens for a data line, None for anything that breaks a run
     classified = []
@@ -75,14 +56,13 @@ def parse_hex(text, notes=None):
             classified.append(None)
             continue
 
-        line = LINE_COMMENT.sub(" ", raw)
-        tokens = TOKEN.findall(line)
+        tokens = TOKEN.findall(raw)
         if not tokens:
             classified.append(None)
             continue
 
         # a descriptor line is nothing but hex; skip prose that happens to contain "ab"
-        if not re.fullmatch(r"[0-9A-Fa-f]*", SEPARATORS.sub("", line)):
+        if not re.fullmatch(r"[0-9A-Fa-f]*", SEPARATORS.sub("", raw)):
             classified.append(None)
             if notes is not None and len(tokens) >= MIN_BLOCK:
                 notes.append("skipped a line holding %d bytes and other text: %s"
@@ -116,13 +96,9 @@ CORPUS = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir,
 
 
 def existing(path=CORPUS):
-    """Every descriptor already in the corpus, as name -> bytes.
-
-    Located relative to this file, not the working directory. Reading it as a bare
-    relative path meant the duplicate check below silently did nothing whenever the
-    tool was run from anywhere but the repo root - it caught nothing and said so by
-    exiting 0, which is worse than not having the check.
-    """
+    """Every descriptor already in the corpus, as name -> bytes. Located relative to
+    this file, not the working directory, so the duplicate check cannot silently pass
+    everything when the tool is run from outside the repo root."""
     try:
         text = open(path).read()
     except OSError as e:
@@ -135,14 +111,10 @@ def existing(path=CORPUS):
 
 
 def duplicate_of(b, corpus):
-    """Name of an existing descriptor with exactly these bytes, if any.
-
-    A device dumped from a different vendor can still be byte for byte a descriptor
-    already in the corpus - rpi_consumer and cherry_kc6000_consumer were, and it
-    went unnoticed because the names looked unrelated. An identical descriptor
-    parses identically, so it adds no coverage while inflating every count derived
-    from the corpus size.
-    """
+    """Name of an existing descriptor with exactly these bytes, if any. A device from
+    another vendor can be one (rpi_consumer and cherry_kc6000_consumer were): it parses
+    identically, so it adds no coverage while inflating every count derived from the
+    corpus size."""
     for name, bytes_ in corpus.items():
         if bytes_ == b:
             return name
@@ -160,8 +132,6 @@ def sanity(b):
     depth, end, collections = 0, 0, 0
     for item in hiditems.walk_items(b):
         end = item.end
-        if item.typ == 3:
-            continue
         if item.tag == 0xA0:
             depth += 1
             collections += 1
@@ -174,11 +144,9 @@ def sanity(b):
     if depth != 0:
         notes.append("collections unbalanced (%+d), descriptor may be incomplete" % depth)
 
-    # The other three checks can all pass on a descriptor that lost whole lines, as long
-    # as it lost the Collection and the End Collection together: the remainder still
-    # starts on a Usage Page, still lands on the end, and still balances at depth 0. A
-    # descriptor that declares no collection at all declares nothing about the device,
-    # so it is the one thing left that catches that paste.
+    # The other three checks all pass on a paste that lost a Collection and its End
+    # Collection together: the rest still starts on a Usage Page, lands on the end and
+    # balances. A descriptor with no collection declares nothing, so this catches it.
     if collections == 0:
         notes.append("no Collection item at all, so nothing declares what the device is - "
                      "almost always a paste that lost lines")
@@ -256,11 +224,7 @@ Thanks!
 
 def selftest():
     """Check parse_hex against the dump shapes that have bitten, plus the whole corpus.
-
-    Two of these used to come back short and silent, which is the reason this exists:
-    a descriptor that loses its Collection and End Collection together still starts on
-    a Usage Page, still lands on the end and still balances, so sanity() saw nothing.
-    """
+    Two of the shapes used to come back short and silent; see parse_hex and sanity()."""
     bad = 0
     for label, want, text in SELFTEST:
         got = parse_hex(text)

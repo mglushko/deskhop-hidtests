@@ -217,21 +217,17 @@ int main(void) {
 
     printf("%d/%d cases across %u devices\n", total - failures, total,
            (unsigned)ARRAY_SIZE(cc_devices));
-    if (routing)
-        printf("  %d device(s) whose report ID is not bound to the receiver under test\n",
-               routing);
-
     /* The whole point of the target. Rows where the two branches agree say nothing
        about which one this is; only the separating rows do. */
     printf("\n  separating rows: %d behave like pre-#358 main, %d like #358\n", seen[R_MAIN],
            seen[R_FIXED]);
 
-    if (failures)
-        printf("  VERDICT: cannot classify - %d case(s) matched neither branch\n", failures);
-    else if (routing)
-        printf("  VERDICT: cannot classify - %d device(s) whose report ID is not bound to the "
-               "receiver under test\n", routing);
-    else if (seen[R_MAIN] && seen[R_FIXED])
+    bool split = seen[R_MAIN] && seen[R_FIXED];
+    bool none  = !seen[R_MAIN] && !seen[R_FIXED];
+
+    /* The verdict is what the separating rows say, whatever else went wrong; each failure
+       kind then gets a line of its own, so one cannot hide another. */
+    if (split)
         printf("  VERDICT: INCONSISTENT - some rows behave like pre-#358 main, some like #358\n");
     else if (seen[R_FIXED])
         printf("  VERDICT: this branch has the #358 fix\n");
@@ -240,12 +236,15 @@ int main(void) {
     else
         printf("  VERDICT: no separating row ran - this target is proving nothing\n");
 
+    if (failures)
+        printf("  FAILED: %d case(s) matched neither branch\n", failures);
+    if (routing)
+        printf("  FAILED: %d device(s) whose report ID is not bound to the receiver under test\n",
+               routing);
+
     /* An inconsistent split is a real failure: the two receivers got the fix
        independently, which is not a state either branch is supposed to be in. And a
        run with no separating row at all has silently stopped testing the thing it
        exists for - the same refusal as fuzz's touches == 0 and compare's seen == 0. */
-    if (!failures && ((seen[R_MAIN] && seen[R_FIXED]) || (!seen[R_MAIN] && !seen[R_FIXED])))
-        return 1;
-
-    return (failures || routing) ? 1 : 0;
+    return (failures || routing || split || none) ? 1 : 0;
 }

@@ -38,7 +38,7 @@ int main(void) {
 
     printf("  %10s  %8s  %10s  %8s  %8s\n", "preceding", "desc", "mouse", "X off", "Y off");
     printf("  %10s  %8s  %10s  %8s  %8s\n", "usages", "bytes", "found?", "", "");
-    printf("  --------------------------------------------------------\n");
+    print_rule(56);
 
     for (unsigned i = 0; i < ARRAY_SIZE(counts); i++) {
         int len = build(desc, counts[i]);

@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 """Emit descriptors from ../descriptors.h as a standalone C header.
 
-The emulator must present the byte-for-byte descriptors the harness tests
-against, otherwise a hardware run proves nothing about the host results.
-Generating them at build time rather than checking in a second copy is what
-keeps the two from drifting apart.
-
     gen_desc.py <descriptors.h> <out.h> <c_name>=<prefix> [...]
 
-Each pair yields `<prefix>_desc` and `<PREFIX>_DESC_LEN`. One header per
-target, holding only that target's descriptors, so nothing lands in a binary
-that does not use it.
+Each pair yields `<prefix>_desc` and `<PREFIX>_DESC_LEN`, one header per target
+holding only its own descriptors, so nothing lands in a binary that does not use it.
+Generating at build time rather than checking in a second copy keeps the emulator
+byte-for-byte with what the harness tests against; otherwise a hardware run proves
+nothing about the host results.
 """
 import os
 import sys
@@ -22,15 +19,13 @@ import hiditems  # noqa: E402
 def normalise_end_collection(data):
     """Rewrite End Collection items that carry a data byte.
 
-    Every Gameball descriptor in the corpus encodes End Collection as 0xC1 0x00,
-    which is bSize 1 where the HID spec says 0. Tolerant parsers skip it by size
-    and never notice; a strict one reads the trailing 0x00 as an undefined Main
-    item. This produces the well formed 0xC0 form so the two can be told apart on
-    real hardware.
+    Every Gameball descriptor in the corpus encodes it as 0xC1 0x00, bSize 1 where the
+    HID spec says 0: tolerant parsers skip it by size, a strict one reads the trailing
+    0x00 as an undefined Main item. The well formed 0xC0 tells the two apart on hardware.
     """
     out, fixed = [], 0
     for item in hiditems.walk_items(data):
-        if item.typ == 0 and item.tag == 0xC0 and item.size:
+        if item.tag == 0xC0 and item.size:
             out.append(0xC0)
             fixed += 1
         else:
@@ -41,24 +36,22 @@ def normalise_end_collection(data):
 def fix_signed_axes(data):
     """Give relative axes a negative Logical Minimum.
 
-    The Gameball descriptors never set Logical Minimum for X, Y, wheel or pan, so
-    the 0 left over from the button block stands and the axes read as unsigned
-    0..127. A parser that honours that discards every negative delta and the
-    pointer can only travel right and down. deskhop reads the field as signed
-    regardless and is unaffected; Windows is not.
-
-    Inserts Logical Minimum -127 before the first relative Input item that needs
-    it. It is a global item, so every axis after it inherits the fix.
+    The Gameball descriptors never set one for X, Y, wheel or pan, so the 0 left over
+    from the button block stands and the axes read as unsigned 0..127; a parser that
+    honours that discards every negative delta and the pointer can only travel right
+    and down. deskhop reads the field as signed regardless; Windows does not. Inserts
+    Logical Minimum -127 before the first relative Input item that needs it, a global
+    item, so every axis after it inherits the fix.
     """
     out, fixed, lmin, lmax = [], 0, None, None
     for item in hiditems.walk_items(data):
-        typ, tag, val = item.typ, item.tag, item.value
+        tag, val = item.tag, item.value
 
-        if typ == 1 and tag == 0x14:
+        if tag == 0x14:
             lmin = val
-        if typ == 1 and tag == 0x24:
+        if tag == 0x24:
             lmax = val
-        if typ == 0 and tag == 0x80 and (val & 0x04) and lmin == 0 and lmax and not fixed:
+        if tag == 0x80 and (val & 0x04) and lmin == 0 and lmax and not fixed:
             out.extend([0x15, (256 - lmax) & 0xFF])   # Logical Minimum -lmax
             lmin = -lmax
             fixed += 1

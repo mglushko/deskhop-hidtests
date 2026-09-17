@@ -4,27 +4,21 @@
     check_constants.py <harness.h> <tinyusb/class/hid/hid.h> [parser.c ...]
 
 harness.h hand-copies the item tags, usage pages and usages that hid_parser.c and
-hid_report.c reach for, because pulling in the real TinyUSB would drag the whole
-Pico SDK onto the host. That copy is the harness's one unchecked assumption, and
-the failure mode is nasty: a wrong value does not break the build or crash
-anything, it shifts an offset or misclassifies a usage and every target reports a
-plausible wrong answer at once.
-
-A constant the parser uses but harness.h omits is already a compile error, so this
-only has to catch disagreements in value, plus names that have drifted out of
-TinyUSB entirely.
-
-Any .c files given after the two headers are scanned to work out which constants
-the parser actually depends on, so a mismatch in a load-bearing one can be called
-out as such rather than buried among the ones that are only there for completeness.
+hid_report.c use, since the real TinyUSB would drag the whole Pico SDK onto the host.
+A wrong value there breaks no build: it shifts an offset or misclassifies a usage and
+every target reports a plausible wrong answer at once. A constant the parser uses but
+harness.h omits is already a compile error, so this only catches disagreements in value
+and names that have left TinyUSB. The .c files given after the headers are scanned so a
+mismatch in a constant the parser actually uses is called out as such.
 """
 import ast
 import re
 import sys
 
+import hiditems
+
 PREFIXES = ("RI_", "HID_USAGE_", "HID_PROTOCOL_", "HID_ITF_PROTOCOL_")
 
-COMMENTS = re.compile(r"/\*.*?\*/|//[^\n]*", re.S)
 ENUM_BODY = re.compile(r"\benum\b[^{]*\{(.*?)\}", re.S)
 DEFINE = re.compile(r"^[ \t]*#[ \t]*define[ \t]+([A-Za-z_]\w*)[ \t]+([^\n]+?)[ \t]*$", re.M)
 
@@ -47,14 +41,10 @@ def interesting(name):
 
 
 def evaluate(expr, known):
-    """Value of a C integer constant expression, or None if it is not one.
-
-    Handles the shapes these headers actually use: literals with U/L suffixes, C
-    octal, parenthesised shifts and masks, and references to enumerators already
-    seen. Giving up used to mean dropping the constant *and* every implicit
-    enumerator after it, while still reporting success - so anything unresolved is
-    now surfaced by the caller instead of vanishing.
-    """
+    """Value of a C integer constant expression, or None if it is not one: literals with
+    U/L suffixes, C octal, parenthesised shifts and masks, and enumerators already seen.
+    The caller surfaces a None rather than skipping it: a dropped constant used to take
+    every implicit enumerator after it down with it while still reporting success."""
     expr = INT_SUFFIX.sub(r"\1", expr).strip()
     expr = C_OCTAL.sub(r"0o\1", expr)
     if not expr:
@@ -82,14 +72,11 @@ def evaluate(expr, known):
 
 
 def parse(text):
-    """Name -> int for every enumerator and simple #define we care about.
-
-    Enumerators without an explicit initialiser take the previous value plus one,
-    exactly as C does. Resolving those matters: TinyUSB writes several of these
-    lists with only the first entry numbered, and treating a bare name as absent
-    would report a mismatch that is not there.
-    """
-    text = COMMENTS.sub(" ", text)
+    """Name -> int for every enumerator and simple #define we care about. Enumerators
+    without an initialiser take the previous value plus one, as C does: TinyUSB numbers
+    only the first entry of several lists, and treating a bare name as absent would
+    report a mismatch that is not there."""
+    text = hiditems.strip_comments(text)
     out = {}
     unresolved = set()
 

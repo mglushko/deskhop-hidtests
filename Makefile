@@ -80,7 +80,7 @@ GEN := $(OUT)/gen
 # target headers are already in $(HDRS); without these, a corrected constant in harness.h
 # or a widened probe rebuilds nothing, and make hands back the old binary with a straight
 # face.
-DEPS := Makefile include/harness.h include/main.h include/tusb.h
+DEPS := Makefile include/harness.h include/main.h include/tusb.h src/support.h
 
 # The target's src/include is deliberately NOT on the include path: a quoted #include
 # "main.h" searches the including file's own directory first and would pull in deskhop's
@@ -118,7 +118,7 @@ check-target:
 	  echo "no hid_parser.c under $(SRC)."; \
 	  echo "point DESKHOP at a deskhop checkout, e.g. make DESKHOP=~/deskhop"; \
 	  exit 1; }
-	@for f in $(PROBED); do test -f $(SRC)/src/$$f || { \
+	@for f in $(sort $(PROBED)); do test -f $(SRC)/src/$$f || { \
 	  echo "no $$f under $(SRC)/src, so every probe that reads it answered 'absent'."; \
 	  echo "The tree is incomplete or the file moved; fix that rather than trust this run."; \
 	  exit 1; }; done
@@ -135,11 +135,11 @@ $(GEN)/%.h: $(SRC)/src/include/%.h | $(GEN)
 
 # Every probe below is one grep over one file of the target tree, answered as a -D flag
 # for the case tables: `has` is the grep, `probe` the flag. Both read as "absent" when
-# the file is missing, so check-target insists every probed file exists before anything
-# is built, and the list of probed files is kept here beside them.
-has   = $(shell grep -qE '$(2)' $(SRC)/src/$(1) 2>/dev/null && echo y)
+# the file is missing, so `has` records each file it reads in PROBED and check-target
+# insists every one of them exists before anything is built.
+PROBED :=
+has   = $(eval PROBED += $(1))$(shell grep -qE '$(2)' $(SRC)/src/$(1) 2>/dev/null && echo y)
 probe = $(if $(call has,$(1),$(2)),-D$(3))
-PROBED := hid_parser.c hid_report.c keyboard.c usb.c include/hid_parser.h
 
 # get_or_add_keyboard exists only on a tree that separates parse-time allocation from
 # decode-time lookup. Lift it where it is there; where it is not, the target's own
@@ -256,27 +256,27 @@ $(GEN)/hid_parser_instr.c: $(PARSER) tools/instrument.py | $(GEN)
 
 # ---- binaries ----------------------------------------------------------------
 
-$(OUT)/dump: src/dump.c src/support.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
+$(OUT)/dump: src/dump.c src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(NKRO_BITS_FIELDS) -o $@ src/dump.c $(CORE)
 
-$(OUT)/mousetest: src/mousetest.c src/support.h src/cases_mouse.h src/kept_out.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN) check-target
+$(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/kept_out.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) $(GEN)/lifted_mouse.c | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(CORE)
 
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries
-$(OUT)/kbdtest: src/kbdtest.c src/support.h src/cases_kbd.h src/kept_out.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
+$(OUT)/kbdtest: src/kbdtest.c src/cases_kbd.h src/kept_out.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_MULTI) $(KBD_BOUNDED) $(KBD_WIDE) $(KBD_OTHER_BOUNDED) $(NKRO_BITS_FIELDS) -o $@ src/kbdtest.c $(CORE)
 
-$(OUT)/exhaust: src/exhaust.c src/support.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
+$(OUT)/exhaust: src/exhaust.c descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/exhaust.c $(CORE)
 
-$(OUT)/truncate: src/truncate.c src/support.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
+$(OUT)/truncate: src/truncate.c descriptors.h $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -o $@ src/truncate.c $(CORE)
 
 # The one target that does NOT link src/stubs.c's consumer and system stubs:
 # -DHARNESS_LIFT_CC keeps them out, and $(GEN)/lifted_cc.c supplies the real bodies
 # from the branch under test. src/recorders.c supplies what those bodies reach for.
-$(OUT)/cctest: src/cctest.c src/support.h src/cases_cc.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) \
+$(OUT)/cctest: src/cctest.c src/cases_cc.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) \
                $(GEN)/lifted_cc.c src/recorders.c | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) -DHARNESS_LIFT_CC -o $@ src/cctest.c \
 	    $(GEN)/lifted_cc.c src/recorders.c $(CORE)
@@ -284,7 +284,7 @@ $(OUT)/cctest: src/cctest.c src/support.h src/cases_cc.h src/handlers.h descript
 # Routing, not decode, so the only thing it needs out of $(CORE) is the four
 # distinguishable receiver addresses in src/stubs.c. $(DISPATCH_SRC) is the target's
 # own pick_receiver() where the target has one, and empty otherwise.
-$(OUT)/dispatchtest: src/dispatchtest.c src/support.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) \
+$(OUT)/dispatchtest: src/dispatchtest.c src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) \
                      $(DISPATCH_SRC) | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(DISPATCH_FLAG) -o $@ src/dispatchtest.c \
 	    $(DISPATCH_SRC) $(CORE)
@@ -293,7 +293,7 @@ $(OUT)/dispatchtest: src/dispatchtest.c src/support.h src/dispatch.h src/handler
 # truncated reports go through the firmware's own extraction. $(KBD_BOUNDED) as well, so
 # both users of cases_kbd.h see the same device list rather than the 8BitDo in one binary
 # and not the other; on an unbounded tree it would only add the overread truncate counts.
-$(OUT)/shortreport: src/shortreport.c src/support.h src/cases_mouse.h src/cases_kbd.h src/kept_out.h descriptors.h $(HDRS) $(DEPS) \
+$(OUT)/shortreport: src/shortreport.c src/cases_mouse.h src/cases_kbd.h src/kept_out.h descriptors.h $(HDRS) $(DEPS) \
                     $(CORE) $(GEN)/lifted_mouse.c | $(GEN) check-target
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(KBD_BOUNDED) $(KBD_OTHER_BOUNDED) $(NKRO_BITS_FIELDS) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/shortreport.c \
 	    $(GEN)/lifted_mouse.c $(CORE)
@@ -303,7 +303,7 @@ $(OUT)/shortreport: src/shortreport.c src/support.h src/cases_mouse.h src/cases_
 $(OUT)/timing: src/timing.c $(HDRS) $(DEPS) $(CORE) | $(GEN) check-target
 	$(CC) -O2 $(WARN) $(INCS) $(HANDLER_LOOKUP) $(HANDLER_MAP) -o $@ src/timing.c $(CORE)
 
-$(OUT)/fuzz: src/fuzz.c src/support.h $(HDRS) $(DEPS) $(GEN)/hid_parser_instr.c $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c | $(GEN) check-target
+$(OUT)/fuzz: src/fuzz.c $(HDRS) $(DEPS) $(GEN)/hid_parser_instr.c $(REPORT) src/stubs.c $(GEN)/lifted_kbd.c | $(GEN) check-target
 	$(CC) $(CFLAGS) $(INCS) -o $@ src/fuzz.c $(GEN)/hid_parser_instr.c $(REPORT) \
 	    src/stubs.c $(GEN)/lifted_kbd.c
 

@@ -234,10 +234,11 @@ int main(void) {
         printf("  reads report[0] as one, because iface->uses_report_id comes from the\n");
         printf("  descriptor and is never revised; a keyboard's modifier byte and a mouse's\n");
         printf("  button byte are looked up as report IDs.\n");
-#if !defined(HARNESS_HANDLER_MAP) && !defined(HARNESS_HANDLER_LOOKUP)
-        /* Only where it is true: the map and the keyed lookup bind any 8-bit ID. */
+#if !HID_HANDLER_BINDS_ANY_ID
+        /* Only where it is true, and MAX_REPORTS exists only on such a tree. */
         printf("  This tree also indexes its handler table by the report ID with MAX_REPORTS\n");
-        printf("  slots, so an ID of 24 or more is never bound and its reports are dropped in\n");
+        printf("  slots, so an ID of %d or more is never bound and its reports are dropped in\n",
+               MAX_REPORTS);
         printf("  report protocol as well.\n");
 #endif
         return 1;

@@ -10,7 +10,12 @@
 
 #include "main.h"
 
+/* HID_HANDLER_BINDS_ANY_ID: the map and the keyed lookup take all 256 IDs, the indexed
+   table only MAX_REPORTS. cases_cc.h and dispatchtest read it here rather than re-derive
+   it from the two probe flags. */
 #if defined(HARNESS_HANDLER_MAP)
+
+#define HID_HANDLER_BINDS_ANY_ID 1
 
 static inline process_report_f hid_handler(const hid_interface_t *iface, unsigned report_id) {
     return report_id < REPORT_ID_MAP_SIZE ? report_receivers[iface->report_handler[report_id]] : NULL;
@@ -18,11 +23,15 @@ static inline process_report_f hid_handler(const hid_interface_t *iface, unsigne
 
 #elif defined(HARNESS_HANDLER_LOOKUP)
 
+#define HID_HANDLER_BINDS_ANY_ID 1
+
 static inline process_report_f hid_handler(const hid_interface_t *iface, unsigned report_id) {
     return get_report_handler(iface, (uint8_t)report_id);
 }
 
 #else
+
+#define HID_HANDLER_BINDS_ANY_ID 0
 
 static inline process_report_f hid_handler(const hid_interface_t *iface, unsigned report_id) {
     return report_id < MAX_REPORTS ? iface->report_handler[report_id] : NULL;

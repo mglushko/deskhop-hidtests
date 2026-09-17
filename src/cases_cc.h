@@ -15,6 +15,7 @@
 #pragma once
 
 #include "descriptors.h"
+#include "handlers.h" /* HID_HANDLER_BINDS_ANY_ID, before cctest.c's own include reaches it */
 
 typedef enum { CC_CONSUMER, CC_SYSTEM } cc_path_e;
 
@@ -146,7 +147,7 @@ static const cc_case_t sculpt_system_cases[] = {
    bitmap walk.
    cc_array from dump: [0]=00CD play/pause [1]=00B3 fast forward [2]=00B4 rewind
    [3]=00B5 scan next [4]=00B6 scan previous */
-#if defined(HARNESS_HANDLER_LOOKUP) || defined(HARNESS_HANDLER_MAP)
+#if HID_HANDLER_BINDS_ANY_ID
 static const cc_case_t apple_a2520_cc_cases[] = {
     {"play/pause (bit 0)",   {0x52, 0x01}, 2, true, {0xCD, 0x00},       true,  {0xCD, 0x00}},
     {"scan next (bit 3)",    {0x52, 0x08}, 2, true, {0xB5, 0x00},       true,  {0xB5, 0x00}},
@@ -173,7 +174,7 @@ static const cc_device_t cc_devices[] = {
     CCDEV(system_no_report_id,    CC_SYSTEM,   0, system_no_rid_cases),
     CCDEV(sculpt_rx_consumer,     CC_CONSUMER, 7, sculpt_consumer_cases),
     CCDEV(sculpt_rx_consumer,     CC_SYSTEM,   3, sculpt_system_cases),
-#if defined(HARNESS_HANDLER_LOOKUP) || defined(HARNESS_HANDLER_MAP)
+#if HID_HANDLER_BINDS_ANY_ID
     CCDEV(apple_a2520_iface1,     CC_CONSUMER, 0x52, apple_a2520_cc_cases),
 #endif
 };

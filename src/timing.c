@@ -5,6 +5,8 @@
    Cortex-M0+ at 120 MHz and DeskHop's watchdog fires after 500 ms, a budget of 60 million
    cycles for the whole parse. */
 #include "main.h"
+#include "support.h"
+
 #include <time.h>
 
 /* Vendor collection with one usage and a 4-byte Report Count, the same shape the
@@ -37,18 +39,15 @@ int main(void) {
     const uint32_t counts[] = {1000000, 5000000, 20000000, 50000000};
 
     printf("  %14s  %12s  %14s\n", "report count", "seconds", "ns/element");
-    printf("  ----------------------------------------------\n");
+    print_rule(46);
 
     double ns_per = 0;
     for (unsigned i = 0; i < ARRAY_SIZE(counts); i++) {
         int len = build(desc, counts[i]);
 
-        memset(&iface, 0, sizeof(iface));
-        iface.protocol = HID_PROTOCOL_REPORT;
-
         struct timespec a, b;
         clock_gettime(CLOCK_MONOTONIC, &a);
-        parse_report_descriptor(&iface, desc, len);
+        parse_iface(&iface, desc, len, HID_PROTOCOL_REPORT);
         clock_gettime(CLOCK_MONOTONIC, &b);
 
         double s = (b.tv_sec - a.tv_sec) + (b.tv_nsec - a.tv_nsec) / 1e9;

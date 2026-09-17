@@ -4,11 +4,9 @@
     make corpus            # rewrites the block between the corpus-table markers
 
 Size, top-level collections, report IDs and decode-case coverage are read from
-descriptors.h and the three case tables, so they cannot drift. Device, IDs, interface,
-source and tool are hand-kept in META below, because the comments in descriptors.h
-say "the same receiver's interface 1" and a table cannot. An entry without a row here,
-or a row without an entry, stops the run: the point of the table is that it is
-complete, and a silent gap would be worse than no table.
+descriptors.h and the case tables, so they cannot drift. Device, IDs, interface, source
+and tool are hand-kept in META below, since descriptors.h has them only as prose. An
+entry without a row, or a row without an entry, stops the run rather than leave a gap.
 """
 import os
 import re
@@ -160,8 +158,6 @@ def collections(b):
     """Top-level collection kinds and every report ID, in declaration order."""
     kinds, rids, depth, page, usage = [], [], 0, None, None
     for item in hiditems.walk_items(b):
-        if item.typ == 3:
-            continue
         tag, data = item.tag, item.value
         if tag == 0x04:
             page = data
