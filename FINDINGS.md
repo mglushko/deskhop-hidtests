@@ -341,8 +341,9 @@ happens to the sign, they cannot reach the output PC through a one-byte field.
 
 ### Fixed
 
-Fixed in DeskHop Extended, and the last two upstream as well. Left in place because the
-reasoning and the numbers are the record of how each was found and confirmed.
+Fixed in DeskHop Extended, and all but the short reports and the button union upstream as
+well. Left in place because the reasoning and the numbers are the record of how each was
+found and confirmed.
 
 **Short reports read past the end of the buffer, in four separate places.** This
 is the counterpart to the truncated-descriptor finding above, and the more serious
@@ -418,7 +419,7 @@ against the report length, and every keyboard row upstream decodes as a bitmap d
 zero. What upstream still fails is causes 1, 2 and 4 on the mouse path and the
 `_extract_kbd_other` loop, which runs to `MAX_KEYS` whatever length arrived: all seven
 keyboard rows left with failures, the 8BitDo among them now that the bounded walk admits it
-to the run, fault in that loop, at `hid_report.c:348` on `e5f8ae8`. DeskHop Extended guards
+to the run, fault in that loop, at `hid_report.c:348` on `a0472e0`. DeskHop Extended guards
 it with the report length as well, which is the whole distance between its 0 of 3355 and
 upstream's 1372 of 3352 in the README table.
 
@@ -502,9 +503,12 @@ first place. `mousetest` carried a copy of these rules, display-only and documen
 able to go stale, and it duly kept printing the old answer.
 
 `usb.c` is byte for byte the same on `main` and on all three PRs, so this is upstream's
-and long-standing rather than anything a fix introduced. [#372] carries the fix upstream:
-one local in the callback that says whether the wire report carries an ID, which DeskHop
-Extended now has in the same form. Both flags default to 0, so it is opt-in - but both are checkboxes on the
+and long-standing rather than anything a fix introduced. [#372] carried the fix upstream and
+merged on 2026-09-21 as `6f9e18c`: one local in the callback that says whether the wire
+report carries an ID, which `4d113ac` behind it renamed `report_has_id` and DeskHop Extended
+has in the same form. `make dispatch` on upstream `main` went from 26 of 36, 4 of those only
+by luck and the 10 misrouted all boot protocol, to 36 of 36.
+Both flags default to 0, so it is opt-in - but both are checkboxes on the
 config page, and the mouse one has now been ticked on real hardware with the predicted
 result. [#229] reports keys dying with that option enabled, which is *consistent* with
 this - but that reporter's Wooting declares no report ID on its keyboard interface,
@@ -608,9 +612,10 @@ and the lookup in `usb.c` were guarded by `report_id < MAX_REPORTS`, so nothing 
 bound and every report was dropped before decode. The parser was not at fault: `make dump
 D=sculpt_rx_mouse` derived every field at the right offset and `make mouse` decoded all
 twelve reports the reporter captured, on every tree alike, none of which touched the table.
-`make dispatch` showed both `sculpt rx mouse on ID 0x1A` rows dropped everywhere. Only its
-boot-protocol rows still differ between trees, because DeskHop Extended routes boot protocol
-by interface while upstream reads the button byte as an ID. The Apple keyboard in [#157] has
+`make dispatch` showed both `sculpt rx mouse on ID 0x1A` rows dropped everywhere. Its
+boot-protocol rows went on differing between trees until [#372] merged, because DeskHop
+Extended routed boot protocol by interface while upstream read the button byte as an ID.
+The Apple keyboard in [#157] has
 the same shape, media keys on report 0x52, and lost them the same way. DeskHop Extended first
 keyed the table by value, as `report_offsets` is, and sent that as [#368]; upstream chose a
 256-entry map per interface instead, measured in the table above, and the fork now carries

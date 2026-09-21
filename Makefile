@@ -435,7 +435,7 @@ endif  # compare in MAKECMDGOALS
 # a red `make test` means the harness moved or a known good device stopped decoding. Safe
 # to wire into CI. fuzz, truncate, shortreport and dispatch are deliberately NOT here:
 # they fail by design on firmware that has the bug they look for (truncate on every tree
-# measured, dispatch on upstream main today), so folding them in would leave this
+# measured, dispatch on upstream main before #372), so folding them in would leave this
 # permanently red; their exit status is the finding, and `make findings` runs them and
 # reports rather than gates. check-cli runs the replay tools' command lines at full
 # length only, so it holds on any tree the decode suites hold on; check-constants is the

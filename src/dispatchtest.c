@@ -17,9 +17,9 @@
  * table by report ID with MAX_REPORTS slots, so an ID of 24 or more was never bound and
  * its reports were dropped in report protocol too. The sculpt rows measure that one.
  *
- * This target FAILS on firmware that has either bug: upstream main fixed the table and,
- * until #372 lands, still routes boot protocol by the first byte; DeskHop Extended fixed
- * both and passes.
+ * This target FAILS on firmware that has either bug: upstream main fixed the table in
+ * ce8abb6 and the boot-protocol routing in 6f9e18c (#372), DeskHop Extended carries both,
+ * and both pass; a tree from before either fix still fails.
  * It belongs in `make findings`, not `make test`, for the same reason truncate and
  * shortreport do: its exit status is the finding.
  */

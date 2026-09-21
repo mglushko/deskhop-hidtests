@@ -164,8 +164,8 @@ that read them, and what each has caught.
 ## Reference numbers
 
 Results against two trees, so a broken harness can be told from a broken firmware.
-Taken in September 2026 against upstream `main` at `e5f8ae8` and
-[DeskHop Extended][deskhop-extended] `main` at `6da4126`, over the 105-descriptor corpus.
+Taken in September 2026 against upstream `main` at `a0472e0` and
+[DeskHop Extended][deskhop-extended] `main` at `a20dc4f`, over the 105-descriptor corpus.
 The second column is the tree that runs on hardware, and the one whose regressions cost
 something. Where its denominator is larger, the extra rows are devices the harness keeps
 out of a run on a tree that lacks the bound they need, and cases that only apply to code
@@ -177,14 +177,14 @@ the fork has.
 | `mouse` | 327 of 327 cases over 28 devices | **327 of 327 over 28**, plus **4 of 4** button fallback cases |
 | `kbd` | 165 of 165 cases over 39 devices | **168 of 168 over 40** |
 | `consumer` | 29 of 29 over 9 devices | same |
-| `dispatch` | 26 of 36 routed correctly, 4 of those only by luck; the 10 misrouted are all boot protocol, which [#372](https://github.com/hrvach/deskhop/pull/372) fixes | **36 of 36** |
+| `dispatch` | 36 of 36 routed correctly, now that upstream carries the boot-protocol routing from [#372](https://github.com/hrvach/deskhop/pull/372) | same |
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `check-parse` | 7 dump shapes read, 2 non-dumps refused, 105 descriptors round trip | same |
 | `fuzz N=40000` | 0 out of bounds; lowest index 0, peak 127 | same: the parser is the same file |
 | `truncate` | 5069 of 9947 prefixes overread | the same 5069 of 9947 |
 | `shortreport` | 1372 of 3352 truncated reports overread | **0 of 3355** |
 | `exhaust` | never fails, 10 runs in 10 clean | never fails |
-| `timing` | ~18 ns/element on x86-64 | same |
+| `timing` | ~17 ns/element on x86-64 | same |
 
 Fuzz counts move with the generator and the seed, `truncate` counts with the size of the
 corpus, and `timing` with the host. The qualitative result is what matters: zero against
