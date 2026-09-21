@@ -128,9 +128,10 @@ that read them, and what each has caught.
 
 - `include/main.h` and `include/tusb.h` stand in for the real headers, which would drag
   in the whole Pico SDK. Everything the files under test need is in `include/harness.h`.
-- The target's `hid_parser.h`, `hid_report.h`, `packet.h`, `protocol.h` and
-  `constants.h` are copied verbatim into the build directory, where their quoted
-  includes resolve to the shims. The structs under test are always the target's own.
+- The target's `hid_parser.h`, `hid_report.h`, `packet.h`, `protocol.h`, `constants.h`
+  and `usb_descriptors.h` are copied verbatim into the build directory, where their
+  quoted includes resolve to the shims. The structs under test are always the target's
+  own.
 - `tools/lift.py` copies the mouse extractors, the keyboard lookup, the consumer and
   system receivers and the report callback that routes to them verbatim out of the
   firmware. A rename upstream breaks the build rather than silently testing nothing.

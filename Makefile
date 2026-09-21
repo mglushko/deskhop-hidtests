@@ -93,8 +93,11 @@ REPORT := $(SRC)/src/hid_report.c
 
 # Headers copied verbatim from the target. All of these are standalone (stdint
 # only, or each other), so none of them drags in the Pico SDK. packet.h carries
-# KBD_REPORT_LENGTH and friends, which hid_report.c uses.
-COPY_HDRS := hid_parser.h hid_report.h packet.h protocol.h constants.h
+# KBD_REPORT_LENGTH and friends, which hid_report.c uses. usb_descriptors.h is
+# macros only and carries REPORT_ID_NONE, which usb.c's report callback names
+# since upstream 4d113ac; its descriptor macros expand only where they are used,
+# which is nowhere here.
+COPY_HDRS := hid_parser.h hid_report.h packet.h protocol.h constants.h usb_descriptors.h
 HDRS      := $(addprefix $(GEN)/,$(COPY_HDRS))
 
 # get_keyboard is lifted rather than stubbed: it decides which keyboard_t a

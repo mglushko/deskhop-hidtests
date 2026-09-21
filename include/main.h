@@ -2,7 +2,7 @@
    hid_parser.h and hid_report.h both include "main.h", this is the harness's entry point.
    The target's src/include is deliberately NOT on the include path: a quoted #include
    searches the including file's own directory first and would find the real main.h.
-   Instead the Makefile copies the five headers it needs (COPY_HDRS) verbatim into the
+   Instead the Makefile copies the six headers it needs (COPY_HDRS) verbatim into the
    build dir, which IS on the path, so their quoted includes land back on these shims.
    Never patched, so the harness sees exactly the structs of the branch under test. */
 #pragma once
@@ -11,9 +11,12 @@
 
 /* the real headers, copied verbatim from the target checkout into the build dir.
    packet.h carries KBD_REPORT_LENGTH, KEYS_IN_USB_REPORT and MODIFIER_BIT_LENGTH,
-   which hid_report.c reaches for. */
+   which hid_report.c reaches for. usb_descriptors.h carries REPORT_ID_NONE, which the
+   lifted report callback names since upstream 4d113ac; it is macros only, and the
+   descriptor macros in it are never expanded here. */
 #include "constants.h"
 #include "packet.h"
+#include "usb_descriptors.h"
 
 /* hid_report.c fills harness.h's hand-copied hid_keyboard_report_t by these two
    constants (memcpy and memset of KBD_REPORT_LENGTH bytes, keycode writes bounded by
