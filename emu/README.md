@@ -254,8 +254,10 @@ the usage cursor once per element through `usages[HID_MAX_USAGES]`, where
 `HID_MAX_USAGES` is 128; the last of the three reaches `usages[2051]`. In
 `parser_state_t` the member immediately after that array is `p_usage`, a pointer the
 parser then dereferences, so a tree without a bound runs off the end of the array and
-straight into it. Parsing this descriptor on upstream main aborts under ASan on the
-host; on an RP2040 it corrupts a live pointer instead. Nothing is ever sent on that
+straight into it. Upstream `main` was such a tree until [#361] merged as `54e3fe5`:
+parsing this descriptor aborted under ASan on the host, in `store_element`, where an
+RP2040 corrupts a live pointer instead. Upstream and DeskHop Extended both bound the
+cursor now, parse the interface and bind nothing on it. Nothing is ever sent on that
 interface, because the damage happens at parse time and enumerating is enough.
 
 The descriptor's largest count is not the one that does it. The first report's
@@ -631,6 +633,7 @@ emulator`, so a bus scan distinguishes it from the real hardware.
 [#324]: https://github.com/hrvach/deskhop/issues/324
 
 [#332]: https://github.com/hrvach/deskhop/issues/332
+[#361]: https://github.com/hrvach/deskhop/pull/361
 [#367]: https://github.com/hrvach/deskhop/issues/367
 
 [extended-22]: https://github.com/mglushko/deskhop-extended/issues/22

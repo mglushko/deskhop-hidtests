@@ -31,9 +31,10 @@
  * you watch. The gesture interface declares 8-bit fields with Report Counts of 256,
  * 1024 and 2048 against a 128 entry usages[] array, one usage each, and the next
  * parser_state_t member is p_usage, a pointer the parser dereferences, so a parse
- * without a bound runs off the array into it: upstream main aborts under ASan on
- * the host, an RP2040 corrupts a live pointer instead. Nothing is ever sent on that
- * interface; the damage happens at parse time, so enumerating is the whole test.
+ * without a bound runs off the array into it: upstream main before
+ * hrvach/deskhop#361 (54e3fe5) aborted under ASan on the host, where an RP2040
+ * corrupts a live pointer instead. Nothing is ever sent on that interface; the
+ * damage happens at parse time, so enumerating is the whole test.
  * Watch the trackball on interface 0, which circles the pointer and works both side
  * scroll pads, LED solid while circling and flickering while scrolling. If the
  * parse survived the circle is smooth and the scrolling works; if not, the board is
