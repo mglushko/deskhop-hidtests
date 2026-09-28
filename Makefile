@@ -178,10 +178,12 @@ KBD_WIDE := $(call probe,hid_report.c,(size|key_bits) >= NKRO_MIN_BITS,HARNESS_W
 
 # Does _extract_kbd_other stop at the bytes that arrived? Its key_array loop is indexed by
 # byte offset from the descriptor, so a report one byte short of the last key slot reads
-# past it. DeskHop Extended guards the loop with the report length; PR #359 bounds the
-# bitmap walk (the flag above) but not this loop, so the two need separate probes. An
-# expression, not an identifier: the guard adds no name.
-KBD_OTHER_BOUNDED := $(call probe,hid_report.c,i < MAX_KEYS && i < len,HARNESS_BOUNDED_KEY_ARRAY)
+# past it. Either spelling is the fix: DeskHop Extended's `i < MAX_KEYS && i < len`, or
+# upstream 3b9ac8c's `i < TU_MIN(len - 1, MAX_KEYS)`, whose parenthesis the pattern
+# matches with a dot so make's own stay balanced. PR #359 bounds the bitmap walk (the
+# flag above) but not this loop, so the two need separate probes. An expression, not an
+# identifier: the guard adds no name.
+KBD_OTHER_BOUNDED := $(call probe,hid_report.c,i < (MAX_KEYS && i < len|TU_MIN.len),HARNESS_BOUNDED_KEY_ARRAY)
 
 # Which names does nkro_block_t give a block's position and width? #359 called them offset
 # and size; upstream's readability pass (896e903) renamed them offset_bits and size_bits.
