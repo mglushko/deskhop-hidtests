@@ -167,7 +167,8 @@ The first 25 were collected while chasing individual reports. What they have bou
   bitmap walk without separating the collections; before the bound, the unbounded walk
   kept the device out of everything but its boot-protocol row. The separation went in as
   the PR's fourth commit, `fff129f`, so `a` comes out as `a` on both trees now. It is the
-  sharper version of the Keychron finding in the [open findings](FINDINGS.md#open-findings).
+  sharper version of the Keychron finding, and the [archive](FINDINGS-ARCHIVE.md#fixed)
+  has both.
 - **Microsoft Wired Keyboard 600** ([#297]) is the cleanest reproduction of the stale
   usage cursor: its system control block comes out as `usage=0xFF02 page=0x0001`, an
   identifier it never declares, carried over from the vendor block in the preceding
@@ -179,7 +180,7 @@ The first 25 were collected while chasing individual reports. What they have bou
   report was dropped before decode. `make dump D=sculpt_rx_mouse` showed the parse right and
   the handlers line empty, `make mouse` decodes all twelve reports the reporter captured,
   and `make dispatch` showed them reaching nobody. Both trees bind `26:M 31:C` now. The
-  [open findings](FINDINGS.md#open-findings) have the rest.
+  [archive](FINDINGS-ARCHIVE.md#fixed) has the rest.
 - **Apple Magic Keyboard with Touch ID** (`05ac:029f`, [#157], "will not work", and a board
   that reboots over and over). Three interfaces. The keyboard and the device-management
   interface come from the reporter's `usbhid-dump`; the third, Touch ID, sits on a bulk
@@ -231,7 +232,8 @@ interface as the firmware receives it, rather than one collection at a time:
   nothing at all, which is the right answer and is now asserted rather than assumed.
 - **Keychron Ultra-Link 8K** (`3434:d028`) contributes five. Interface 1 carries a 6KRO
   keyboard on report ID 7, consumer control on 0x0C, and an NKRO keyboard on 0x11 - and
-  it is the entry behind two of the [open findings](FINDINGS.md#open-findings). One of them, the collection collapse,
+  it is the entry behind two findings, both since fixed on both trees and kept in the
+  [archive](FINDINGS-ARCHIVE.md#fixed). One of them, the collection collapse,
   is invisible unless the whole interface is parsed at once, which is exactly why the
   interface-level entries exist; the other, the off-by-one usage range on the 0x11 bitmap,
   is why that collection is also here on its own.

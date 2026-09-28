@@ -10,7 +10,7 @@
  * #ifdef on. Every case carries both answers and each row is classified instead: MAIN
  * matches want_main, FIXED want_fixed, AGREED both (the controls), and NEITHER is a
  * failure. The verdict at the end says which branch the code under test behaves like;
- * FINDINGS.md, "How #358 is measured", has the rest.
+ * FINDINGS-ARCHIVE.md, "How #358 is measured", has the rest.
  *
  * Each report is decoded from an exact-size allocation, as in mousetest.c, kbdtest.c and
  * shortreport.c, so ASan's redzone catches a read past its end. process_consumer_report

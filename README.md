@@ -164,8 +164,8 @@ that read them, and what each has caught.
 ## Reference numbers
 
 Results against two trees, so a broken harness can be told from a broken firmware.
-Taken in September 2026 against upstream `main` at `a0472e0` and
-[DeskHop Extended][deskhop-extended] `main` at `a20dc4f`, over the 105-descriptor corpus.
+Taken in September 2026 against upstream `main` at `7c1e7b2` and
+[DeskHop Extended][deskhop-extended] `main` at `98b5dc7`, over the 105-descriptor corpus.
 The second column is the tree that runs on hardware, and the one whose regressions cost
 something. Where its denominator is larger, the extra rows are devices the harness keeps
 out of a run on a tree that lacks the bound they need, and cases that only apply to code
@@ -175,14 +175,14 @@ the fork has.
 |---|---|---|
 | `compare` | all 105 parse, no crashes | 105 compared against upstream `main`, no crash on either side and an identical parse for every entry, now that upstream carries the width arm from #366 |
 | `mouse` | 327 of 327 cases over 28 devices | **327 of 327 over 28**, plus **4 of 4** button fallback cases |
-| `kbd` | 165 of 165 cases over 39 devices | **168 of 168 over 40** |
+| `kbd` | 168 of 168 cases over 40 devices, now that upstream's key array loop stops at the bytes that arrived and the Areson's rows can run | same |
 | `consumer` | 29 of 29 over 9 devices | same |
 | `dispatch` | 36 of 36 routed correctly, now that upstream carries the boot-protocol routing from [#372](https://github.com/hrvach/deskhop/pull/372) | same |
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `check-parse` | 7 dump shapes read, 2 non-dumps refused, 105 descriptors round trip | same |
 | `fuzz N=40000` | 0 out of bounds; lowest index 0, peak 127 | same: the parser is the same file |
 | `truncate` | 5069 of 9947 prefixes overread | the same 5069 of 9947 |
-| `shortreport` | 1372 of 3352 truncated reports overread | **0 of 3355** |
+| `shortreport` | 16 of 3355 truncated reports overread, all in the boot-protocol mouse, now that [3b9ac8c](https://github.com/hrvach/deskhop/commit/3b9ac8c) bounds the field reads and the key array | **0 of 3355** |
 | `exhaust` | never fails, 10 runs in 10 clean | never fails |
 | `timing` | ~17 ns/element on x86-64 | same |
 
@@ -192,8 +192,9 @@ non-zero, and for `fuzz` the lowest index touched beside the peak, which separat
 one slot behind the array from a cursor that walked off the end into the thousands.
 
 What the non-zero cells mean is written up in [FINDINGS.md](FINDINGS.md), together with
-every other defect this harness has measured, open or fixed, and the confirmations on
-hardware.
+every other defect this harness has measured that is still open on either tree. The ones
+since fixed on both, and the confirmations on hardware, are in
+[FINDINGS-ARCHIVE.md](FINDINGS-ARCHIVE.md).
 
 ## What it cannot see
 

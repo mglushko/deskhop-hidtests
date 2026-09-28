@@ -6,9 +6,8 @@
  * An entry is mouse/<name> or kbd/<name>, with /boot on the end where the device is
  * replayed in boot protocol: kbd/boot_keyboard/boot. Five descriptors sit in both tables
  * or twice in one, so the name alone is not the entry, though a bare <name> still selects
- * it where unambiguous, as the repro lines in FINDINGS.md do. The sweep and its repro
- * line print the full form, which names the same entry on every tree, whatever the
- * HARNESS_* gates left out.
+ * it where unambiguous. The sweep and its repro line print the full form, which names the
+ * same entry on every tree, whatever the HARNESS_* gates left out.
  *
  * The mirror image of truncate.c: the descriptor arrives once at enumeration, the report
  * thousands of times a second, and nothing validates it against the length the
