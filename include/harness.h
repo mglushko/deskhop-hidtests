@@ -13,6 +13,9 @@
 
 #define TU_ATTR_PACKED __attribute__((packed))
 
+/* Copied from pico-sdk/lib/tinyusb/src/common/tusb_common.h. */
+#define TU_MIN(_x, _y)        ( ( (_x) < (_y) ) ? (_x) : (_y) )
+
 /* ARRAY_SIZE deliberately not defined here: the target's constants.h provides it,
    and main.h includes that before anything needs it. */
 
