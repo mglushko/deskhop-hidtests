@@ -72,6 +72,11 @@ void sleepwake_task(uint32_t now, bool pressed) {
                        Behind DeskHop, this USB link can remain awake independently. */
                     if (usage == SYSTEM_WAKE || !suspended)
                         enqueue(usage);
+                    /* A Wake tap while suspended is a request to try resume again, and
+                       stays one when the queue had no room for the gesture itself: the
+                       Wake already queued is what it asks for. */
+                    if (usage == SYSTEM_WAKE && suspended)
+                        state.wake_attempted = false;
                 }
                 state.tracking = false;
             }

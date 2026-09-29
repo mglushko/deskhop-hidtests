@@ -21,8 +21,15 @@
 cmake_minimum_required(VERSION 3.13)
 
 set(PICO_SDK_FETCH_FROM_GIT off)
+# -DPICO_SDK_PATH, then an exported PICO_SDK_PATH, then a DeskHop Extended checkout
+# beside this one. Setting the variable here unconditionally would hide the environment
+# from pico_sdk_import.cmake, which only reads it when the variable is unset.
 if(NOT DEFINED PICO_SDK_PATH)
-  set(PICO_SDK_PATH ${CMAKE_CURRENT_LIST_DIR}/../../deskhop-extended/pico-sdk)
+  if(DEFINED ENV{PICO_SDK_PATH})
+    set(PICO_SDK_PATH $ENV{PICO_SDK_PATH})
+  else()
+    set(PICO_SDK_PATH ${CMAKE_CURRENT_LIST_DIR}/../../deskhop-extended/pico-sdk)
+  endif()
 endif()
 include(${PICO_SDK_PATH}/pico_sdk_import.cmake)
 
