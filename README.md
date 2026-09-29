@@ -17,6 +17,8 @@ make test                        # did any known good device stop decoding?
 make compare REF=main            # did my change alter the parse of any known good device?
 make dump D=boot_mouse           # what does the parser make of this descriptor?
 make fuzz N=40000                # do generated descriptors stay inside usages[]?
+make ratchet BASELINE=baselines/upstream.tsv
+                                 # did any finding count rise above this tree's baseline?
 ```
 
 `DESKHOP` defaults to `~/deskhop`. Point it at any tree:
@@ -26,8 +28,9 @@ make test DESKHOP=~/deskhop-extended
 make compare REF=v0.78 DESKHOP=~/dh-fix
 ```
 
-Needs `gcc`, `python3` and `make`. No cross compiler. `check-constants` alone wants the
-Pico SDK submodule populated in the target tree, and skips rather than fails without it.
+Needs `gcc`, `python3` and `make`. No cross compiler. `check-constants` alone reads the
+Pico SDK that deskhop vendors under `pico-sdk/`, and skips rather than fails on a tree
+without it.
 
 ## Targets
 
@@ -48,16 +51,43 @@ Pico SDK submodule populated in the target tree, and skips rather than fails wit
 | `make check-parse` | does `add_descriptor.py` still read every dump shape without dropping bytes? |
 | `make check-cli` | do the replay tools still answer their command lines as documented? |
 | `make test-sleepwake` | does the BOOTSEL emulator debounce and deliver Sleep/Wake safely? |
-| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `check-parse`, `check-cli`, `check-constants`, `test-sleepwake` |
-| `make findings` | `fuzz`, `truncate`, `shortreport` and `dispatch`, run for their numbers |
+| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `dispatch`, `check-parse`, `check-cli`, `check-constants`, `test-sleepwake` |
+| `make findings` | `fuzz`, `truncate` and `shortreport`, run for their numbers |
+| `make ratchet BASELINE=<file>` | did any of those numbers rise above the tree's recorded baseline? |
+| `make baseline BASELINE=<file>` | record the tree's numbers after a change meant to move them |
 | `make corpus` | regenerate the table in `CORPUS.md` from `descriptors.h` and the case tables |
 | `make all` | build everything without running it |
 
-`test` is the gate to wire into CI. It holds only what must pass on any firmware worth
-shipping, so a red run means the harness moved or a known good device stopped decoding.
-`fuzz`, `truncate`, `shortreport` and `dispatch` stay outside it on purpose: they fail by
-design on firmware that has the bug they look for, and their exit status is the finding.
-`make findings` runs those four together and reports rather than gates.
+`test` is the gate. It holds only what must pass on any firmware worth shipping, so a red
+run means the harness moved or a known good device stopped decoding. `fuzz`, `truncate`
+and `shortreport` stay outside it on purpose: they fail by design on firmware that has the
+bug they look for, so their exit status cannot gate. `make findings` runs the three
+together and reports.
+
+Their counts can gate, though. `make ratchet` holds them to a baseline recorded per tree,
+[`baselines/upstream.tsv`](baselines/upstream.tsv) and
+[`baselines/extended.tsv`](baselines/extended.tsv): one count per corpus entry, one per
+kind of failure the sanitizers report, and fuzz's out-of-bounds totals. A count may fall
+but never rise, so upstream's 16 short-report overreads may shrink and DeskHop Extended's 0
+must stay 0. A run that lists different entries or tries a different number of lengths
+than its baseline fails too, since an entry that quietly left a run is the failure this
+harness exists to prevent. After a change meant to move the numbers, a new descriptor, a
+case table edit, a fix landing, `make baseline` records them again; `ratchet` says which.
+
+`truncate` and `shortreport` count each failure by what the sanitizer reported, the ASan
+error kind and whether the access read or wrote, or UBSan's message, rather than calling
+every non-zero status an overread. They sweep with symbolization off, which is nearly all
+of the time a failing child costs, and replay their first failure in a fresh process with
+it on, so the stack that is printed is readable.
+
+### CI
+
+[`.github/workflows/harness.yml`](.github/workflows/harness.yml) runs `make test` and
+`make ratchet` against both trees, upstream `main` and [DeskHop Extended][deskhop-extended]
+`main`, on every push and pull request here and once a week, on Monday morning, so a
+change upstream that moves a number or a probe's spelling shows up without anyone
+re-measuring by hand. Each run uploads the tools' full output and the measured table,
+which is the new baseline when one is due.
 
 `compare` is the one to reach for when reviewing a parser change. It materializes the
 reference commit with `git archive`, builds the harness against both trees, and diffs
@@ -181,8 +211,8 @@ the fork has.
 | `check-constants` | all 47 agree with TinyUSB | same |
 | `check-parse` | 7 dump shapes read, 2 non-dumps refused, 105 descriptors round trip | same |
 | `fuzz N=40000` | 0 out of bounds; lowest index 0, peak 127 | same: the parser is the same file |
-| `truncate` | 5069 of 9947 prefixes overread | the same 5069 of 9947 |
-| `shortreport` | 16 of 3355 truncated reports overread, all in the boot-protocol mouse, now that [3b9ac8c](https://github.com/hrvach/deskhop/commit/3b9ac8c) bounds the field reads and the key array | **0 of 3355** |
+| `truncate` | 5069 of 9947 prefixes overread, every one an ASan heap-buffer-overflow read | the same 5069 of 9947 |
+| `shortreport` | 16 of 3355 truncated reports overread, all heap-buffer-overflow reads in the boot-protocol mouse, now that [3b9ac8c](https://github.com/hrvach/deskhop/commit/3b9ac8c) bounds the field reads and the key array | **0 of 3355** |
 | `exhaust` | never fails, 10 runs in 10 clean | never fails |
 | `timing` | ~17 ns/element on x86-64 | same |
 
@@ -190,6 +220,8 @@ Fuzz counts move with the generator and the seed, `truncate` counts with the siz
 corpus, and `timing` with the host. The qualitative result is what matters: zero against
 non-zero, and for `fuzz` the lowest index touched beside the peak, which separates a read
 one slot behind the array from a cursor that walked off the end into the thousands.
+The fuzz, `truncate` and `shortreport` cells are also recorded entry by entry in
+[`baselines/`](baselines/), where `make ratchet` and CI hold them.
 
 What the non-zero cells mean is written up in [FINDINGS.md](FINDINGS.md), together with
 every other defect this harness has measured that is still open on either tree. The ones

@@ -19,9 +19,8 @@
  *
  * This target FAILS on firmware that has either bug: upstream main fixed the table in
  * ce8abb6 and the boot-protocol routing in 6f9e18c (#372), DeskHop Extended carries both,
- * and both pass; a tree from before either fix still fails.
- * It belongs in `make findings`, not `make test`, for the same reason truncate and
- * shortreport do: its exit status is the finding.
+ * and both pass; a tree from before either fix still fails. With both trees passing it
+ * moved from `make findings` into `make test`, where a regression in either fix goes red.
  */
 #include "main.h"
 #include "descriptors.h"
