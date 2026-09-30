@@ -24,7 +24,7 @@ static void parse_prefix(const descriptor_t *d, int n) {
 
     parse_iface(&iface, buf, n, HID_PROTOCOL_REPORT);
 
-    free(buf);
+    free_exact(buf, n);
 }
 
 typedef struct {

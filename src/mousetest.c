@@ -79,7 +79,7 @@ static int run_device(const mouse_device_t *dev) {
 
         extract_report_values(report, c->len, &state, &v, &iface);
 
-        free(report);
+        free_exact(report, c->len);
 
         int ok = v.move_x == c->x && v.move_y == c->y && v.wheel == c->wheel && v.pan == c->pan &&
                  v.buttons == c->buttons;
@@ -164,7 +164,7 @@ static int run_button_fallback(void) {
         /* exact-size allocation, as above */
         uint8_t *report = dup_exact("mousetest", c->report, c->len);
         extract_report_values(report, c->len, &state, &v, &iface);
-        free(report);
+        free_exact(report, c->len);
 
         int ok = v.buttons == c->want;
         if (!ok)
@@ -179,6 +179,103 @@ static int run_button_fallback(void) {
     return failures;
 }
 #endif
+
+/* Reports with no field in them to read: the zero-length transfer TinyUSB hands on after a
+   STALL, a zero-length packet or three failed transactions, a report of its ID alone, and a
+   boot report cut short of the byte in question. None of them says anything about the
+   buttons, so a button held before one is still held after it; decoding one as zeros told
+   the host every held button was released (DeskHop Extended before its fix). The button is
+   held both in the interface's stored state and in the union, so the answer is the same
+   whichever a tree falls back to. A report that brought no bytes brings no movement either.
+
+   The boot rows need a tree that reads only the bytes that arrived: upstream reads the whole
+   five-byte struct, an overread shortreport already counts, and those rows are kept out
+   there rather than taking the run down. */
+typedef struct {
+    const char    *name;
+    const uint8_t *desc;
+    int            desc_len;
+    uint8_t        protocol;
+    uint8_t        report[4];
+    int            len;
+} short_case_t;
+
+#define HELD 0x01
+
+static const short_case_t short_cases[] = {
+    {"gameball (no ID), zero-length", d_gameball_trackball, sizeof(d_gameball_trackball),
+     HID_PROTOCOL_REPORT, {0}, 0},
+    {"hires_mouse (ID 1), zero-length", d_hires_mouse, sizeof(d_hires_mouse),
+     HID_PROTOCOL_REPORT, {0}, 0},
+    {"hires_mouse, its report ID alone", d_hires_mouse, sizeof(d_hires_mouse),
+     HID_PROTOCOL_REPORT, {0x01}, 1},
+#ifdef HARNESS_BOUNDED_BOOT_MOUSE
+    {"boot_mouse, boot protocol, zero-length", d_boot_mouse, sizeof(d_boot_mouse),
+     HID_PROTOCOL_BOOT, {0}, 0},
+    {"boot_mouse, boot protocol, buttons only", d_boot_mouse, sizeof(d_boot_mouse),
+     HID_PROTOCOL_BOOT, {HELD}, 1},
+    {"boot_mouse, boot protocol, no Y", d_boot_mouse, sizeof(d_boot_mouse),
+     HID_PROTOCOL_BOOT, {HELD, 0x05}, 2},
+#endif
+};
+
+static const kept_out_t short_kept_out[] = {
+#ifndef HARNESS_BOUNDED_BOOT_MOUSE
+    {"boot_mouse's short boot reports", "target reads a boot-protocol report past its end"},
+#endif
+    {NULL, NULL},
+};
+
+static int run_short_reports(void) {
+    int failures = 0;
+
+    printf("a held button across reports that carry no button byte\n\n");
+    printf("  %-44s %4s %6s %6s %6s\n", "case", "len", "held", "got", "moved");
+    print_rule(72);
+
+    for (unsigned i = 0; i < ARRAY_SIZE(short_cases); i++) {
+        const short_case_t *c = &short_cases[i];
+        static hid_interface_t iface;
+        device_t       state = {0};
+        mouse_values_t v     = {0};
+
+        parse_iface(&iface, c->desc, c->desc_len, c->protocol);
+
+        state.mouse_buttons = HELD;
+#ifdef HARNESS_IFACE_MOUSE_BUTTONS
+        iface.mouse_buttons = HELD;
+#endif
+
+        if (!case_len_ok(c->len, MOUSE_MIN_LEN, sizeof(c->report))) {
+            printf("  %-44s len %d outside %d..%zu - fix the case\n", c->name, c->len,
+                   MOUSE_MIN_LEN, sizeof(c->report));
+            failures++;
+            continue;
+        }
+
+        /* exact-size allocation, zero bytes included, as above */
+        uint8_t *report = dup_exact("mousetest", c->report, c->len);
+        extract_report_values(report, c->len, &state, &v, &iface);
+        free_exact(report, c->len);
+
+        /* Movement is judged only where no motion byte arrived, a boot report shorter than
+           buttons and X or a report holding nothing past its ID: past that, whether a tree
+           takes the X a two-byte boot report carries is its own business. */
+        int no_motion = c->protocol == HID_PROTOCOL_BOOT ? c->len < 2
+                                                         : c->len <= iface.uses_report_id;
+        int moved     = v.move_x || v.move_y || v.wheel || v.pan;
+        int ok        = v.buttons == HELD && !(no_motion && moved);
+        if (!ok)
+            failures++;
+
+        printf("  %-44s %4d %6d %6d %6s   %s\n", c->name, c->len, HELD, v.buttons,
+               moved ? "yes" : "no", ok ? "ok" : "MISMATCH");
+    }
+
+    printf("\n  %u/%u kept the held button\n\n", (unsigned)ARRAY_SIZE(short_cases) - failures,
+           (unsigned)ARRAY_SIZE(short_cases));
+    return failures;
+}
 
 int main(void) {
     int failures = 0, total = 0;
@@ -197,7 +294,10 @@ int main(void) {
     printf("target has no per-interface mouse buttons, button fallback cases skipped\n");
 #endif
 
+    failures += run_short_reports();
+
     print_kept_out(mouse_kept_out, "");
+    print_kept_out(short_kept_out, "");
 
     return failures ? 1 : 0;
 }

@@ -211,6 +211,14 @@ $(GEN)/lifted_mouse.c: $(SRC)/src/mouse.c tools/lift.py | $(GEN)
 # fallback fails loudly as MISMATCH rather than quietly as a skip.
 MOUSE_IFACE_BTN := $(call probe,include/hid_parser.h,mouse_buttons,HARNESS_IFACE_MOUSE_BUTTONS)
 
+# Does extract_report_values bound its boot-protocol reads by the length that arrived?
+# Upstream casts the report to the five-byte hid_mouse_report_t and reads every field
+# whatever came, which is shortreport's boot-mouse finding; DeskHop Extended reads only the
+# bytes that arrived, comparing against MOUSE_BOOT_REPORT_LEN, a name upstream's mouse.c
+# never uses. Only a bounded tree can take mousetest's short boot reports without the
+# overread taking the run down; elsewhere those rows are kept out and the last line says so.
+MOUSE_BOOT_BOUNDED := $(call probe,mouse.c,MOUSE_BOOT_REPORT_LEN,HARNESS_BOUNDED_BOOT_MOUSE)
+
 # Does the parser stop advancing its usage cursor once usages[] is full? Either spelling
 # is the fix: PR #361's usages_left(), or upstream 1e31d10's pointer comparisons against
 # usages + HID_MAX_USAGES. The pre-fix parser checks only usage_count and the element
@@ -267,7 +275,7 @@ $(GEN)/lifted_dispatch.c: $(SRC)/src/usb.c tools/lift.py $(OUT)/probes | $(GEN)
 # runs the recipe every time; cmp leaves the file, and everything built from it, alone
 # while the answers hold. In DEPS, so every binary depends on it.
 PROBE_ANSWERS := $(strip $(KBD_LIFT) $(KBD_MULTI) $(KBD_BOUNDED) $(KBD_WIDE) $(KBD_OTHER_BOUNDED) \
-                 $(NKRO_BITS_FIELDS) $(MOUSE_IFACE_BTN) $(PARSER_BOUNDED) $(FIELD_32) \
+                 $(NKRO_BITS_FIELDS) $(MOUSE_IFACE_BTN) $(MOUSE_BOOT_BOUNDED) $(PARSER_BOUNDED) $(FIELD_32) \
                  $(HANDLER_LOOKUP) $(HANDLER_MAP) $(DISPATCH_LIFT))
 
 .PHONY: FORCE
@@ -287,7 +295,7 @@ $(OUT)/dump: src/dump.c src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) | $
 	$(CC) $(CFLAGS) $(SAN) $(INCS) $(NKRO_BITS_FIELDS) -o $@ src/dump.c $(CORE)
 
 $(OUT)/mousetest: src/mousetest.c src/cases_mouse.h src/kept_out.h src/dispatch.h src/handlers.h descriptors.h $(HDRS) $(DEPS) $(CORE) $(GEN)/lifted_mouse.c $(ROUTING) | $(GEN) check-target
-	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(ROUTING) $(CORE)
+	$(CC) $(CFLAGS) $(SAN) $(INCS) $(MOUSE_IFACE_BTN) $(MOUSE_BOOT_BOUNDED) $(PARSER_BOUNDED) $(FIELD_32) -o $@ src/mousetest.c $(GEN)/lifted_mouse.c $(ROUTING) $(CORE)
 
 # no lifting here: extract_kbd_data and its helpers are all in hid_report.c,
 # which $(CORE) already carries

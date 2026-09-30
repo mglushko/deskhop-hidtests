@@ -198,14 +198,23 @@ early when the protocol is BOOT and reads buttons, X, Y, wheel and pan through a
 `hid_mouse_report_t *` without consulting `len`, from `mouse.c:313` on `7c1e7b2`. The boot
 report is defined only as far as buttons, X and Y, and plenty of mice stop there or after
 the wheel, so on a mouse that `force_mouse_boot_mode` puts in boot protocol, wheel and pan
-or pan alone are read from past the end, out of TinyUSB's shared endpoint buffer.
-`make shortreport` counts 16 of 3355 on upstream, lengths 1 to 4 of all four
-`mouse/boot_mouse/boot` rows, and nothing else since `3b9ac8c` bounded the other three
-causes; DeskHop Extended takes only what arrived since `fe908d0` and counts 0. The four
-causes, and how each was closed, are in the [archive](FINDINGS-ARCHIVE.md#fixed).
+or pan alone are read from past the end. On the device that is the interface's own 64-byte
+endpoint buffer (`hid_host.c:63` in the vendored TinyUSB), so the read cannot fault and
+returns whatever the previous, longer report left there. A zero-length transfer, which
+PIO-USB completes after a STALL, a zero-length packet or three failed transactions and
+TinyUSB passes on unchecked, is decoded as the previous report all over again: its buttons,
+which happen to be right, and its movement, which is repeated. `make shortreport` counts
+20 of 3682 on upstream, lengths 0 to 4 of all four `mouse/boot_mouse/boot` rows, and
+nothing else since `3b9ac8c` bounded the other three causes. DeskHop Extended takes only
+what arrived since `fe908d0` and counts 0. That bound first decoded a report too short to
+carry the button byte, and any report-protocol report with no payload, as all zeros, which
+released a held button on the host in the middle of a drag; "Keep held mouse buttons across
+reports that carry no button byte" keeps them held, and `mousetest`'s short-report rows
+hold it there. The four causes, and how each was closed, are in the
+[archive](FINDINGS-ARCHIVE.md#fixed).
 
 ```sh
-./build/<target>/shortreport mouse/boot_mouse/boot 0 1
+./build/<target>/shortreport mouse/boot_mouse/boot 0 0
 ```
 
 **Two pointing devices cancel each other's buttons.** A mouse report carries the complete

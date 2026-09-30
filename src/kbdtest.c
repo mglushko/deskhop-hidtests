@@ -171,7 +171,7 @@ static int run_device(const kbd_device_t *dev) {
         memset(&out, 0, sizeof(out));
         int32_t ret = extract_kbd_data(report, c->len, 0, &iface, &out);
 
-        free(report);
+        free_exact(report, c->len);
 
         int ok = out.modifier == c->modifier &&
                  memcmp(out.keycode, want, KEYS_IN_USB_REPORT) == 0;

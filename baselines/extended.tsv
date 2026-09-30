@@ -2,7 +2,7 @@
 # measured against one tree. A count may fall but never rise. Written by
 # `make baseline`, not by hand.
 #
-# tree: mglushko/deskhop-extended at 98b5dc7
+# tree: mglushko/deskhop-extended at 5e8d996
 # fuzz: N=40000 SEED=1
 check	entry	tried	failed
 fuzz	descriptors going out of bounds	40000	0
@@ -113,34 +113,34 @@ truncate	keychron_dongle_keyboard	164	82
 truncate	superlight2_wired_keyboard	125	63
 truncate	keyboardio_mouse	58	29
 truncate	kind: ASan heap-buffer-overflow, read	9947	5069
-shortreport	mouse/gameball_trackball	110	0
-shortreport	mouse/kensington_expert_mouse	72	0
-shortreport	mouse/cherry_mw8c_mouse	72	0
-shortreport	mouse/cherry_mw8_mouse	98	0
-shortreport	mouse/mx518_mouse	91	0
-shortreport	mouse/kernel_multi_collection	91	0
-shortreport	mouse/bolt_rx_iface1	117	0
-shortreport	mouse/ultralink_mouse	64	0
-shortreport	mouse/bolt_rx_touchpad	8	0
-shortreport	mouse/boot_mouse/boot	20	0
-shortreport	mouse/sculpt_rx_mouse	130	0
-shortreport	mouse/g502_mouse	112	0
-shortreport	mouse/unifying_rx_iface1	136	0
-shortreport	mouse/unifying_rx_b_iface1	136	0
-shortreport	mouse/areson_trackball	64	0
-shortreport	mouse/roccat_kone_mouse	64	0
-shortreport	mouse/bitdo_retro_mouse	64	0
-shortreport	mouse/ps2_converter_iface1	60	0
-shortreport	mouse/issue26_mouse	77	0
-shortreport	mouse/scimitar_boot_mouse	49	0
-shortreport	mouse/bolt_rx_v501_iface1	117	0
-shortreport	mouse/issue99_mouse	55	0
-shortreport	mouse/fc660c_tmk_mouse	110	0
-shortreport	mouse/vial_qmk_iface2	49	0
-shortreport	mouse/qmk_shared_endpoint	48	0
-shortreport	mouse/mighty_mouse	60	0
-shortreport	mouse/magic_trackpad_mouse	56	0
-shortreport	mouse/keyboardio_mouse	54	0
+shortreport	mouse/gameball_trackball	132	0
+shortreport	mouse/kensington_expert_mouse	90	0
+shortreport	mouse/cherry_mw8c_mouse	90	0
+shortreport	mouse/cherry_mw8_mouse	112	0
+shortreport	mouse/mx518_mouse	104	0
+shortreport	mouse/kernel_multi_collection	104	0
+shortreport	mouse/bolt_rx_iface1	130	0
+shortreport	mouse/ultralink_mouse	72	0
+shortreport	mouse/bolt_rx_touchpad	9	0
+shortreport	mouse/boot_mouse/boot	24	0
+shortreport	mouse/sculpt_rx_mouse	143	0
+shortreport	mouse/g502_mouse	126	0
+shortreport	mouse/unifying_rx_iface1	153	0
+shortreport	mouse/unifying_rx_b_iface1	153	0
+shortreport	mouse/areson_trackball	72	0
+shortreport	mouse/roccat_kone_mouse	72	0
+shortreport	mouse/bitdo_retro_mouse	72	0
+shortreport	mouse/ps2_converter_iface1	72	0
+shortreport	mouse/issue26_mouse	88	0
+shortreport	mouse/scimitar_boot_mouse	56	0
+shortreport	mouse/bolt_rx_v501_iface1	130	0
+shortreport	mouse/issue99_mouse	66	0
+shortreport	mouse/fc660c_tmk_mouse	132	0
+shortreport	mouse/vial_qmk_iface2	57	0
+shortreport	mouse/qmk_shared_endpoint	56	0
+shortreport	mouse/mighty_mouse	70	0
+shortreport	mouse/magic_trackpad_mouse	63	0
+shortreport	mouse/keyboardio_mouse	63	0
 shortreport	kbd/boot_keyboard	5	0
 shortreport	kbd/rpi_keyboard	4	0
 shortreport	kbd/boot_keyboard/boot	1	0
