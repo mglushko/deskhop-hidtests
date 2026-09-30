@@ -35,10 +35,10 @@ jobs:
             baseline: baselines/extended.tsv
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check out ${{ matrix.repo }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ matrix.repo }}
           path: trees/${{ matrix.tree }}
@@ -72,7 +72,7 @@ jobs:
       # ratchet asks for one: copy it over baselines/<tree>.tsv.
       - name: Keep the findings
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: findings-${{ matrix.tree }}
           path: build/*/findings/
