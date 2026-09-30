@@ -50,8 +50,9 @@ without it.
 | `make check-constants` | do the constants `harness.h` copies still match TinyUSB's? |
 | `make check-parse` | does `add_descriptor.py` still read every dump shape without dropping bytes? |
 | `make check-cli` | do the replay tools still answer their command lines as documented? |
+| `make check-ratchet` | does `ratchet.py` still score rises, falls and changes of shape correctly? |
 | `make test-sleepwake` | does the BOOTSEL emulator debounce and deliver Sleep/Wake safely? |
-| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `dispatch`, `check-parse`, `check-cli`, `check-constants`, `test-sleepwake` |
+| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `dispatch`, `check-parse`, `check-cli`, `check-ratchet`, `check-constants`, `test-sleepwake` |
 | `make findings` | `fuzz`, `truncate` and `shortreport`, run for their numbers |
 | `make ratchet BASELINE=<file>` | did any of those numbers rise above the tree's recorded baseline? |
 | `make baseline BASELINE=<file>` | record the tree's numbers after a change meant to move them |
@@ -71,23 +72,31 @@ kind of failure the sanitizers report, and fuzz's out-of-bounds totals. A count 
 but never rise, so upstream's 16 short-report overreads may shrink and DeskHop Extended's 0
 must stay 0. A run that lists different entries or tries a different number of lengths
 than its baseline fails too, since an entry that quietly left a run is the failure this
-harness exists to prevent. After a change meant to move the numbers, a new descriptor, a
-case table edit, a fix landing, `make baseline` records them again; `ratchet` says which.
+harness exists to prevent. A kind of failure is only a count: a fix that removes the last
+failure of a kind passes as an improvement, and a kind the baseline never saw, a read
+turning into a write say, fails as a rise. The baseline is read, and its recorded fuzz `N`
+and `SEED` checked against the run's, before anything is measured. After a change meant to
+move the numbers, a new descriptor, a case table edit, a fix landing, `make baseline`
+records them again; `ratchet` says which, and never beside a count that rose.
 
 `truncate` and `shortreport` count each failure by what the sanitizer reported, the ASan
 error kind and whether the access read or wrote, or UBSan's message, rather than calling
 every non-zero status an overread. They sweep with symbolization off, which is nearly all
 of the time a failing child costs, and replay their first failure in a fresh process with
-it on, so the stack that is printed is readable.
+it on, so the stack that is printed is readable. A case that runs past 10 seconds, where
+milliseconds are normal, is stopped and counted as hung, so a parse loop that stops
+advancing costs ten seconds per case rather than the whole run.
 
 ### CI
 
 [`.github/workflows/harness.yml`](.github/workflows/harness.yml) runs `make test` and
 `make ratchet` against both trees, upstream `main` and [DeskHop Extended][deskhop-extended]
-`main`, on every push and pull request here and once a week, on Monday morning, so a
-change upstream that moves a number or a probe's spelling shows up without anyone
-re-measuring by hand. Each run uploads the tools' full output and the measured table,
-which is the new baseline when one is due.
+`main`. It runs only when started by hand, with **Run workflow** on the Actions tab or a
+`workflow_dispatch` call, on whichever branch is picked; no push, pull request or schedule
+starts it. Each run tests the two trees' `main` as they are at that moment, so a change
+upstream that moves a number or a probe's spelling shows up in the next run without
+anyone re-measuring by hand. Each run uploads the tools' full output and the measured
+table, which is the new baseline when one is due.
 
 `compare` is the one to reach for when reviewing a parser change. It materializes the
 reference commit with `git archive`, builds the harness against both trees, and diffs
@@ -107,7 +116,9 @@ gh issue view <n> --repo hrvach/deskhop --json body --jq .body \
 
 It prints the C array and the registry line, and warns when the items do not land
 exactly on the end, the collections are unbalanced, or there is no collection at all,
-which catches a bad paste before it becomes a misleading test. Paste both into
+which catches a bad paste before it becomes a misleading test. A data line holding a field
+it cannot read as a byte, a bare single digit or two bytes run together, stops it outright
+rather than being read short; `0x5` is a byte like `0x05`. Paste both into
 `descriptors.h`, give the entry a row in `tools/corpus_table.py`, and run `make corpus`.
 `dump`, `compare`, `truncate`, `fuzz` and `check-parse` pick the device up from there.
 The decode targets run hand-written case tables, so a new device tells `mouse`, `kbd`,
