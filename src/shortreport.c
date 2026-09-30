@@ -68,7 +68,7 @@ static void decode_prefix(path_e path, const void *dev_v, unsigned case_idx, int
         extract_kbd_data(report, n, 0, &iface, &out);
     }
 
-    free(report);
+    free_exact(report, n);
 }
 
 typedef struct {

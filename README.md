@@ -186,7 +186,9 @@ that read them, and what each has caught.
   the last line of the output says so rather than passing silently.
 - ASan is on for the correctness targets. Descriptor and report bytes are copied into
   exact-size heap allocations, so a read one byte past the end lands in a redzone and is
-  reported rather than returning a neighbor's data. UBSan is on beside it for the
+  reported rather than returning a neighbor's data. A zero-length report, which TinyUSB
+  passes on after a failed or empty transfer, is the address one past a 1-byte block,
+  since ASan lets a read of `malloc(0)[0]` through. UBSan is on beside it for the
   shift-width class ASan cannot see.
 - ASan cannot see an overflow of `usages[]`, because that array sits inside the global
   parser state with other members after it, and ASan puts no redzones between struct
@@ -206,7 +208,8 @@ that read them, and what each has caught.
 
 Results against two trees, so a broken harness can be told from a broken firmware.
 Taken in September 2026 against upstream `main` at `7c1e7b2` and
-[DeskHop Extended][deskhop-extended] `main` at `98b5dc7`, over the 105-descriptor corpus.
+[DeskHop Extended][deskhop-extended] `main` at `98b5dc7` with its fix for reports that carry
+no button byte, over the 105-descriptor corpus.
 The second column is the tree that runs on hardware, and the one whose regressions cost
 something. Where its denominator is larger, the extra rows are devices the harness keeps
 out of a run on a tree that lacks the bound they need, and cases that only apply to code
@@ -215,7 +218,7 @@ the fork has.
 | check | upstream main | [DeskHop Extended][deskhop-extended] |
 |---|---|---|
 | `compare` | all 105 parse, no crashes | 105 compared against upstream `main`, no crash on either side and an identical parse for every entry, now that upstream carries the width arm from #366 |
-| `mouse` | 327 of 327 cases over 28 devices | **327 of 327 over 28**, plus **4 of 4** button fallback cases |
+| `mouse` | 327 of 327 cases over 28 devices, and 3 of 3 held buttons kept across reports with no button byte, the 3 boot-protocol rows kept out | **327 of 327 over 28**, plus **4 of 4** button fallback cases and **6 of 6** held buttons kept |
 | `kbd` | 168 of 168 cases over 40 devices, now that upstream's key array loop stops at the bytes that arrived and the Areson's rows can run | same |
 | `consumer` | 29 of 29 over 9 devices | same |
 | `dispatch` | 36 of 36 routed correctly, now that upstream carries the boot-protocol routing from [#372](https://github.com/hrvach/deskhop/pull/372) | same |
@@ -223,7 +226,7 @@ the fork has.
 | `check-parse` | 7 dump shapes read, 2 non-dumps refused, 105 descriptors round trip | same |
 | `fuzz N=40000` | 0 out of bounds; lowest index 0, peak 127 | same: the parser is the same file |
 | `truncate` | 5069 of 9947 prefixes overread, every one an ASan heap-buffer-overflow read | the same 5069 of 9947 |
-| `shortreport` | 16 of 3355 truncated reports overread, all heap-buffer-overflow reads in the boot-protocol mouse, now that [3b9ac8c](https://github.com/hrvach/deskhop/commit/3b9ac8c) bounds the field reads and the key array | **0 of 3355** |
+| `shortreport` | 20 of 3682 truncated reports overread, all heap-buffer-overflow reads in the boot-protocol mouse at lengths 0 to 4, now that [3b9ac8c](https://github.com/hrvach/deskhop/commit/3b9ac8c) bounds the field reads and the key array | **0 of 3682** |
 | `exhaust` | never fails, 10 runs in 10 clean | never fails |
 | `timing` | ~17 ns/element on x86-64 | same |
 

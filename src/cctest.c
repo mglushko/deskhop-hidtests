@@ -13,9 +13,9 @@
  * FINDINGS-ARCHIVE.md, "How #358 is measured", has the rest.
  *
  * Each report is decoded from an exact-size allocation, as in mousetest.c, kbdtest.c and
- * shortreport.c, so ASan's redzone catches a read past its end. process_consumer_report
- * reads raw_report[0] unconditionally, so a zero-length report is not a thing the
- * firmware survives and not a thing this feeds it.
+ * shortreport.c, so ASan's redzone catches a read past its end. Every row carries at least
+ * one byte: a zero-length report never gets as far as a read here, since both receivers
+ * return on data_len <= 0 (process_system_report below SYSTEM_CONTROL_LENGTH) first.
  */
 #include "main.h"
 #include "cases_cc.h"
@@ -78,7 +78,7 @@ static sent_t run_once(const cc_device_t *dev, const cc_case_t *c, hid_interface
     else
         process_consumer_report(report, c->len, 0, iface);
 
-    free(report);
+    free_exact(report, c->len);
     return harness_sent;
 }
 

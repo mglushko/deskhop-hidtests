@@ -14,8 +14,11 @@
 #include "main.h"
 #include "handlers.h"
 
-/* `report` must hold at least one byte, as it does on any real transfer. `len` is what
-   the receiver is told, and the stubs do not read it. */
+/* `report` must hold at least one byte. A real transfer can bring none, and the callback
+   then reads report[0] anyway on an interface with report IDs (usb.c:305 in both trees):
+   on the device that is the endpoint buffer's first byte, left over from the previous
+   report, so the report goes to whichever receiver that stale ID names, which then sees
+   len 0. `len` is what the receiver is told, and the stubs do not read it. */
 process_report_f hid_route(const hid_interface_t *iface, uint8_t itf_protocol,
                            const uint8_t *report, int len);
 

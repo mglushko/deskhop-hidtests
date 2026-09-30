@@ -1,14 +1,15 @@
 /* Helpers the drivers share, so a fix lands once: dup_exact, the exact-size copy that
  * lets ASan's redzone catch a read one byte past the end instead of returning the next
- * case's bytes; run_forked, one case per child so a crash does not hide the remaining
- * thousands, and a failed fork or wait exits rather than scoring the case clean, as a
- * zero status from waitpid(-1) once did, a quiet child's sanitizer report is read back
- * and named, and a child that hangs is stopped and named as hung; sweep_unsymbolized and
- * sweep_repro, what keeps a sweep of thousands fast and its one replayed failure
- * readable; tally_add and print_tally, the count per kind of failure; parse_arg, the
- * strtol wrapper (atoi's "abc" is indistinguishable from an explicit 0);
- * parse_iface, the zeroed-interface parse every driver starts from; print_rule, the
- * dashed line under every table header; print_hex, the byte dump. */
+ * case's bytes, zero bytes included, with free_exact to release it; run_forked, one case
+ * per child so a crash does not hide the remaining thousands, and a failed fork or wait
+ * exits rather than scoring the case clean, as a zero status from waitpid(-1) once did,
+ * a quiet child's sanitizer report is read back and named, and a child that hangs is
+ * stopped and named as hung; sweep_unsymbolized and sweep_repro, what keeps a sweep of
+ * thousands fast and its one replayed failure readable; tally_add and print_tally, the
+ * count per kind of failure; parse_arg, the strtol wrapper (atoi's "abc" is
+ * indistinguishable from an explicit 0); parse_iface, the zeroed-interface parse every
+ * driver starts from; print_rule, the dashed line under every table header; print_hex,
+ * the byte dump. */
 #pragma once
 
 #include "main.h"
@@ -37,16 +38,33 @@
 /* Exact-size copy, len bytes and not one more, so ASan's redzone begins right after the
    last byte; the drivers refuse a case outside its floor and its report[] before this is
    reached (case_len_ok below). An allocation failure is the host's problem, not a
-   finding: exit 3, the status cctest and shortreport already used for it. */
-static inline uint8_t *dup_exact(const char *prog, const uint8_t *src, int len) {
-    uint8_t *copy = malloc((size_t)len);
+   finding: exit 3, the status cctest and shortreport already used for it.
+
+   Zero bytes is a real length: TinyUSB hands the report callback a zero-length transfer
+   after a STALL, a zero-length packet or three failed transactions. malloc(0) will not do
+   for it, since ASan lets a read of malloc(0)[0] through; the copy is instead the address
+   one past a 1-byte block, where any read lands in the redzone. Free it with free_exact.
+   Not inlined: inlined, GCC follows that pointer into callers that never pass 0 and warns
+   the memory behind it may be uninitialized, which for a zero-length report is the point.
+   unused, since plain static would warn in each driver that never calls it. */
+__attribute__((noinline, unused))
+static uint8_t *dup_exact(const char *prog, const uint8_t *src, int len) {
+    uint8_t *copy = malloc(len ? (size_t)len : 1);
 
     if (!copy) {
         fprintf(stderr, "%s: out of memory\n", prog);
         exit(3);
     }
-    memcpy(copy, src, (size_t)len);
-    return copy;
+    if (len) {
+        memcpy(copy, src, (size_t)len);
+        return copy;
+    }
+    return copy + 1;
+}
+
+/* Release what dup_exact returned for the same len. */
+static inline void free_exact(uint8_t *copy, int len) {
+    free(len ? copy : copy - 1);
 }
 
 /* Whether a case can be replayed at all: its len is at least the receiver's floor, below

@@ -8,13 +8,15 @@
 #include "descriptors.h"
 #include "kept_out.h"
 
-/* The shortest report the firmware hands to the decoder: process_mouse_report has no
-   length guard, so one byte reaches extract_report_values. mousetest refuses a row below
-   this and shortreport starts its truncations here, as either would otherwise measure an
-   input no device can deliver. A hand copy of firmware logic: re-check against mouse.c
-   when touching either; last checked against upstream e5f8ae8 and DeskHop Extended
-   60605e1. */
-#define MOUSE_MIN_LEN 1
+/* The shortest report the firmware hands to the decoder: none at all. TinyUSB's
+   hidh_xfer_cb passes the report callback whatever the transfer brought, xferred_bytes
+   unchecked (hid_host.c:441 in both trees' pico-sdk), and PIO-USB completes a transfer
+   with zero bytes after a STALL, a zero-length packet or three failed transactions.
+   Neither usb.c's callback nor process_mouse_report checks the length, so zero bytes
+   reach extract_report_values. shortreport starts its truncations here and mousetest
+   refuses a row below it. A hand copy of firmware logic: re-check against mouse.c and
+   usb.c when touching either. */
+#define MOUSE_MIN_LEN 0
 
 typedef struct {
     const char *what;
