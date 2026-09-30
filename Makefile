@@ -21,10 +21,11 @@
 #   make check-constants             harness.h against the vendored TinyUSB header
 #   make check-parse                 add_descriptor.py's reader against every dump shape
 #   make check-cli                   the replay tools' command lines, at full length only
+#   make check-ratchet               ratchet.py's comparison and parsing over canned cases
 #   make test-sleepwake              the BOOTSEL rig's gesture logic, on the host
 #   make test                        the regression gate: mouse, kbd, consumer,
-#                                    dispatch, check-parse, check-cli, check-constants
-#                                    and test-sleepwake
+#                                    dispatch, check-parse, check-cli, check-ratchet,
+#                                    check-constants and test-sleepwake
 #   make findings                    the three that fail by design, for their numbers
 #   make ratchet BASELINE=<file>     the same three, held to a tree's recorded counts
 #   make baseline BASELINE=<file>    record those counts for the tree DESKHOP names
@@ -116,7 +117,7 @@ BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/kbdtest $(OUT)/fuzz $(OUT)/exhaust \
 .PHONY: corpus all dump compare mouse kbd consumer fuzz exhaust timing truncate shortreport \
         dispatch ratchet baseline clean \
         check-target \
-        check-constants check-parse check-cli
+        check-constants check-parse check-cli check-ratchet
 
 all: check-target $(BINS)
 	@echo "built against $(SRC) -> $(OUT)/"
@@ -450,7 +451,7 @@ endif  # compare in MAKECMDGOALS
 # decode suites hold on; check-constants reads the TinyUSB header the tree vendors and
 # skips cleanly on a tree without one; test-sleepwake closes the list and needs only gcc.
 .PHONY: test findings
-test: mouse kbd consumer dispatch check-parse check-cli check-constants test-sleepwake
+test: mouse kbd consumer dispatch check-parse check-cli check-ratchet check-constants test-sleepwake
 	@echo
 	@echo "known good decode unchanged against $(SRC)"
 
@@ -522,6 +523,12 @@ check-parse:
 # A truncated replay stays out for the reason fuzz and truncate do.
 check-cli: $(OUT)/shortreport $(OUT)/truncate $(OUT)/dump
 	@bash tools/check_cli.sh $(OUT)
+
+# ratchet.py decides whether CI is red, and a comparison that gets one case wrong fails in
+# the direction nobody notices until a fix lands: the whole-kind fix it once scored as a
+# changed shape. Canned cases, so like check-parse it needs no build and no tree.
+check-ratchet:
+	@python3 tools/ratchet.py --selftest
 
 clean:
 	rm -rf $(B)

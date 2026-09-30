@@ -50,8 +50,9 @@ without it.
 | `make check-constants` | do the constants `harness.h` copies still match TinyUSB's? |
 | `make check-parse` | does `add_descriptor.py` still read every dump shape without dropping bytes? |
 | `make check-cli` | do the replay tools still answer their command lines as documented? |
+| `make check-ratchet` | does `ratchet.py` still score rises, falls and changes of shape correctly? |
 | `make test-sleepwake` | does the BOOTSEL emulator debounce and deliver Sleep/Wake safely? |
-| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `dispatch`, `check-parse`, `check-cli`, `check-constants`, `test-sleepwake` |
+| `make test` | the regression gate: `mouse`, `kbd`, `consumer`, `dispatch`, `check-parse`, `check-cli`, `check-ratchet`, `check-constants`, `test-sleepwake` |
 | `make findings` | `fuzz`, `truncate` and `shortreport`, run for their numbers |
 | `make ratchet BASELINE=<file>` | did any of those numbers rise above the tree's recorded baseline? |
 | `make baseline BASELINE=<file>` | record the tree's numbers after a change meant to move them |
@@ -71,8 +72,12 @@ kind of failure the sanitizers report, and fuzz's out-of-bounds totals. A count 
 but never rise, so upstream's 16 short-report overreads may shrink and DeskHop Extended's 0
 must stay 0. A run that lists different entries or tries a different number of lengths
 than its baseline fails too, since an entry that quietly left a run is the failure this
-harness exists to prevent. After a change meant to move the numbers, a new descriptor, a
-case table edit, a fix landing, `make baseline` records them again; `ratchet` says which.
+harness exists to prevent. A kind of failure is only a count: a fix that removes the last
+failure of a kind passes as an improvement, and a kind the baseline never saw, a read
+turning into a write say, fails as a rise. The baseline is read, and its recorded fuzz `N`
+and `SEED` checked against the run's, before anything is measured. After a change meant to
+move the numbers, a new descriptor, a case table edit, a fix landing, `make baseline`
+records them again; `ratchet` says which, and never beside a count that rose.
 
 `truncate` and `shortreport` count each failure by what the sanitizer reported, the ASan
 error kind and whether the access read or wrote, or UBSan's message, rather than calling
