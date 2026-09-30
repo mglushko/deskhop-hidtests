@@ -18,8 +18,13 @@ import sys
 
 import hiditems
 
-# a hex byte, optionally 0x prefixed, not part of a longer word
-TOKEN = re.compile(r"(?:\b0[xX])?([0-9A-Fa-f]{2})\b")
+# A hex byte: one or two digits after 0x, as C arrays write it ("0x5" is 5), or exactly two
+# without, as dumps do. Requiring two after 0x as well once dropped every unpadded byte of
+# a pasted array without a word.
+TOKEN = re.compile(r"\b0[xX]([0-9A-Fa-f]{1,2})\b|\b([0-9A-Fa-f]{2})\b")
+
+# the fields a data line splits into, each of which has to be a byte TOKEN reads
+FIELDS = re.compile(r"[\s,]+")
 
 # usbhid-dump prefixes each block with e.g. "001:004:000:DESCRIPTOR  1719851496.9"
 NOISE = re.compile(r"DESCRIPTOR|PATH:|^\s*```|bLength|bDescriptorType|^\s*\(\d+ bytes\)")
@@ -31,7 +36,12 @@ SEPARATORS = re.compile(r"[\s,]|0[xX]")
 MIN_BLOCK = 4
 
 
-def parse_hex(text, notes=None):
+def tokens(line):
+    """The bytes TOKEN reads on a line, as hex strings."""
+    return [m.group(1) or m.group(2) for m in TOKEN.finditer(line)]
+
+
+def parse_hex(text, notes=None, errors=None):
     """Every descriptor byte in a pasted dump, in order.
 
     Lines that are not descriptor data are skipped, and they are judged in runs rather
@@ -42,6 +52,10 @@ def parse_hex(text, notes=None):
     used to come back as a short descriptor that passed sanity().
 
     Anything appended to notes is a run that looked like data and was dropped anyway.
+    Anything appended to errors is a data line holding a field that is not a byte TOKEN
+    can read (a bare single digit, two bytes run together, three digits): the caller
+    refuses the paste, since reading the rest of the line would make a short descriptor
+    that nothing downstream can tell from a real one.
     """
     # C comments first, over the whole text: a pasted array often decodes every item in a
     # trailing comment, and before these were stripped the whole line failed the "nothing
@@ -51,25 +65,32 @@ def parse_hex(text, notes=None):
 
     # tokens for a data line, None for anything that breaks a run
     classified = []
-    for raw in text.splitlines():
+    for lineno, raw in enumerate(text.splitlines(), 1):
         if NOISE.search(raw):
             classified.append(None)
             continue
 
-        tokens = TOKEN.findall(raw)
-        if not tokens:
+        found = tokens(raw)
+        if not found:
             classified.append(None)
             continue
 
         # a descriptor line is nothing but hex; skip prose that happens to contain "ab"
         if not re.fullmatch(r"[0-9A-Fa-f]*", SEPARATORS.sub("", raw)):
             classified.append(None)
-            if notes is not None and len(tokens) >= MIN_BLOCK:
+            if notes is not None and len(found) >= MIN_BLOCK:
                 notes.append("skipped a line holding %d bytes and other text: %s"
-                             % (len(tokens), raw.strip()))
+                             % (len(found), raw.strip()))
             continue
 
-        classified.append(tokens)
+        fields = [f for f in FIELDS.split(raw.strip()) if f]
+        if len(fields) != len(found) and errors is not None:
+            unread = [f for f in fields if not tokens(f)]
+            errors.append("line %d has %d fields but %d read as bytes (%s): %s"
+                          % (lineno, len(fields), len(found), ", ".join(unread) or "?",
+                             raw.strip()))
+
+        classified.append(found)
 
     out, i = [], 0
     while i < len(classified):
@@ -217,24 +238,47 @@ My keyboard is dead ab initio and the ad hoc workaround fails.
 Thanks!
 """),
     ("one line", KBD, " ".join("0x%02X," % x for x in KBD)),
+    ("C array with no byte zero-padded", KBD, ", ".join("0x%X" % x for x in KBD)),
+    ("C array with some bytes zero-padded", KBD,
+     "\n".join(", ".join(("0x%X" if (i + j) % 3 else "0x%02X") % x
+                         for j, x in enumerate(KBD[i:i + 8])) + ","
+               for i in range(0, len(KBD), 8))),
     ("prose alone yields nothing", [], "The value was de ad and then be ef, roughly."),
     ("a stray pair of bytes is not a descriptor", [], "notes\n\nde ad\n\nmore notes"),
 ]
 
 
+# Data lines with a field no byte can be read from. Each has to be refused, not read short.
+REFUSE = [
+    ("a bare single digit", "05 01 09 6 A1 01 05 07 19 E0 29 E7 15 00 25 01"),
+    ("two bytes run together", "05 01 0906 A1 01 05 07 19 E0 29 E7 15 00 25 01"),
+    ("a three-digit value", "0x05, 0x01, 0x109, 0x06, 0xA1, 0x01, 0x05, 0x07"),
+]
+
+
 def selftest():
     """Check parse_hex against the dump shapes that have bitten, plus the whole corpus.
-    Two of the shapes used to come back short and silent; see parse_hex and sanity()."""
+    Several of the shapes used to come back short and silent; see parse_hex and sanity()."""
     bad = 0
     for label, want, text in SELFTEST:
-        got = parse_hex(text)
-        ok = got == want
+        errors = []
+        got = parse_hex(text, errors=errors)
+        ok = got == want and not errors
         bad += not ok
         print("%-4s %-45s %d/%d bytes" % ("ok" if ok else "FAIL", label, len(got),
                                           len(want)))
         if not ok:
             print("       got  %s" % " ".join("%02X" % x for x in got))
             print("       want %s" % " ".join("%02X" % x for x in want))
+            for e in errors:
+                print("       refused: %s" % e)
+
+    for label, text in REFUSE:
+        errors = []
+        parse_hex(text, errors=errors)
+        bad += not errors
+        print("%-4s %-45s %s" % ("ok" if errors else "FAIL", "refuses " + label,
+                                 "refused" if errors else "read short, not refused"))
 
     # Every real entry has to survive a round trip through the reader, in both the
     # layout this tool prints and the single line a reflowed dump becomes.
@@ -243,7 +287,8 @@ def selftest():
         wide = "\n".join("    " + " ".join("0x%02X," % x for x in b[i:i + 16])
                          for i in range(0, len(b), 16))
         for layout, text in (("16 per line", wide),
-                             ("one line", " ".join("0x%02X," % x for x in b))):
+                             ("one line", " ".join("0x%02X," % x for x in b)),
+                             ("unpadded", " ".join("0x%X," % x for x in b))):
             if parse_hex(text) != b:
                 print("FAIL %s does not round trip (%s)" % (name, layout))
                 bad += 1
@@ -277,8 +322,14 @@ def main():
 
     text = open(sys.argv[2]).read() if len(sys.argv) > 2 else sys.stdin.read()
 
-    notes = []
-    b = parse_hex(text, notes)
+    notes, errors = [], []
+    b = parse_hex(text, notes, errors)
+    if errors:
+        for e in errors:
+            print("add_descriptor.py: %s" % e, file=sys.stderr)
+        print("add_descriptor.py: refusing a paste with fields that are not bytes; fix those "
+              "lines, or cut the prose around the dump, and run again", file=sys.stderr)
+        return 1
     if not b:
         for note in notes:
             print("WARNING: %s" % note, file=sys.stderr)

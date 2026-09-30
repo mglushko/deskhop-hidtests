@@ -114,7 +114,9 @@ gh issue view <n> --repo hrvach/deskhop --json body --jq .body \
 
 It prints the C array and the registry line, and warns when the items do not land
 exactly on the end, the collections are unbalanced, or there is no collection at all,
-which catches a bad paste before it becomes a misleading test. Paste both into
+which catches a bad paste before it becomes a misleading test. A data line holding a field
+it cannot read as a byte, a bare single digit or two bytes run together, stops it outright
+rather than being read short; `0x5` is a byte like `0x05`. Paste both into
 `descriptors.h`, give the entry a row in `tools/corpus_table.py`, and run `make corpus`.
 `dump`, `compare`, `truncate`, `fuzz` and `check-parse` pick the device up from there.
 The decode targets run hand-written case tables, so a new device tells `mouse`, `kbd`,
