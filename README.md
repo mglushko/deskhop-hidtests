@@ -83,7 +83,9 @@ records them again; `ratchet` says which, and never beside a count that rose.
 error kind and whether the access read or wrote, or UBSan's message, rather than calling
 every non-zero status an overread. They sweep with symbolization off, which is nearly all
 of the time a failing child costs, and replay their first failure in a fresh process with
-it on, so the stack that is printed is readable.
+it on, so the stack that is printed is readable. A case that runs past 10 seconds, where
+milliseconds are normal, is stopped and counted as hung, so a parse loop that stops
+advancing costs ten seconds per case rather than the whole run.
 
 ### CI
 

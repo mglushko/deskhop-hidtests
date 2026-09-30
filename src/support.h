@@ -2,11 +2,11 @@
  * lets ASan's redzone catch a read one byte past the end instead of returning the next
  * case's bytes; run_forked, one case per child so a crash does not hide the remaining
  * thousands, and a failed fork or wait exits rather than scoring the case clean, as a
- * zero status from waitpid(-1) once did, and a quiet child's sanitizer report is read
- * back and named; sweep_unsymbolized and sweep_repro, what keeps a sweep of thousands
- * fast and its one replayed failure readable; tally_add and print_tally, the count per
- * kind of failure; parse_arg, the strtol wrapper (atoi's "abc" is indistinguishable
- * from an explicit 0);
+ * zero status from waitpid(-1) once did, a quiet child's sanitizer report is read back
+ * and named, and a child that hangs is stopped and named as hung; sweep_unsymbolized and
+ * sweep_repro, what keeps a sweep of thousands fast and its one replayed failure
+ * readable; tally_add and print_tally, the count per kind of failure; parse_arg, the
+ * strtol wrapper (atoi's "abc" is indistinguishable from an explicit 0);
  * parse_iface, the zeroed-interface parse every driver starts from; print_rule, the
  * dashed line under every table header; print_hex, the byte dump. */
 #pragma once
@@ -17,12 +17,22 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+/* How long one forked case may run. A case takes milliseconds, a few hundred under ASan on
+   a slow runner, so this only ever fires on a hang: a parse loop that stops advancing, say.
+   Without it one such case stalls the sweep for good, and a CI run spends its whole time
+   limit printing nothing about where. alarm() survives exec, so sweep_repro's replay is
+   bounded by it too. */
+#ifndef SWEEP_CHILD_TIMEOUT_S
+#define SWEEP_CHILD_TIMEOUT_S 10
+#endif
 
 /* Exact-size copy, len bytes and not one more, so ASan's redzone begins right after the
    last byte; the drivers refuse a case outside its floor and its report[] before this is
@@ -84,6 +94,8 @@ static inline void classify_failure(const char *text, int status, char *why, siz
         p += sizeof(ubsan) - 1;
         squash_numbers(p, strcspn(p, "\n"), msg, sizeof(msg));
         snprintf(why, len, "UBSan %s", msg);
+    } else if (status == 128 + SIGALRM) {
+        snprintf(why, len, "hung: no result within %d s", SWEEP_CHILD_TIMEOUT_S);
     } else if (status >= 128) {
         snprintf(why, len, "killed by signal %d", status - 128);
     } else {
@@ -95,9 +107,10 @@ static inline void classify_failure(const char *text, int status, char *why, siz
    not, and 128 + the signal if it was killed. A sanitizer report ends the child with a
    non-zero exit status, not a signal (-fno-sanitize-recover=all, and ASan reports a bad
    address itself), so a finding arrives like any other failure; the signal branch is for
-   abort() or a kill from outside. quiet sends the child's stdout to /dev/null and its
-   stderr down a pipe, read back here, so a failure can be named in why (see
-   classify_failure); why may be NULL, and is left alone when the child came back clean.
+   abort(), a kill from outside, or the SWEEP_CHILD_TIMEOUT_S alarm that stops a child
+   that hangs. quiet sends the child's stdout to /dev/null and its stderr down a pipe,
+   read back here, so a failure can be named in why (see classify_failure); why may be
+   NULL, and is left alone when the child came back clean.
    The pipe is drained before waitpid, or a report longer than the pipe holds would block
    the child and the wait both. */
 static inline int run_forked(const char *prog, void (*fn)(const void *), const void *arg,
@@ -125,6 +138,7 @@ static inline int run_forked(const char *prog, void (*fn)(const void *), const v
             close(fds[0]);
             close(fds[1]);
         }
+        alarm(SWEEP_CHILD_TIMEOUT_S);
         fn(arg);
         _exit(0);
     }
@@ -213,6 +227,7 @@ static inline int sweep_repro(const char *prog, char **args) {
     if (pid == 0) {
         add_sanitizer_option("ASAN_OPTIONS", "symbolize=1");
         add_sanitizer_option("UBSAN_OPTIONS", "symbolize=1");
+        alarm(SWEEP_CHILD_TIMEOUT_S);
         execv("/proc/self/exe", args);
         execv(args[0], args);
         fprintf(stderr, "%s: cannot re-run itself to replay the failure: %s\n", prog,
