@@ -241,6 +241,24 @@ int main(void) {
           count == 4 && received[0] == SYSTEM_SLEEP && received[1] == 0 && received[2] == SYSTEM_WAKE && received[3] == 0);
 
     reset(0);
+    gesture(2000);
+    complete();
+    suspended = true;
+    wake_allowed = false;
+    tick(100, false);
+    gesture(100); /* Fills the queue: the Sleep release, Wake and its release. */
+    check("a Wake behind a pending release is requested once", wake_calls == 1 && !wake_signals);
+    wake_allowed = true;
+    gesture(100);
+    check("a Wake tap retries resume when the queue has no room for it", wake_calls == 2 && wake_signals == 1);
+    tick(100, false);
+    check("the retry is one request, not a stream", wake_calls == 2);
+    suspended = false;
+    drain();
+    check("the tap that found no room adds no gesture",
+          count == 4 && received[0] == SYSTEM_SLEEP && received[1] == 0 && received[2] == SYSTEM_WAKE && received[3] == 0);
+
+    reset(0);
     gesture(100);
     mounted = false;
     in_flight = false; /* USB reset aborts outstanding transfers. */

@@ -14,7 +14,8 @@
  * descriptor implied, so a 30-byte NKRO bitmap sent as eight bytes leaves every derived
  * offset pointing past the buffer. As there, each prefix is decoded from an exact-size
  * heap allocation so ASan's redzone catches an overread rather than the next case's
- * bytes, in a forked child so one crash does not hide the remaining thousands.
+ * bytes, in a forked child so one crash does not hide the remaining thousands, and the
+ * summary counts the failures by what the sanitizer reported.
  *
  * Each receiver applies its own length guard before the decode path, so the shortest
  * report that can get through differs per path, and replaying below that floor would
@@ -82,10 +83,12 @@ static void decode_prefix_job(const void *arg) {
     decode_prefix(job->path, job->dev, job->case_idx, job->n);
 }
 
-/* Returns 0 if the child came back clean, otherwise its exit status. */
-static int run_isolated(path_e path, const void *dev, unsigned case_idx, int n, int quiet) {
+/* Returns 0 if the child came back clean, otherwise its exit status, with the failure
+   named in why. */
+static int run_isolated(path_e path, const void *dev, unsigned case_idx, int n, char *why,
+                        size_t why_len) {
     decode_job_t job = {path, dev, case_idx, n};
-    return run_forked("shortreport", decode_prefix_job, &job, quiet);
+    return run_forked("shortreport", decode_prefix_job, &job, 1, why, why_len);
 }
 
 /* Uniform view over the two case tables, so the driver below is written once. id is the
@@ -217,6 +220,8 @@ int main(int argc, char **argv) {
 
         printf("%s case %ld (%s): first %ld of %d report bytes\n", e->id, idx,
                case_what(e, (unsigned)idx), n, full);
+        /* out before a sanitizer report ends the process, which flushes nothing */
+        fflush(stdout);
         decode_prefix(e->path, e->dev, (unsigned)idx, (int)n);
         printf("clean\n");
         return 0;
@@ -229,6 +234,8 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    sweep_unsymbolized(argv);
+
     printf("  %-32s %8s %10s   %s\n", "ENTRY", "lengths", "failures",
            "first failing case, length");
     print_rule(81);
@@ -238,6 +245,7 @@ int main(int argc, char **argv) {
     const entry_t *worst = NULL;
     unsigned       worst_case = 0;
     int            worst_len = 0;
+    static tally_t kinds[TALLY_KINDS];
 
     for (unsigned d = 0; d < num; d++) {
         const entry_t *e = &entries[d];
@@ -255,9 +263,12 @@ int main(int argc, char **argv) {
             }
 
             for (int n = e->min_len; n <= full; n++) {
+                char why[128];
+
                 tried++;
                 total++;
-                if (run_isolated(e->path, e->dev, c, n, 1) != 0) {
+                if (run_isolated(e->path, e->dev, c, n, why, sizeof(why)) != 0) {
+                    tally_add(kinds, why);
                     bad++;
                     total_bad++;
                     if (first_case < 0) {
@@ -281,6 +292,7 @@ int main(int argc, char **argv) {
     }
 
     printf("\n  %ld of %ld truncated reports failed\n", total_bad, total);
+    print_tally(kinds);
     /* A table fault fails the run the way it does in mousetest and kbdtest, with the
        status an overread gets, and is named under the count it shrank; 2 stays the answer
        to a bad command line. */
@@ -290,10 +302,14 @@ int main(int argc, char **argv) {
 
     int rc = bad_cases ? 1 : 0;
     if (worst) {
+        char  idx[16], len[16];
+        char *repro[] = {argv[0], (char *)worst->id, idx, len, NULL};
+
+        snprintf(idx, sizeof(idx), "%u", worst_case);
+        snprintf(len, sizeof(len), "%d", worst_len);
         printf("\n  reproducing the first failure: %s case %u at %d bytes\n\n", worst->id,
                worst_case, worst_len);
-        fflush(stdout);
-        run_isolated(worst->path, worst->dev, worst_case, worst_len, 0);
+        sweep_repro("shortreport", repro);
         printf("\n  repeat it directly with: ./shortreport %s %u %d\n", worst->id, worst_case,
                worst_len);
         rc = 1;

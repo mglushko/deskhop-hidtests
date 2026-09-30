@@ -185,8 +185,9 @@ Produces every UF2 in the table above, every time.
    as `RPI-RP2`.
 2. Copy `emu/build/bitdo-emu.uf2` onto it. It reboots as the emulated keyboard.
 3. Unplug it from the PC and plug it into the **deskhop board's USB-A host port**,
-   the one a keyboard normally goes in. If `enforce_ports` is on it has to be the
-   keyboard port specifically.
+   the one a keyboard normally goes in. `enforce_ports` does not decide which: the rig
+   presents as `HID_ITF_PROTOCOL_NONE`, which that setting never tests (see
+   [If nothing appears](#if-nothing-appears)).
 4. On the PC that deskhop board outputs to, open a text editor and leave it
    focused.
 5. Wait about ten seconds for the grace period, then read the lines as they
@@ -579,19 +580,25 @@ The onboard LED reports which region the fault is in, so "nothing typed" does no
 have to cover everything from an unpowered board to a working rig pointed at the
 wrong PC.
 
+The codes are counted flashes: that many short flashes, a dark pause of about a
+second, and again.
+
 | LED | meaning | where to look |
 |---|---|---|
 | dark | no power | cable, and whether the port supplies VBUS |
-| one flash a second | powered, never enumerated | the host port, the cable, try it straight into a PC |
-| two flashes a second | enumerated and armed, counting out the grace period | nothing, wait for it |
-| rapid blinking | enumerated, endpoint never goes ready | the host stack, not the rig |
+| one flash, pause | powered, never enumerated | the host port, the cable, try it straight into a PC |
+| two flashes, pause | enumerated, then suspended by the host | the host: often no driver bound, as with the Gameball's End Collection below |
+| three flashes, pause | enumerated and awake, endpoint never goes ready | the host stack, not the rig |
+| four flashes, pause | enumerated and armed, counting out the grace period | nothing, wait for it |
 | **solid** (Gameball, Sculpt) | **sending motion, the pointer should be moving right now** | downstream of the rig, see below |
 | flickering (Gameball, Sculpt) | working the scroll axes, or on the Sculpt the buttons and the key | downstream of the rig |
 | on, dipping three times a line (8BitDo) | typing | downstream of the rig |
 
-The first four are shared. The last three mean the rig is doing its job and the
+The first five are shared. The last three mean the rig is doing its job and the
 fault, if any, is past it. Solid with a motionless pointer is the informative one:
-reports are leaving the board and not being acted on.
+reports are leaving the board and not being acted on. The codes come back if the host
+suspends or drops the rig after it has started sending, so a rig that stops says why
+rather than holding its last state.
 
 Armed and stalled both sit between enumeration and the first line, and they look
 the same from outside, but one clears itself within ten seconds and the other never

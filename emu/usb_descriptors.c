@@ -81,6 +81,14 @@ uint8_t const *tud_descriptor_device_cb(void) {
     return (uint8_t const *)&desc_device;
 }
 
+/* What GET_REPORT hands back, per interface: the length lookup gen_desc.py generated for
+   its descriptor, and the ID of its first input report. Each device fills one in below,
+   beside the descriptors it describes. */
+typedef struct {
+    uint16_t (*len)(uint8_t report_id);
+    uint8_t first_id;
+} emu_inputs_t;
+
 /*============================================================================*/
 #if defined(EMU_BITDO)
 
@@ -92,6 +100,8 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
     (void)instance;
     return bitdo_desc;
 }
+
+static const emu_inputs_t inputs[] = {{bitdo_input_len, BITDO_FIRST_INPUT_ID}};
 
 enum { ITF_NUM_HID, ITF_NUM_TOTAL };
 #define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
@@ -129,6 +139,10 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
     return gameball_trackball_desc;
 }
 
+static const emu_inputs_t inputs[] = {
+    {gameball_trackball_input_len, GAMEBALL_TRACKBALL_FIRST_INPUT_ID},
+};
+
 enum { ITF_NUM_TRACKBALL, ITF_NUM_TOTAL };
 #define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
 
@@ -147,6 +161,12 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
         default: return gameball_keyboard_desc;
     }
 }
+
+static const emu_inputs_t inputs[] = {
+    {gameball_trackball_input_len, GAMEBALL_TRACKBALL_FIRST_INPUT_ID},
+    {gameball_gesture_input_len,   GAMEBALL_GESTURE_FIRST_INPUT_ID},
+    {gameball_keyboard_input_len,  GAMEBALL_KEYBOARD_FIRST_INPUT_ID},
+};
 
 enum { ITF_NUM_TRACKBALL, ITF_NUM_GESTURE, ITF_NUM_KEYBOARD, ITF_NUM_TOTAL };
 #define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + 3 * TUD_HID_DESC_LEN)
@@ -178,6 +198,8 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
     (void)instance;
     return ultralink_desc;
 }
+
+static const emu_inputs_t inputs[] = {{ultralink_input_len, ULTRALINK_FIRST_INPUT_ID}};
 
 enum { ITF_NUM_HID, ITF_NUM_TOTAL };
 #define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN)
@@ -214,6 +236,12 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
     }
 }
 
+static const emu_inputs_t inputs[] = {
+    {sculpt_keyboard_input_len, SCULPT_KEYBOARD_FIRST_INPUT_ID},
+    {sculpt_mouse_input_len,    SCULPT_MOUSE_FIRST_INPUT_ID},
+    {sculpt_consumer_input_len, SCULPT_CONSUMER_FIRST_INPUT_ID},
+};
+
 enum { ITF_NUM_KEYBOARD, ITF_NUM_MOUSE, ITF_NUM_CONSUMER, ITF_NUM_TOTAL };
 #define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + 3 * TUD_HID_DESC_LEN)
 
@@ -236,6 +264,37 @@ uint8_t const desc_configuration[] = {
    looks exactly like a device that enumerates and then does nothing. */
 TU_VERIFY_STATIC(sizeof(desc_configuration) == CONFIG_TOTAL_LEN,
                  "config descriptor length does not match its contents");
+TU_VERIFY_STATIC(TU_ARRAY_SIZE(inputs) == ITF_NUM_TOTAL,
+                 "GET_REPORT needs one inputs[] entry per interface");
+
+/* Returning 0 here stalls the control request. Some hosts ask a boot device for an
+   input report during enumeration, and a stall is a reason for one to stop binding a
+   driver and leave the port suspended, which presents as a device that enumerates and
+   then goes quiet. Hand back a zeroed report of the length the descriptor declares.
+
+   Where the request names a report ID, TinyUSB has already written it at the front of
+   the reply and hands over the buffer after it, so what goes here is the report without
+   its ID. Writing the ID again sent it twice, and a host reading the Sculpt's reply took
+   0x1A for its button byte. A request naming no ID gets the interface's first input
+   report, with its ID in front where the descriptor declares one. */
+uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
+                               hid_report_type_t report_type,
+                               uint8_t *buffer, uint16_t reqlen) {
+    if (report_type != HID_REPORT_TYPE_INPUT || instance >= TU_ARRAY_SIZE(inputs))
+        return 0;
+
+    uint8_t  id     = report_id ? report_id : inputs[instance].first_id;
+    uint16_t own_id = (report_id == 0 && id != 0) ? 1 : 0;
+    uint16_t len    = (uint16_t)(own_id + inputs[instance].len(id));
+
+    if (len > reqlen)
+        len = reqlen;
+
+    memset(buffer, 0, len);
+    if (own_id && len)
+        buffer[0] = id;
+    return len;
+}
 
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
     (void)index;
@@ -250,7 +309,14 @@ static char const *string_desc_arr[] = {
     EMU_SERIAL,
 };
 
-static uint16_t _desc_str[32];
+/* A string descriptor holds up to 126 UTF-16 characters. These are sized to the longest
+   name here with room to spare, and a name too long to fit fails the build rather than
+   going out cut short: the Gameball variants are told apart by theirs. */
+#define STR_MAX_CHARS 63
+TU_VERIFY_STATIC(sizeof(EMU_PRODUCT) - 1 <= STR_MAX_CHARS, "EMU_PRODUCT is too long");
+TU_VERIFY_STATIC(sizeof(EMU_SERIAL) - 1 <= STR_MAX_CHARS, "EMU_SERIAL is too long");
+
+static uint16_t _desc_str[1 + STR_MAX_CHARS];
 
 uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     (void)langid;
@@ -264,9 +330,8 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
             return NULL;
 
         const char *str = string_desc_arr[index];
-        chr_count = (uint8_t)strlen(str);
-        if (chr_count > 31)
-            chr_count = 31;
+        size_t len = strlen(str);
+        chr_count = (uint8_t)(len > STR_MAX_CHARS ? STR_MAX_CHARS : len);
 
         for (uint8_t i = 0; i < chr_count; i++)
             _desc_str[1 + i] = str[i];

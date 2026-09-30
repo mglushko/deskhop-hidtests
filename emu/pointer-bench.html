@@ -610,9 +610,15 @@
 
     var now = performance.now();
     moveTimes.push(now);
-    while (moveTimes.length && now - moveTimes[0] > 1000) moveTimes.shift();
+    trimMoveTimes(now);
     lastActivity = now;
   }, { passive: true });
+
+  /* The last second's moves. Trimmed on every frame as well as every move, or the rate
+     would hold its last value through a pause, when no move arrives to trim it. */
+  function trimMoveTimes(now) {
+    while (moveTimes.length && now - moveTimes[0] > 1000) moveTimes.shift();
+  }
 
   /* ---- wheel sampling ---- */
 
@@ -831,6 +837,7 @@
       els.aspect.innerHTML = "&mdash;";
     }
 
+    trimMoveTimes(performance.now());
     els.rate.innerHTML = moveTimes.length ? moveTimes.length + "<span>/s</span>" : "&mdash;";
     els.samples.textContent = pts.length;
 

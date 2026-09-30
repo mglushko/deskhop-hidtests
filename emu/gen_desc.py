@@ -4,7 +4,11 @@
     gen_desc.py <descriptors.h> <out.h> <c_name>=<prefix> [...]
 
 Each pair yields `<prefix>_desc` and `<PREFIX>_DESC_LEN`, one header per target
-holding only its own descriptors, so nothing lands in a binary that does not use it.
+holding only its own descriptors, so nothing lands in a binary that does not use it,
+and the length of every input report the descriptor declares: `<PREFIX>_INPUT_<ID>_LEN`
+in bytes after the ID, `<prefix>_input_len(id)` to look one up, and
+`<PREFIX>_FIRST_INPUT_ID`. GET_REPORT answers from these, and the rigs assert the
+lengths they send against them, so a hand-kept length cannot drift from the bytes.
 Generating at build time rather than checking in a second copy keeps the emulator
 byte-for-byte with what the harness tests against; otherwise a hardware run proves
 nothing about the host results.
@@ -33,6 +37,20 @@ def normalise_end_collection(data):
     return out, fixed
 
 
+def signed(value, size):
+    """A short item's data as the signed number HID reads it as."""
+    bits = 8 * size
+    return value - (1 << bits) if size and value >= 1 << (bits - 1) else value
+
+
+def logical_minimum(value):
+    """The shortest Logical Minimum item that holds value."""
+    for prefix, size in ((0x15, 1), (0x16, 2), (0x17, 4)):
+        if -(1 << (8 * size - 1)) <= value < 1 << (8 * size - 1):
+            return [prefix] + list((value & ((1 << (8 * size)) - 1)).to_bytes(size, "little"))
+    raise ValueError(value)
+
+
 def fix_signed_axes(data):
     """Give relative axes a negative Logical Minimum.
 
@@ -48,16 +66,38 @@ def fix_signed_axes(data):
         tag, val = item.tag, item.value
 
         if tag == 0x14:
-            lmin = val
+            lmin = signed(val, item.size)
         if tag == 0x24:
-            lmax = val
-        if tag == 0x80 and (val & 0x04) and lmin == 0 and lmax and not fixed:
-            out.extend([0x15, (256 - lmax) & 0xFF])   # Logical Minimum -lmax
+            lmax = signed(val, item.size)
+        if tag == 0x80 and (val & 0x04) and lmin == 0 and lmax and lmax > 0 and not fixed:
+            out.extend(logical_minimum(-lmax))
             lmin = -lmax
             fixed += 1
 
         out.extend(data[item.offset:item.end])
     return out, fixed
+
+
+def input_reports(data):
+    """Bytes per input report, keyed by report ID (0 where the descriptor declares none),
+    in the order the IDs first carry an Input item. Report Size, Report Count and
+    Report ID are globals, so Push and Pop are followed too."""
+    size = count = rid = 0
+    stack, bits = [], {}
+    for item in hiditems.walk_items(data):
+        if item.tag == 0x74:
+            size = item.value
+        elif item.tag == 0x94:
+            count = item.value
+        elif item.tag == 0x84:
+            rid = item.value
+        elif item.tag == 0xA4:
+            stack.append((size, count, rid))
+        elif item.tag == 0xB4 and stack:
+            size, count, rid = stack.pop()
+        elif item.tag == 0x80:
+            bits[rid] = bits.get(rid, 0) + size * count
+    return {rid: (b + 7) // 8 for rid, b in bits.items()}
 
 
 def extract(corpus, name):
@@ -74,7 +114,9 @@ def main():
     given = {a for a in sys.argv[1:] if a in flags}
     argv = [a for a in sys.argv[1:] if a not in flags]
     normalise = "--normalise-end-collection" in given
-    signed = "--fix-signed-axes" in given
+    fix_axes = "--fix-signed-axes" in given
+    if len(argv) < 2:
+        sys.exit(__doc__)
     src, out, pairs = argv[0], argv[1], argv[2:]
     if not pairs:
         sys.exit("gen_desc.py: no <c_name>=<prefix> pairs given")
@@ -96,7 +138,7 @@ def main():
             data, fixed = normalise_end_collection(data)
             if fixed:
                 print("gen_desc.py: %s, rewrote %d End Collection item(s)" % (prefix, fixed))
-        if signed:
+        if fix_axes:
             data, fixed = fix_signed_axes(data)
             if fixed:
                 print("gen_desc.py: %s, gave the relative axes a signed range" % prefix)
@@ -107,6 +149,22 @@ def main():
         for i in range(0, len(data), 12):
             lines.append("    " + " ".join("0x%02X," % b for b in data[i:i + 12]))
         lines.append("};")
+        lines.append("")
+
+        inputs = input_reports(data)
+        if not inputs:
+            sys.exit("gen_desc.py: %s declares no input report" % name)
+        up = prefix.upper()
+        for rid, n in inputs.items():
+            lines.append("#define %s_INPUT_%02X_LEN %d" % (up, rid, n))
+        lines.append("#define %s_FIRST_INPUT_ID 0x%02X" % (up, next(iter(inputs))))
+        lines.append("static inline uint16_t %s_input_len(uint8_t id) {" % prefix)
+        lines.append("    switch (id) {")
+        for rid in inputs:
+            lines.append("    case 0x%02X: return %s_INPUT_%02X_LEN;" % (rid, up, rid))
+        lines.append("    default: return 0;")
+        lines.append("    }")
+        lines.append("}")
         lines.append("")
         summary.append("%s %d" % (prefix, len(data)))
 

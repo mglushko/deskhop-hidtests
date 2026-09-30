@@ -23,9 +23,11 @@
 #   make check-cli                   the replay tools' command lines, at full length only
 #   make test-sleepwake              the BOOTSEL rig's gesture logic, on the host
 #   make test                        the regression gate: mouse, kbd, consumer,
-#                                    check-parse, check-cli, check-constants and
-#                                    test-sleepwake
-#   make findings                    the four that fail by design, for their numbers
+#                                    dispatch, check-parse, check-cli, check-constants
+#                                    and test-sleepwake
+#   make findings                    the three that fail by design, for their numbers
+#   make ratchet BASELINE=<file>     the same three, held to a tree's recorded counts
+#   make baseline BASELINE=<file>    record those counts for the tree DESKHOP names
 #   make corpus                      regenerate the table in CORPUS.md
 #   make all                         build everything without running it
 #   make clean
@@ -40,6 +42,9 @@ N       ?= 40000
 SEED    ?= 1
 # V=1 makes compare print the parse diff of every descriptor that changed.
 V       ?=
+# The tree's recorded findings counts, for ratchet and baseline: baselines/upstream.tsv
+# for hrvach/deskhop, baselines/extended.tsv for DeskHop Extended.
+BASELINE ?=
 
 CC     := gcc
 WARN   := -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
@@ -109,7 +114,7 @@ BINS := $(OUT)/dump $(OUT)/mousetest $(OUT)/kbdtest $(OUT)/fuzz $(OUT)/exhaust \
         $(OUT)/dispatchtest
 
 .PHONY: corpus all dump compare mouse kbd consumer fuzz exhaust timing truncate shortreport \
-        dispatch clean \
+        dispatch ratchet baseline clean \
         check-target \
         check-constants check-parse check-cli
 
@@ -434,17 +439,18 @@ compare: check-ref $(REF_TREE)/.stamp $(OUT)/dump
 endif  # compare in MAKECMDGOALS
 
 # The regression gate: everything that must pass against *any* firmware worth shipping, so
-# a red `make test` means the harness moved or a known good device stopped decoding. Safe
-# to wire into CI. fuzz, truncate, shortreport and dispatch are deliberately NOT here:
-# they fail by design on firmware that has the bug they look for (truncate on every tree
-# measured, dispatch on upstream main before #372), so folding them in would leave this
-# permanently red; their exit status is the finding, and `make findings` runs them and
-# reports rather than gates. check-cli runs the replay tools' command lines at full
-# length only, so it holds on any tree the decode suites hold on; check-constants is the
-# only one needing the Pico SDK submodule and skips cleanly without it; test-sleepwake
-# closes the list and needs only gcc.
+# a red `make test` means the harness moved or a known good device stopped decoding. CI
+# runs it (.github/workflows/harness.yml). dispatch joined once both trees routed every
+# case, upstream from #372: a tree that misroutes boot-protocol keystrokes is not one
+# worth shipping. fuzz, truncate and shortreport are deliberately NOT here: they fail by
+# design on firmware that has the bug they look for (truncate on every tree measured), so
+# folding them in would leave this permanently red. `make findings` runs them for their
+# numbers and `make ratchet` holds those numbers to a tree's baseline. check-cli runs
+# the replay tools' command lines at full length only, so it holds on any tree the
+# decode suites hold on; check-constants reads the TinyUSB header the tree vendors and
+# skips cleanly on a tree without one; test-sleepwake closes the list and needs only gcc.
 .PHONY: test findings
-test: mouse kbd consumer check-parse check-cli check-constants test-sleepwake
+test: mouse kbd consumer dispatch check-parse check-cli check-constants test-sleepwake
 	@echo
 	@echo "known good decode unchanged against $(SRC)"
 
@@ -455,24 +461,35 @@ test: mouse kbd consumer check-parse check-cli check-constants test-sleepwake
 test-sleepwake:
 	@bash emu/sleepwake/test.sh
 
-# The bounds, overread and routing checks, run for their numbers. Each prints its own
-# summary and its own exit status is ignored here on purpose: see above.
-findings: $(OUT)/fuzz $(OUT)/truncate $(OUT)/shortreport $(OUT)/dispatchtest
+# The bounds and overread checks, run for their numbers. Each prints its own summary and
+# its own exit status is ignored here on purpose: see above.
+findings: $(OUT)/fuzz $(OUT)/truncate $(OUT)/shortreport
 	@echo "=== fuzz ==="
 	-@$(OUT)/fuzz $(N) $(SEED)
 	@echo; echo "=== truncate ==="
 	-@$(OUT)/truncate
 	@echo; echo "=== shortreport ==="
 	-@$(OUT)/shortreport
-	@echo; echo "=== dispatch ==="
-	-@$(OUT)/dispatchtest
 	@echo
 	@echo "these fail when they find something; read the counts, not the status"
+
+# The same three, gated after all: not on their status but on their counts, which may fall
+# and never rise. A baseline is per tree, since the counts are; tools/ratchet.py says what
+# it compares, and `baseline` records a tree's counts after a change that was meant to
+# move them. Both leave the tools' output and the measured table in $(OUT)/findings/.
+RATCHET_BINS := $(OUT)/fuzz $(OUT)/truncate $(OUT)/shortreport
+
+ratchet: $(RATCHET_BINS)
+	@python3 tools/ratchet.py check '$(BASELINE)' $(OUT) '$(N)' '$(SEED)' $(DESKHOP)
+
+baseline: $(RATCHET_BINS)
+	@python3 tools/ratchet.py record '$(BASELINE)' $(OUT) '$(N)' '$(SEED)' $(DESKHOP)
 
 # harness.h hand-copies TinyUSB's item tags and usages. Nothing in a normal build checks
 # that copy, and a wrong value would not fail to compile: it would shift an offset and
 # make every target report a plausible wrong answer. Deliberately not a prerequisite of
-# `all`: nothing else needs the Pico SDK submodule, and requiring it would break builds.
+# `all`: nothing else needs the vendored Pico SDK, and requiring it would break builds on
+# a tree without one.
 TUSB_HID := $(DESKHOP)/pico-sdk/lib/tinyusb/src/class/hid/hid.h
 
 # one shell, not two: a bare `test || { ...; exit 0; }` on its own recipe line only
@@ -481,7 +498,7 @@ check-constants:
 	@if [ ! -f $(TUSB_HID) ]; then \
 	  echo "  skipped: no vendored TinyUSB header at"; \
 	  echo "    $(TUSB_HID)"; \
-	  echo "  populate the pico-sdk submodule in $(DESKHOP) to run this check"; \
+	  echo "  this check needs the Pico SDK that deskhop vendors under pico-sdk/"; \
 	else \
 	  python3 tools/check_constants.py include/harness.h $(TUSB_HID) \
 	    $(PARSER) $(REPORT); \
