@@ -1,14 +1,9 @@
 # The regression gate and the findings ratchet, against both trees the reference numbers
-# are taken on. Weekly as well as on every change here: the trees move on their own, and
-# a probe whose spelling upstream renamed, or a count a merge moved, should surface the
-# week it lands rather than at the next hand re-measure.
+# are taken on. Run by hand only, from the Actions tab or the API: nothing here starts it
+# on a push, a pull request or a schedule.
 name: harness
 
 on:
-  push:
-  pull_request:
-  schedule:
-    - cron: '23 5 * * 1'   # Mondays 05:23 UTC
   workflow_dispatch:
 
 permissions:

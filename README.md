@@ -91,10 +91,12 @@ advancing costs ten seconds per case rather than the whole run.
 
 [`.github/workflows/harness.yml`](.github/workflows/harness.yml) runs `make test` and
 `make ratchet` against both trees, upstream `main` and [DeskHop Extended][deskhop-extended]
-`main`, on every push and pull request here and once a week, on Monday morning, so a
-change upstream that moves a number or a probe's spelling shows up without anyone
-re-measuring by hand. Each run uploads the tools' full output and the measured table,
-which is the new baseline when one is due.
+`main`. It runs only when started by hand, with **Run workflow** on the Actions tab or a
+`workflow_dispatch` call, on whichever branch is picked; no push, pull request or schedule
+starts it. Each run tests the two trees' `main` as they are at that moment, so a change
+upstream that moves a number or a probe's spelling shows up in the next run without
+anyone re-measuring by hand. Each run uploads the tools' full output and the measured
+table, which is the new baseline when one is due.
 
 `compare` is the one to reach for when reviewing a parser change. It materializes the
 reference commit with `git archive`, builds the harness against both trees, and diffs
