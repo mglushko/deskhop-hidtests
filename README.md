@@ -160,7 +160,7 @@ each entry and what the reconstructions got wrong.
 | declaring system control | 25 |
 | carrying report IDs | 63 |
 | whole interfaces with more than one top-level collection | 40 |
-| with hand-written decode cases | mouse 29 devices, keyboard 40, consumer 9 |
+| with hand-written decode cases | mouse 29, keyboard 38, consumer 8 |
 
 [CORPUS.md](CORPUS.md) lists every entry: the device, where the bytes came from, the tool
 that read them, and what each has caught.
@@ -208,8 +208,8 @@ that read them, and what each has caught.
 
 Results against two trees, so a broken harness can be told from a broken firmware.
 Taken in September 2026 against upstream `main` at `7c1e7b2` and
-[DeskHop Extended][deskhop-extended] `main` at `98b5dc7` with its fix for reports that carry
-no button byte, over the 105-descriptor corpus.
+[DeskHop Extended][deskhop-extended] `main` at `5b24170`, which keeps held buttons across
+reports that carry no button byte, over the 105-descriptor corpus.
 The second column is the tree that runs on hardware, and the one whose regressions cost
 something. Where its denominator is larger, the extra rows are devices the harness keeps
 out of a run on a tree that lacks the bound they need, and cases that only apply to code
@@ -223,7 +223,7 @@ the fork has.
 | `consumer` | 29 of 29 over 9 devices | same |
 | `dispatch` | 36 of 36 routed correctly, now that upstream carries the boot-protocol routing from [#372](https://github.com/hrvach/deskhop/pull/372) | same |
 | `check-constants` | all 47 agree with TinyUSB | same |
-| `check-parse` | 7 dump shapes read, 2 non-dumps refused, 105 descriptors round trip | same |
+| `check-parse` | 9 dump shapes read, unpadded `0x5` included, 2 non-dumps yield nothing, 3 malformed lines refused, 105 descriptors round trip | same |
 | `fuzz N=40000` | 0 out of bounds; lowest index 0, peak 127 | same: the parser is the same file |
 | `truncate` | 5069 of 9947 prefixes overread, every one an ASan heap-buffer-overflow read | the same 5069 of 9947 |
 | `shortreport` | 20 of 3682 truncated reports overread, all heap-buffer-overflow reads in the boot-protocol mouse at lengths 0 to 4, now that [3b9ac8c](https://github.com/hrvach/deskhop/commit/3b9ac8c) bounds the field reads and the key array | **0 of 3682** |
