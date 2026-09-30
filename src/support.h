@@ -2,14 +2,18 @@
  * lets ASan's redzone catch a read one byte past the end instead of returning the next
  * case's bytes; run_forked, one case per child so a crash does not hide the remaining
  * thousands, and a failed fork or wait exits rather than scoring the case clean, as a
- * zero status from waitpid(-1) once did; parse_arg, the strtol wrapper (atoi's "abc" is
- * indistinguishable from an explicit 0);
+ * zero status from waitpid(-1) once did, and a quiet child's sanitizer report is read
+ * back and named; sweep_unsymbolized and sweep_repro, what keeps a sweep of thousands
+ * fast and its one replayed failure readable; tally_add and print_tally, the count per
+ * kind of failure; parse_arg, the strtol wrapper (atoi's "abc" is indistinguishable
+ * from an explicit 0);
  * parse_iface, the zeroed-interface parse every driver starts from; print_rule, the
  * dashed line under every table header; print_hex, the byte dump. */
 #pragma once
 
 #include "main.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -43,13 +47,68 @@ static inline bool case_len_ok(int len, int min, size_t cap) {
     return len >= min && (size_t)len <= cap;
 }
 
+/* Copy s into out with every run of digits, hex included, written as N, so "shift
+   exponent 40" and "shift exponent 36" count as one kind and an address never splits one. */
+static inline void squash_numbers(const char *s, size_t n, char *out, size_t len) {
+    size_t o = 0;
+
+    for (size_t i = 0; i < n && o + 1 < len; i++) {
+        if (isdigit((unsigned char)s[i])) {
+            out[o++] = 'N';
+            while (i + 1 < n && (isxdigit((unsigned char)s[i + 1]) || s[i + 1] == 'x'))
+                i++;
+        } else {
+            out[o++] = s[i];
+        }
+    }
+    out[o] = '\0';
+}
+
+/* Name a failure from what the child printed, so a sweep's summary says what it measured
+   rather than calling every non-zero status an overread: ASan's error kind and whether
+   the access read or wrote, UBSan's message with its numbers squashed, or the bare status
+   when neither sanitizer spoke. */
+static inline void classify_failure(const char *text, int status, char *why, size_t len) {
+    static const char asan[] = "ERROR: AddressSanitizer: ", ubsan[] = "runtime error: ";
+    const char *p;
+
+    if ((p = strstr(text, asan))) {
+        p += sizeof(asan) - 1;
+        const char *rw = strstr(p, "READ of size")    ? "read"
+                         : strstr(p, "WRITE of size") ? "write"
+                                                      : "access";
+        snprintf(why, len, "ASan %.*s, %s", (int)strcspn(p, " \n"), p, rw);
+    } else if ((p = strstr(text, ubsan))) {
+        char msg[112];
+
+        p += sizeof(ubsan) - 1;
+        squash_numbers(p, strcspn(p, "\n"), msg, sizeof(msg));
+        snprintf(why, len, "UBSan %s", msg);
+    } else if (status >= 128) {
+        snprintf(why, len, "killed by signal %d", status - 128);
+    } else {
+        snprintf(why, len, "exit status %d, no sanitizer report", status);
+    }
+}
+
 /* Run fn(arg) in a forked child. Returns 0 if the child exited clean, its exit status if
-   not, and 128 + the signal if it was killed. A sanitizer report ends the child with exit
-   status 1, not a signal (-fno-sanitize-recover=all, and ASan reports a bad address
-   itself), so a finding arrives like any other failure; the signal branch is for abort()
-   or a kill from outside. quiet sends the child's output to /dev/null. */
+   not, and 128 + the signal if it was killed. A sanitizer report ends the child with a
+   non-zero exit status, not a signal (-fno-sanitize-recover=all, and ASan reports a bad
+   address itself), so a finding arrives like any other failure; the signal branch is for
+   abort() or a kill from outside. quiet sends the child's stdout to /dev/null and its
+   stderr down a pipe, read back here, so a failure can be named in why (see
+   classify_failure); why may be NULL, and is left alone when the child came back clean.
+   The pipe is drained before waitpid, or a report longer than the pipe holds would block
+   the child and the wait both. */
 static inline int run_forked(const char *prog, void (*fn)(const void *), const void *arg,
-                             int quiet) {
+                             int quiet, char *why, size_t why_len) {
+    int fds[2] = {-1, -1};
+
+    if (quiet && pipe(fds) < 0) {
+        fprintf(stderr, "%s: pipe: %s\n", prog, strerror(errno));
+        exit(3);
+    }
+
     fflush(stdout);
 
     pid_t pid = fork();
@@ -60,14 +119,37 @@ static inline int run_forked(const char *prog, void (*fn)(const void *), const v
     if (pid == 0) {
         if (quiet) {
             int null = open("/dev/null", O_WRONLY);
-            if (null >= 0) {
-                dup2(null, 2);
+            if (null >= 0)
                 dup2(null, 1);
-            }
+            dup2(fds[1], 2);
+            close(fds[0]);
+            close(fds[1]);
         }
         fn(arg);
         _exit(0);
     }
+
+    /* The first few KiB carry the error line and the access; the rest is stack. */
+    char   text[4096];
+    size_t got = 0;
+
+    if (quiet) {
+        close(fds[1]);
+        for (;;) {
+            char    sink[512];
+            size_t  room = sizeof(text) - 1 - got;
+            ssize_t r    = read(fds[0], room ? text + got : sink, room ? room : sizeof(sink));
+
+            if (r > 0) {
+                if (room)
+                    got += (size_t)r;
+            } else if (r == 0 || errno != EINTR) {
+                break;
+            }
+        }
+        close(fds[0]);
+    }
+    text[got] = '\0';
 
     int status = 0;
     if (waitpid(pid, &status, 0) < 0) {
@@ -76,7 +158,105 @@ static inline int run_forked(const char *prog, void (*fn)(const void *), const v
     }
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
         return 0;
-    return WIFSIGNALED(status) ? 128 + WTERMSIG(status) : WEXITSTATUS(status);
+
+    int rc = WIFSIGNALED(status) ? 128 + WTERMSIG(status) : WEXITSTATUS(status);
+    if (why && why_len)
+        classify_failure(text, rc, why, why_len);
+    return rc;
+}
+
+/* Append opt to the sanitizer options in env var name. A later option overrides an
+   earlier one of the same name, so appending is how a value is forced. */
+static inline void add_sanitizer_option(const char *name, const char *opt) {
+    const char *old = getenv(name);
+    char        buf[1024];
+
+    snprintf(buf, sizeof(buf), "%s%s%s", old ? old : "", old && *old ? ":" : "", opt);
+    setenv(name, buf, 1);
+}
+
+/* A sweep forks thousands of children, and on a tree with the bug it looks for, thousands
+   of them fail. Symbolizing every failure's stack, only for the report to be thrown away,
+   was nearly all of the run: truncate took about ten minutes with it and 23 seconds
+   without, finding the same 5069. Sanitizer options are read once, at startup, so the
+   sweep executes itself again with symbolize=0 before it forks anything; HARNESS_SWEEP
+   marks the second start. Options that already name symbolize are the caller's choice
+   and are left alone. If the exec fails the sweep runs as it is, only slower. */
+static inline void sweep_unsymbolized(char **argv) {
+    const char *a = getenv("ASAN_OPTIONS"), *u = getenv("UBSAN_OPTIONS");
+
+    if (getenv("HARNESS_SWEEP") || (a && strstr(a, "symbolize=")) ||
+        (u && strstr(u, "symbolize=")))
+        return;
+
+    setenv("HARNESS_SWEEP", "1", 1);
+    add_sanitizer_option("ASAN_OPTIONS", "symbolize=0");
+    add_sanitizer_option("UBSAN_OPTIONS", "symbolize=0");
+    fflush(stdout);
+    execv("/proc/self/exe", argv);
+    execv(argv[0], argv);
+    unsetenv("HARNESS_SWEEP");
+}
+
+/* Replay one failure through the tool's own single-case command line, args, in a fresh
+   process with symbolization back on, so the stack printed is readable and the command
+   the summary then suggests is the one that just ran. Returns its status as run_forked
+   does. */
+static inline int sweep_repro(const char *prog, char **args) {
+    fflush(stdout);
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        fprintf(stderr, "%s: fork: %s\n", prog, strerror(errno));
+        exit(3);
+    }
+    if (pid == 0) {
+        add_sanitizer_option("ASAN_OPTIONS", "symbolize=1");
+        add_sanitizer_option("UBSAN_OPTIONS", "symbolize=1");
+        execv("/proc/self/exe", args);
+        execv(args[0], args);
+        fprintf(stderr, "%s: cannot re-run itself to replay the failure: %s\n", prog,
+                strerror(errno));
+        _exit(3);
+    }
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) {
+        fprintf(stderr, "%s: waitpid: %s\n", prog, strerror(errno));
+        exit(3);
+    }
+    if (WIFEXITED(status))
+        return WEXITSTATUS(status);
+    return WIFSIGNALED(status) ? 128 + WTERMSIG(status) : 0;
+}
+
+/* Failures counted by kind, in the order first seen. Kinds past the table's size are
+   counted together, and said to be. */
+#define TALLY_KINDS 16
+
+typedef struct {
+    char why[128];
+    long n;
+} tally_t;
+
+static inline void tally_add(tally_t *t, const char *why) {
+    int i;
+
+    for (i = 0; i < TALLY_KINDS - 1 && t[i].n; i++)
+        if (strcmp(t[i].why, why) == 0)
+            break;
+    if (i == TALLY_KINDS - 1 && t[i].n == 0)
+        snprintf(t[i].why, sizeof(t[i].why), "%s", "other kinds, past the table's size");
+    else if (!t[i].n)
+        snprintf(t[i].why, sizeof(t[i].why), "%s", why);
+    t[i].n++;
+}
+
+/* One line per kind, under the total they add up to. tools/ratchet.py reads these back,
+   so the shape is load bearing: four spaces, the count, two spaces, the kind. */
+static inline void print_tally(const tally_t *t) {
+    for (int i = 0; i < TALLY_KINDS && t[i].n; i++)
+        printf("    %6ld  %s\n", t[i].n, t[i].why);
 }
 
 /* strtol, not atol: atol("abc") is 0 and indistinguishable from an explicit 0, and a fuzz

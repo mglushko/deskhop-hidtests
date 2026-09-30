@@ -1,0 +1,79 @@
+# The regression gate and the findings ratchet, against both trees the reference numbers
+# are taken on. Weekly as well as on every change here: the trees move on their own, and
+# a probe whose spelling upstream renamed, or a count a merge moved, should surface the
+# week it lands rather than at the next hand re-measure.
+name: harness
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '23 5 * * 1'   # Mondays 05:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  harness:
+    name: ${{ matrix.tree }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tree: upstream
+            repo: hrvach/deskhop
+            baseline: baselines/upstream.tsv
+          - tree: extended
+            repo: mglushko/deskhop-extended
+            baseline: baselines/extended.tsv
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out ${{ matrix.repo }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          path: trees/${{ matrix.tree }}
+          persist-credentials: false
+
+      # The runner's kernel randomizes 32 bits of mmap addresses, more than the ASan in
+      # this gcc expects, and sanitized binaries then die at random with DEADLYSIGNAL
+      # before running a line of the harness.
+      - name: Let ASan map its shadow
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Record the tree under test
+        run: |
+          sha=$(git -C trees/${{ matrix.tree }} rev-parse --short HEAD)
+          echo "tested against ${{ matrix.repo }} at \`$sha\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: make test
+        run: make test DESKHOP="$GITHUB_WORKSPACE/trees/${{ matrix.tree }}"
+
+      - name: make ratchet
+        if: ${{ !cancelled() }}
+        run: |
+          set +e
+          make ratchet DESKHOP="$GITHUB_WORKSPACE/trees/${{ matrix.tree }}" \
+                       BASELINE=${{ matrix.baseline }} 2>&1 | tee ratchet.txt
+          rc=${PIPESTATUS[0]}
+          { echo '```'; sed -n '/^ratchet/,$p' ratchet.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      # The tools' full output, and measured.tsv, which is the new baseline when the
+      # ratchet asks for one: copy it over baselines/<tree>.tsv.
+      - name: Keep the findings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: findings-${{ matrix.tree }}
+          path: build/*/findings/
+          if-no-files-found: ignore

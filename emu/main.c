@@ -80,8 +80,6 @@
  * The onboard LED reports which region a failure is in; see emu/README.md. Hold
  * BOOTSEL while plugging the board in to get back to UF2 mode.
  */
-#include <string.h>
-
 #include "pico/stdlib.h"
 #include "tusb.h"
 
@@ -96,11 +94,19 @@
 
 #define GRACE_MS      10000  /* time to focus a window after plugging in */
 
-static uint32_t now_ms(void) {
-    return to_ms_since_boot(get_absolute_time());
+/* 64 bits, so no deadline ever wraps: a 32-bit millisecond clock does at 49.7 days, and a
+   deadline set just before that, with the host suspended across it, would hold the rig
+   still for another 49.7. */
+static uint64_t now_ms(void) {
+    return time_us_64() / 1000;
 }
 
 static uint32_t reports_sent = 0;
+
+/* A fresh enumeration hands the LED back to its codes until the next report goes out. */
+void tud_mount_cb(void) {
+    reports_sent = 0;
+}
 
 /*==============================================================================
  *  Shared by the pointing rigs: the circle and the scroll bursts
@@ -187,7 +193,17 @@ static const burst_t script[] = {
 
 #define SCRIPT_LEN (sizeof(script) / sizeof(script[0]))
 
-static void send_burst(const burst_t *b, bool pressed) {
+/* gen_desc.py measures every input report from the descriptor, so a length defined above
+   that disagrees fails the build rather than going out short or long. */
+#if defined(EMU_BITDO)
+_Static_assert(LEN_6KRO == BITDO_INPUT_01_LEN && LEN_NKRO == BITDO_INPUT_0C_LEN,
+               "report lengths disagree with the descriptor");
+#else
+_Static_assert(LEN_6KRO == ULTRALINK_INPUT_07_LEN && LEN_NKRO == ULTRALINK_INPUT_11_LEN,
+               "report lengths disagree with the descriptor");
+#endif
+
+static bool send_burst(const burst_t *b, bool pressed) {
     if (b->rid == RID_6KRO) {
         /* [0] modifiers, then the keycode array from KEYS_AT: after a reserved byte
            on the 8BitDo, straight after the modifier on the Ultra-Link */
@@ -197,7 +213,7 @@ static void send_burst(const burst_t *b, bool pressed) {
             for (uint8_t i = 0; i < b->count && i < 6; i++)
                 p[KEYS_AT + i] = b->usages[i];
 
-        tud_hid_report(RID_6KRO, p, LEN_6KRO);
+        return tud_hid_report(RID_6KRO, p, LEN_6KRO);
     } else {
         /* [0] modifiers, then one bit per usage, LSB first */
         uint8_t p[LEN_NKRO] = {0};
@@ -209,12 +225,12 @@ static void send_burst(const burst_t *b, bool pressed) {
                     p[1 + u / 8] |= (uint8_t)(1u << (u % 8));
             }
 
-        tud_hid_report(RID_NKRO, p, LEN_NKRO);
+        return tud_hid_report(RID_NKRO, p, LEN_NKRO);
     }
 }
 
 static void device_task(void) {
-    static uint32_t next_ms = GRACE_MS;
+    static uint64_t next_ms = GRACE_MS;
     static uint8_t  step    = 0;
     static bool     pressed = false;
 
@@ -223,7 +239,10 @@ static void device_task(void) {
     if (!tud_hid_ready() || now_ms() < next_ms)
         return;
 
-    send_burst(&script[step], !pressed);
+    /* A refused report is sent again rather than counted: a lost release would leave
+       the keys held, and the host would autorepeat them until the next burst. */
+    if (!send_burst(&script[step], !pressed))
+        return;
     pressed = !pressed;
     reports_sent++;
 
@@ -252,8 +271,11 @@ static void device_task(void) {
 #define SCROLL_MS     150
 #define PAUSE_MS      700
 
+_Static_assert(LEN_TRACKBALL == GAMEBALL_TRACKBALL_INPUT_00_LEN,
+               "report length disagrees with the descriptor");
+
 static void device_task(void) {
-    static uint32_t next_ms   = GRACE_MS;
+    static uint64_t next_ms   = GRACE_MS;
     static uint8_t  tick      = 0;
     static uint8_t  revs      = 0;
     static uint8_t  scroll_i  = 0;
@@ -329,6 +351,9 @@ static void device_task(void) {
 #define SCROLL_MS     150
 #define PAUSE_MS      700
 
+_Static_assert(LEN_MOUSE == SCULPT_MOUSE_INPUT_1A_LEN && LEN_KBD == SCULPT_KEYBOARD_INPUT_00_LEN,
+               "report lengths disagree with the descriptor");
+
 typedef enum { PH_CIRCLE, PH_CLICK, PH_SCROLL, PH_KEY, PH_PAUSE } phase_t;
 
 /* One mouse report, in whichever protocol the host has put the interface. In report
@@ -363,7 +388,7 @@ static bool send_key(bool pressed) {
 }
 
 static void device_task(void) {
-    static uint32_t next_ms = GRACE_MS;
+    static uint64_t next_ms = GRACE_MS;
     static phase_t  phase   = PH_CIRCLE;
     static uint8_t  tick    = 0;
     static uint8_t  revs    = 0;
@@ -473,7 +498,9 @@ static void device_task(void) {
  *
  * Each test is its own public call, so the code says which of tud_mounted(),
  * tud_suspended() and tud_hid_ready() is the one that is false. A code that changes
- * on its own means enumeration is cycling: configured, dropped, tried again. */
+ * on its own means enumeration is cycling: configured, dropped, tried again. The codes
+ * come back whenever the host suspends or drops the device after reports have flowed,
+ * so a board that stops sending says why rather than holding its last state. */
 #define FLASH_ON_MS   120
 #define FLASH_OFF_MS  200
 #define CODE_GAP_MS   1200
@@ -487,13 +514,19 @@ static uint8_t led_code(void) {
 
 static void led_task(void) {
 #ifdef PICO_DEFAULT_LED_PIN
-    static uint32_t next_ms = 0;
+    static uint64_t next_ms = 0;
     static uint8_t  phase   = 0;
     static uint8_t  latched = 1;
-    uint32_t        t       = now_ms();
+    uint64_t        t       = now_ms();
 
-    if (reports_sent > 0)
-        return; /* device_task owns the LED once reports are flowing */
+    /* device_task owns the LED while reports are flowing to a host that is listening.
+       Start a fresh group whenever it gives the LED back, so the first code shown is
+       latched whole rather than joined halfway through a stale one. */
+    if (reports_sent > 0 && tud_mounted() && !tud_suspended()) {
+        phase   = 0;
+        next_ms = 0;
+        return;
+    }
 
     if (t < next_ms)
         return;
@@ -525,36 +558,8 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
     (void)buffer;   (void)bufsize;
 }
 
-/* Returning 0 here stalls the control request. Some hosts ask a boot device for an
-   input report during enumeration, and a stall is a reason for one to stop binding a
-   driver and leave the port suspended, which presents as a device that enumerates and
-   then goes quiet. Hand back a zeroed report of the right length instead. */
-uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,
-                               hid_report_type_t report_type,
-                               uint8_t *buffer, uint16_t reqlen) {
-    (void)instance; (void)report_id;
-
-    if (report_type != HID_REPORT_TYPE_INPUT)
-        return 0;
-
-#if defined(EMU_GAMEBALL)
-    uint16_t len = LEN_TRACKBALL;
-#elif defined(EMU_SCULPT)
-    /* the mouse report carries its ID in front; the other two interfaces do not */
-    uint16_t len = instance == ITF_MOUSE ? LEN_MOUSE + 1 : LEN_KBD;
-#else
-    uint16_t len = LEN_6KRO;
-#endif
-    if (len > reqlen)
-        len = reqlen;
-
-    memset(buffer, 0, len);
-#if defined(EMU_SCULPT)
-    if (instance == ITF_MOUSE && len > 0)
-        buffer[0] = RID_MOUSE;
-#endif
-    return len;
-}
+/* GET_REPORT is answered in usb_descriptors.c, from the lengths generated with the
+   descriptors it describes. */
 
 int main(void) {
 #ifdef PICO_DEFAULT_LED_PIN

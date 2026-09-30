@@ -9,7 +9,8 @@
  * the buffer. Each prefix is copied into its own exact-size heap allocation, so ASan's
  * redzone sits immediately after the last valid byte and an overread is caught rather
  * than silently reading neighbouring data; each case runs in a forked child, so one crash
- * does not hide the remaining cases.
+ * does not hide the remaining cases. The summary counts the failures by what the
+ * sanitizer reported, so a read past the buffer is counted as one rather than assumed.
  */
 #include "main.h"
 #include "descriptors.h"
@@ -36,10 +37,11 @@ static void parse_prefix_job(const void *arg) {
     parse_prefix(job->d, job->n);
 }
 
-/* Returns 0 if the child came back clean, otherwise its exit status. */
-static int run_isolated(const descriptor_t *d, int n, int quiet) {
+/* Returns 0 if the child came back clean, otherwise its exit status, with the failure
+   named in why. */
+static int run_isolated(const descriptor_t *d, int n, char *why, size_t why_len) {
     prefix_job_t job = {d, n};
-    return run_forked("truncate", parse_prefix_job, &job, quiet);
+    return run_forked("truncate", parse_prefix_job, &job, 1, why, why_len);
 }
 
 int main(int argc, char **argv) {
@@ -54,6 +56,8 @@ int main(int argc, char **argv) {
         if (parse_arg("truncate", "length", argv[2], 1, d->len, &n))
             return 2;
         printf("parsing first %ld of %d bytes of %s\n", n, d->len, d->name);
+        /* out before a sanitizer report ends the process, which flushes nothing */
+        fflush(stdout);
         parse_prefix(d, (int)n);
         printf("clean\n");
         return 0;
@@ -64,20 +68,26 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    sweep_unsymbolized(argv);
+
     printf("  %-27s %8s %10s   %s\n", "DESCRIPTOR", "lengths", "failures", "first failing length");
     print_rule(73);
 
     long total = 0, total_bad = 0;
     const descriptor_t *worst = NULL;
     int worst_len = 0;
+    static tally_t kinds[TALLY_KINDS];
 
     for (unsigned i = 0; i < ARRAY_SIZE(descriptors); i++) {
         const descriptor_t *d = &descriptors[i];
         int bad = 0, first_bad = -1;
 
         for (int n = 1; n <= d->len; n++) {
+            char why[128];
+
             total++;
-            if (run_isolated(d, n, 1) != 0) {
+            if (run_isolated(d, n, why, sizeof(why)) != 0) {
+                tally_add(kinds, why);
                 bad++;
                 total_bad++;
                 if (first_bad < 0) {
@@ -97,12 +107,16 @@ int main(int argc, char **argv) {
     }
 
     printf("\n  %ld of %ld truncations failed\n", total_bad, total);
+    print_tally(kinds);
 
     if (worst) {
+        char  len[16];
+        char *repro[] = {argv[0], (char *)worst->name, len, NULL};
+
+        snprintf(len, sizeof(len), "%d", worst_len);
         printf("\n  reproducing the first failure: %s truncated to %d bytes\n\n", worst->name,
                worst_len);
-        fflush(stdout);
-        run_isolated(worst, worst_len, 0);
+        sweep_repro("truncate", repro);
         printf("\n  repeat it directly with: ./truncate %s %d\n", worst->name, worst_len);
         return 1;
     }
